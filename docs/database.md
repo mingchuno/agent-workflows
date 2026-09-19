@@ -19,4 +19,10 @@ The initial migration adopts the original application's identical tables using `
 
 `Store` uses typed Drizzle inserts, updates and selects. Concurrent JSON record patches use a transaction and row lock to preserve unrelated fields. Full-scope run and invocation queries sort their JSON fields in memory; introduce typed indexed columns if history size requires database pagination.
 
+Retry admission locks the project row before checking task history, then commits
+the new run, project unblocking and admission events in one transaction. The
+project lock serializes requests even when they target different historical
+attempts. Runner's checkout/process safety check runs while that lock is held;
+command replay skips it and does not write new events.
+
 `src/db/locks.ts` contains the only application driver SQL: fixed, parameterized PostgreSQL session-lock calls, which have no Drizzle query-builder equivalent. Generated migration SQL and the frozen legacy-schema test fixture are intentional SQL artifacts. No interpolated SQL template strings are used for record access.

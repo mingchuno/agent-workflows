@@ -12,6 +12,7 @@ import {
   type Workspace,
 } from "./domain.js";
 import { defaultWorkflow, Operations } from "./operations.js";
+import { createQueuedRun } from "./run-record.js";
 import {
   assertProcessesStopped,
   CheckoutOwnership,
@@ -132,22 +133,16 @@ export class Runner {
       )) {
         const now = new Date().toISOString();
         const id = randomUUID();
-        const run: RunRecord = {
+        const run = createQueuedRun({
           id,
           projectId: project.id,
           checkout: project.checkout,
           taskKey: `${hosting.identity}:${issue.id}`,
           attempt: 1,
           issue,
-          outcome: "queued",
-          phase: "queued",
-          createdAt: now,
-          updatedAt: now,
-          branch: project.branchTemplate
-            .replaceAll("{issue}", String(issue.number))
-            .replaceAll("{attempt}", "1")
-            .replaceAll("{run}", id),
-        };
+          now,
+          branchTemplate: project.branchTemplate,
+        });
         await this.store.insertRun(run);
       }
     }
@@ -156,75 +151,87 @@ export class Runner {
     if (this.tickBusy || this.stopping) return;
     this.tickBusy = true;
     try {
-      for (const request of (await this.store.commands()).filter(
-        (c) => c.status === "pending",
-      )) {
-        try {
-          if (request.kind === "pause") await this.pause(request.target);
-          else if (request.kind === "resume") await this.resume(request.target);
-          else if (request.kind === "stop") await this.stop(request.target);
-          else if (request.kind === "retry")
-            await this.retry(request.target, request.id);
-          else throw new Error("Unknown command");
-          await this.store.finishCommand(request.id);
-        } catch (error) {
-          await this.store.finishCommand(
-            request.id,
-            this.redact(String(error)),
-          );
-        }
-      }
-      for (const project of this.config.projects) {
-        if (
-          Date.now() - (this.lastPoll.get(project.id) ?? 0) >=
-          project.pollIntervalMs
-        ) {
-          this.lastPoll.set(project.id, Date.now());
-          try {
-            await this.poll(project.id);
-          } catch (error) {
-            await this.store.emit(null, "poll-error", {
-              projectId: project.id,
-              error: this.redact(String(error)),
-            });
-          }
-        }
-      }
-      const runs = await this.store.runs();
-      for (const project of this.config.projects) {
-        const state = await this.store.project(project.id);
-        if (state.paused || state.blocked) continue;
-        const run = runs.find(
-          (r) =>
-            r.projectId === project.id &&
-            (r.outcome === "queued" || r.outcome === "running"),
-        );
-        if (!run || this.active.has(run.id)) continue;
-        const handle = await DBOS.startWorkflow(this.workflow, {
-          workflowID: run.id,
-          queueName: this.queue(project.id),
-        })(run.id);
-        const result = handle
-          .getResult()
-          .catch(async (error) => {
-            const message = this.redact(String(error));
-            await this.store.emit(run.id, "workflow-error", { error: message });
-            const current = await this.store.run(run.id);
-            if (["queued", "running"].includes(current.outcome)) {
-              await this.store.patchRun(run.id, {
-                outcome: "blocked",
-                error: message,
-              });
-              await this.store.setProject(run.projectId, {
-                blocked: `DBOS execution failed for ${run.id}; inspect recovery evidence`,
-              });
-            }
-          })
-          .finally(() => this.active.delete(run.id));
-        this.active.set(run.id, result);
-      }
+      await this.processCommands();
+      await this.pollDueProjects();
+      await this.dispatchRuns();
     } finally {
       this.tickBusy = false;
+    }
+  }
+  private async processCommands(): Promise<void> {
+    for (const request of (await this.store.commands()).filter(
+      (c) => c.status === "pending",
+    )) {
+      try {
+        if (request.kind === "pause") await this.pause(request.target);
+        else if (request.kind === "resume") await this.resume(request.target);
+        else if (request.kind === "stop") await this.stop(request.target);
+        else if (request.kind === "retry")
+          await this.retry(request.target, request.id);
+        else throw new Error("Unknown command");
+        await this.store.finishCommand(request.id);
+      } catch (error) {
+        await this.store.finishCommand(request.id, this.redact(String(error)));
+      }
+    }
+  }
+  private async pollDueProjects(): Promise<void> {
+    for (const project of this.config.projects) {
+      if (
+        Date.now() - (this.lastPoll.get(project.id) ?? 0) >=
+        project.pollIntervalMs
+      ) {
+        this.lastPoll.set(project.id, Date.now());
+        try {
+          await this.poll(project.id);
+        } catch (error) {
+          await this.store.emit(null, "poll-error", {
+            projectId: project.id,
+            error: this.redact(String(error)),
+          });
+        }
+      }
+    }
+  }
+  private async dispatchRuns(): Promise<void> {
+    const runs = await this.store.runs();
+    for (const project of this.config.projects) {
+      const state = await this.store.project(project.id);
+      if (state.paused || state.blocked) continue;
+      const run = runs.find(
+        (r) =>
+          r.projectId === project.id &&
+          (r.outcome === "queued" || r.outcome === "running"),
+      );
+      if (!run || this.active.has(run.id)) continue;
+      const handle = await DBOS.startWorkflow(this.workflow, {
+        workflowID: run.id,
+        queueName: this.queue(project.id),
+      })(run.id);
+      const result = handle
+        .getResult()
+        .catch(async (error) => {
+          await this.recordWorkflowFailure(run, error);
+        })
+        .finally(() => this.active.delete(run.id));
+      this.active.set(run.id, result);
+    }
+  }
+  private async recordWorkflowFailure(
+    run: RunRecord,
+    error: unknown,
+  ): Promise<void> {
+    const message = this.redact(String(error));
+    await this.store.emit(run.id, "workflow-error", { error: message });
+    const current = await this.store.run(run.id);
+    if (["queued", "running"].includes(current.outcome)) {
+      await this.store.patchRun(run.id, {
+        outcome: "blocked",
+        error: message,
+      });
+      await this.store.setProject(run.projectId, {
+        blocked: `DBOS execution failed for ${run.id}; inspect recovery evidence`,
+      });
     }
   }
   private async execute(runId: string): Promise<void> {
@@ -335,56 +342,25 @@ export class Runner {
       );
   }
   async retry(runId: string, commandId?: string): Promise<string> {
-    const history = await this.store.runs();
-    if (commandId && history.some((run) => run.id === commandId))
-      return commandId;
-    const previous = await this.store.run(runId);
-    if (
-      history.some(
-        (run) =>
-          run.taskKey === previous.taskKey &&
-          run.id !== runId &&
-          ["queued", "running"].includes(run.outcome),
-      )
-    )
-      throw new Error("This task already has a queued or active retry");
-    if (!["failed", "blocked", "cancelled"].includes(previous.outcome))
-      throw new Error("Only failed, blocked or cancelled runs can be retried");
-    if ([...this.controllers.keys()].length && this.controllers.has(runId))
-      throw new Error("Work has not stopped");
-    const project = this.config.projects.find(
-      (p) => p.id === previous.projectId,
-    )!;
-    await assertProcessesStopped(resolve(this.config.stateDirectory, runId));
-    await (this.options.workspace ?? new ExistingCheckout()).check(project);
-    const attempt =
-      Math.max(
-        ...(await this.store.runs())
-          .filter((r) => r.taskKey === previous.taskKey)
-          .map((r) => r.attempt),
-      ) + 1;
-    const id = commandId ?? randomUUID(),
-      now = new Date().toISOString();
-    const run: RunRecord = {
-      id,
-      projectId: project.id,
-      checkout: project.checkout,
-      taskKey: previous.taskKey,
-      attempt,
-      retryOf: previous.id,
-      issue: previous.issue,
-      outcome: "queued",
-      phase: "queued",
-      createdAt: now,
-      updatedAt: now,
-      branch: project.branchTemplate
-        .replaceAll("{issue}", String(previous.issue.number))
-        .replaceAll("{attempt}", String(attempt))
-        .replaceAll("{run}", id),
-    };
-    await this.store.setProject(project.id, { blocked: null });
-    await this.store.insertRun(run);
-    return id;
+    return this.store.admitRetry(runId, {
+      commandId,
+      checkSafety: async (previous) => {
+        if (this.controllers.has(runId))
+          throw new Error("Work has not stopped");
+        const project = this.config.projects.find(
+          (p) => p.id === previous.projectId,
+        );
+        if (!project) throw new Error("Project removed from configuration");
+        await assertProcessesStopped(
+          resolve(this.config.stateDirectory, runId),
+        );
+        await (this.options.workspace ?? new ExistingCheckout()).check(project);
+        return {
+          checkout: project.checkout,
+          branchTemplate: project.branchTemplate,
+        };
+      },
+    });
   }
   async shutdown(): Promise<void> {
     this.stopping = true;

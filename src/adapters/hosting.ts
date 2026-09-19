@@ -58,6 +58,20 @@ export function inlineFindings(review: Review, diff: string) {
       !!lines.get(finding.path)?.has(finding.line),
   );
 }
+function reviewPresentation(
+  input: Parameters<HostingAdapter["publishReview"]>[0],
+) {
+  const inline = inlineFindings(input.review, input.diff);
+  const body = [
+    `Review of ${input.head}`,
+    input.review.summary,
+    ...input.review.findings
+      .filter((finding) => !inline.includes(finding as (typeof inline)[number]))
+      .map((finding) => finding.body),
+    marker(input.runId),
+  ].join("\n\n");
+  return { inline, body };
+}
 export class GitHubHosting implements HostingAdapter {
   readonly identity: string;
   private readonly client: Octokit;
@@ -160,17 +174,7 @@ export class GitHubHosting implements HostingAdapter {
       return;
     if ((await this.head(input.change)) !== input.head)
       throw new BlockedError("Review stale: head changed");
-    const inline = inlineFindings(input.review, input.diff);
-    const body = [
-      `Review of ${input.head}`,
-      input.review.summary,
-      ...input.review.findings
-        .filter(
-          (finding) => !inline.includes(finding as (typeof inline)[number]),
-        )
-        .map((finding) => finding.body),
-      marker(input.runId),
-    ].join("\n\n");
+    const { inline, body } = reviewPresentation(input);
     await this.client.pulls.createReview({
       ...this.repo,
       pull_number: input.change.id,
@@ -288,7 +292,7 @@ export class GitLabHosting implements HostingAdapter {
     );
     if (change.sha !== input.head)
       throw new BlockedError("Review stale: head changed");
-    const inline = inlineFindings(input.review, input.diff);
+    const { inline, body } = reviewPresentation(input);
     for (const [index, finding] of inline.entries()) {
       const tag = marker(input.runId, `:inline:${index}`);
       if (notes.some((note) => note.body.includes(tag))) continue;
@@ -316,16 +320,7 @@ export class GitLabHosting implements HostingAdapter {
     await this.client.MergeRequestNotes.create(
       this.repository,
       input.change.id,
-      [
-        `Review of ${input.head}`,
-        input.review.summary,
-        ...input.review.findings
-          .filter(
-            (finding) => !inline.includes(finding as (typeof inline)[number]),
-          )
-          .map((finding) => finding.body),
-        marker(input.runId),
-      ].join("\n\n"),
+      body,
     );
   }
 }

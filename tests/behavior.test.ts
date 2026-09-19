@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -484,3 +484,91 @@ test("validation timeout records failure evidence and preserves unfinished work"
     await runner.shutdown();
   }
 });
+
+for (const failure of [
+  "session",
+  "event",
+  "branch",
+  "commit",
+  "read-only",
+] as const)
+  test(`invocation preserves failure evidence after ${failure} failure`, {
+    skip: !databaseUrl,
+  }, async () => {
+    const { project, git } = await repository();
+    const controlled: AgentAdapter = {
+      validate: agent.validate,
+      async invoke(input) {
+        if (failure === "session") await input.session("failing-session");
+        else if (failure === "event") {
+          // A directory at the log path makes the real event append fail.
+          await mkdir(input.processFile!.replace(/\.process\.json$/, ""));
+          await input.event({ message: "cannot append" });
+        } else {
+          await input.session("recorded-session");
+          if (failure === "branch") await git("switch", "-c", "unexpected");
+          else {
+            await writeFile(join(input.cwd, "unexpected.txt"), "changed");
+            if (failure === "commit") {
+              await git("add", "unexpected.txt");
+              await git("commit", "-m", "unexpected commit");
+            }
+          }
+        }
+        return "done";
+      },
+    };
+    const { runner } = await setup([project], { codex: controlled });
+    const saveInvocation = runner.store.saveInvocation.bind(runner.store);
+    let failSessionSave = failure === "session";
+    runner.store.saveInvocation = async (record) => {
+      if (failSessionSave && record.sessionId) {
+        failSessionSave = false;
+        throw new Error("session persistence failed");
+      }
+      await saveInvocation(record);
+    };
+    runner.options.workflow = async (operations) => {
+      await operations.prepare();
+      await operations.invoke(
+        "characterization",
+        project.stages.implementation,
+        () => "Exercise invocation boundary",
+        failure === "read-only",
+      );
+      await operations.complete();
+    };
+    try {
+      await runner.start();
+      await waitFor(() => terminal(runner, 1));
+      const [run] = await runner.store.runs();
+      const [invocation] = await runner.store.invocations(run!.id);
+      assert.equal(invocation!.outcome, "failed");
+      assert.ok(invocation!.finishedAt);
+      assert.equal(
+        invocation!.sessionState,
+        failure === "event" ? "unavailable" : "available",
+      );
+      assert.equal(
+        run!.outcome,
+        ["branch", "commit", "read-only"].includes(failure)
+          ? "blocked"
+          : "failed",
+      );
+      const expected = {
+        session: /session persistence failed/,
+        event: /EISDIR/,
+        branch: /Agent changed branch or committed unexpectedly/,
+        commit: /Agent changed branch or committed unexpectedly/,
+        "read-only": /Unexpected checkout mutation/,
+      };
+      assert.match(run!.error!, expected[failure]);
+      if (failure === "commit" || failure === "read-only")
+        assert.equal(
+          await readFile(join(project.checkout, "unexpected.txt"), "utf8"),
+          "changed",
+        );
+    } finally {
+      await runner.shutdown();
+    }
+  });

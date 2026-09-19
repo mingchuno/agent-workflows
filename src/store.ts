@@ -6,6 +6,7 @@ import { tryLock, unlockAll } from "./db/locks.js";
 import { migrateDatabase } from "./db/migrations.js";
 import * as tables from "./db/schema.js";
 import type { RunRecord } from "./domain.js";
+import { createQueuedRun } from "./run-record.js";
 import { redactValue } from "./runtime/redaction.js";
 
 export interface EventRecord {
@@ -38,6 +39,12 @@ export interface InvocationRecord {
   startedAt: string;
   finishedAt?: string;
   log: string;
+}
+interface RetryAdmission {
+  commandId?: string;
+  checkSafety: (
+    previous: RunRecord,
+  ) => Promise<{ checkout: string; branchTemplate: string }>;
 }
 /** Public persisted query surface. All queries work without a running executor. */
 export class Store {
@@ -141,6 +148,101 @@ export class Store {
       .returning({ id: runs.id });
     if (inserted.length) await this.emit(run.id, "run", run);
     return inserted.length > 0;
+  }
+  /**
+   * Admit a retry and its events atomically. Safety checks run under the project
+   * lock only for new admissions; they must not write through this Store.
+   */
+  async admitRetry(runId: string, admission: RetryAdmission): Promise<string> {
+    const original = await this.run(runId);
+    const { projects, runs, events } = tables;
+    const projectPredicate = and(
+      eq(projects.scope, this.scope),
+      eq(projects.id, original.projectId),
+    );
+    return this.db.transaction(async (tx) => {
+      // Lock the project, not just the original run: retries of different
+      // attempts of the same task must compete for the same admission.
+      const [project] = await tx
+        .select({ id: projects.id })
+        .from(projects)
+        .where(projectPredicate)
+        .for("update");
+      if (!project) throw new Error(`Unknown project: ${original.projectId}`);
+      if (admission.commandId) {
+        const [existing] = await tx
+          .select({ record: runs.record })
+          .from(runs)
+          .where(
+            and(eq(runs.scope, this.scope), eq(runs.id, admission.commandId)),
+          );
+        if (existing) {
+          if (existing.record.retryOf !== runId)
+            throw new Error(
+              "Retry command identity belongs to a different run",
+            );
+          return existing.record.id;
+        }
+      }
+      const history = await tx
+        .select({ record: runs.record, attempt: runs.attempt })
+        .from(runs)
+        .where(
+          and(eq(runs.scope, this.scope), eq(runs.taskKey, original.taskKey)),
+        )
+        .orderBy(runs.id)
+        .for("update");
+      const previous = history.find((row) => row.record.id === runId)?.record;
+      if (!previous) throw new Error(`Unknown run: ${runId}`);
+      if (!["failed", "blocked", "cancelled"].includes(previous.outcome))
+        throw new Error(
+          "Only failed, blocked or cancelled runs can be retried",
+        );
+      if (
+        history.some(({ record }) =>
+          ["queued", "running"].includes(record.outcome),
+        )
+      )
+        throw new Error("This task already has a queued or active retry");
+      const target = await admission.checkSafety(previous);
+      const attempt = Math.max(...history.map((row) => row.attempt)) + 1;
+      const id = admission.commandId ?? randomUUID();
+      const now = new Date().toISOString();
+      const retry = createQueuedRun({
+        id,
+        projectId: previous.projectId,
+        checkout: target.checkout,
+        taskKey: previous.taskKey,
+        attempt,
+        retryOf: previous.id,
+        issue: previous.issue,
+        now,
+        branchTemplate: target.branchTemplate,
+      });
+      const persisted = redactValue(retry, this.redact) as RunRecord;
+      // A conflict must fail admission, never return an unpersisted run ID.
+      await tx.insert(runs).values({
+        scope: this.scope,
+        id,
+        taskKey: retry.taskKey,
+        attempt,
+        record: persisted,
+      });
+      await tx.update(projects).set({ blocked: null }).where(projectPredicate);
+      await tx.insert(events).values([
+        {
+          scope: this.scope,
+          runId: null,
+          kind: "project",
+          payload: redactValue(
+            { id: previous.projectId, blocked: null },
+            this.redact,
+          ),
+        },
+        { scope: this.scope, runId: id, kind: "run", payload: persisted },
+      ]);
+      return id;
+    });
   }
   async run(id: string): Promise<RunRecord> {
     const { runs } = tables;

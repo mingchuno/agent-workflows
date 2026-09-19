@@ -3,3 +3,4 @@ dist/
 .agent-workflows/
 *.log
 .env
+.idea/

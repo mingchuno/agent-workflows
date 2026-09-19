@@ -12,6 +12,7 @@ import {
   publicationSchema,
   type RunRecord,
   reviewSchema,
+  type Snapshot,
   type Workspace,
 } from "./domain.js";
 import { command } from "./runtime/process.js";
@@ -149,25 +150,10 @@ export class Operations {
         AbortSignal.timeout(stage.timeoutMs),
       ]);
       const effective = await adapter.validate(profile, invocationSignal);
-      const skills = await Promise.all(
-        stage.skills.map(async (path) => {
-          const absolute = resolve(project.checkout, path);
-          const content = await readFile(absolute, "utf8");
-          return {
-            path: absolute,
-            sha256: createHash("sha256").update(content).digest("hex"),
-            content,
-          };
-        }),
+      const { skills, fullPrompt } = await this.prepareInvocationPrompt(
+        stage,
+        () => prompt(run),
       );
-      const fullPrompt = [
-        stage.prompt,
-        prompt(run),
-        ...skills.map(
-          (skill) =>
-            `Apply this selected skill (${skill.path}):\n${skill.content}`,
-        ),
-      ].join("\n\n");
       const id = randomUUID();
       const directory = join(this.dependencies.artifacts, run.id);
       await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -218,17 +204,7 @@ export class Operations {
         });
         invocationSignal.throwIfAborted();
         if (readOnly) await workspace.verify(project, run.snapshot);
-        else {
-          const snapshot = await workspace.inspect(project);
-          if (
-            snapshot.head !== run.snapshot.head ||
-            snapshot.branch !== run.snapshot.branch
-          )
-            throw new BlockedError(
-              "Agent changed branch or committed unexpectedly",
-            );
-          await store.patchRun(run.id, { snapshot });
-        }
+        else await this.saveImplementationSnapshot(run.id, run.snapshot);
         record.outcome = "completed";
         return redact(output);
       } catch (error) {
@@ -240,6 +216,39 @@ export class Operations {
         await store.saveInvocation(record);
       }
     });
+  }
+  private async prepareInvocationPrompt(stage: Stage, prompt: () => string) {
+    const { project } = this.dependencies;
+    const skills = await Promise.all(
+      stage.skills.map(async (path) => {
+        const absolute = resolve(project.checkout, path);
+        const content = await readFile(absolute, "utf8");
+        return {
+          path: absolute,
+          sha256: createHash("sha256").update(content).digest("hex"),
+          content,
+        };
+      }),
+    );
+    const fullPrompt = [
+      stage.prompt,
+      prompt(),
+      ...skills.map(
+        (skill) =>
+          `Apply this selected skill (${skill.path}):\n${skill.content}`,
+      ),
+    ].join("\n\n");
+    return { skills, fullPrompt };
+  }
+  private async saveImplementationSnapshot(
+    runId: string,
+    expected: Snapshot,
+  ): Promise<void> {
+    const { workspace, project, store } = this.dependencies;
+    const snapshot = await workspace.inspect(project);
+    if (snapshot.head !== expected.head || snapshot.branch !== expected.branch)
+      throw new BlockedError("Agent changed branch or committed unexpectedly");
+    await store.patchRun(runId, { snapshot });
   }
   async implement(): Promise<void> {
     await this.invoke(

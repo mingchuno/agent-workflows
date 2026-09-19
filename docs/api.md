@@ -10,6 +10,13 @@ Exports are in `src/index.ts`; the built package resolves to `dist/src/index.js`
 
 Use `try/finally` to call `shutdown()`, including failed startup. A custom `workflowVersion` must change when its durable step order changes; finish existing work before replacing an incompatible version.
 
+Retry admission serializes competing requests per project. One request creates
+the next attempt; another request for the same task fails while that retry is
+queued or running. Replaying the same command ID returns its existing retry,
+without rechecking the checkout or emitting events. A command ID cannot identify
+retries of different runs. Retry creation, project unblocking and their events
+commit together; failure preserves the blocked state.
+
 ## Durable operations
 
 `defaultWorkflow(operations)` composes the standard issue-to-review path. The runner calls your optional `workflow(operations)` inside an ordinary registered DBOS workflow. Use [DBOS TypeScript documentation](https://docs.dbos.dev/typescript/programming-guide) for workflow, step, queue and determinism semantics.
@@ -42,6 +49,11 @@ Put side effects inside `step`; custom effects must be idempotent or reconcile t
 ## Query and event interface
 
 `runner.store` is a `Store`. Independently construct `new Store(databaseUrl, runnerId)` to inspect history after shutdown; always `close()` it. `projects()`, `runs()`, `run(id)`, `invocations(runId)` and `events(afterSequence)` return persisted data. Events are ordered by monotonic sequence, paged at 1000; advance the cursor to retrieve more. `subscribe(listener,{after,intervalMs})` polls and returns an unsubscribe function. Delivery resumes from the caller's cursor; persist it if needed.
+
+`Store.admitRetry` owns persisted retry admission. Runner supplies its checkout
+and process safety check, which runs under the project lock for new admissions
+only. This callback must not mutate Store records. Operator tools should use
+`retry` commands or `Runner.retry`, preserving those safety checks.
 
 Invocation records include project/run IDs, stable DBOS step ID and name, invocation ID, attempt, timestamps, requested/effective profile, provider, prompt/skill snapshots, artifact path and session state (`pending`, `available`, `unavailable`). Repeated custom steps retain separate invocations. A retry has a separate run record linked to its predecessor.
 
