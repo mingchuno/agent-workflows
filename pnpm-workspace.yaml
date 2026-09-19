@@ -1,0 +1,7 @@
+# Package-manager configuration for this single-package repository.
+allowBuilds:
+  esbuild: true
+  koffi: true
+# Preserve the existing Node types version.
+minimumReleaseAgeExclude:
+  - '@types/node@26.6.2'

@@ -1,0 +1,241 @@
+import { readFile } from "node:fs/promises";
+import { Box, Text, useApp, useInput } from "ink";
+import { useEffect, useState } from "react";
+import type { RunRecord } from "./domain.js";
+import type {
+  EventRecord,
+  InvocationRecord,
+  ProjectState,
+  Store,
+} from "./store.js";
+
+export interface MonitorSource {
+  projects: Store["projects"];
+  runs: Store["runs"];
+  invocations: Store["invocations"];
+  events: Store["events"];
+  request: Store["request"];
+  commands: Store["commands"];
+}
+export function Monitor({ source }: { source: MonitorSource }) {
+  const { exit } = useApp();
+  const [projects, setProjects] = useState<ProjectState[]>([]);
+  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [projectIndex, setProjectIndex] = useState(0),
+    [runIndex, setRunIndex] = useState(0),
+    [sessionIndex, setSessionIndex] = useState(0),
+    [stepIndex, setStepIndex] = useState(0),
+    [validationIndex, setValidationIndex] = useState(0);
+  const [sessions, setSessions] = useState<InvocationRecord[]>([]),
+    [events, setEvents] = useState<EventRecord[]>([]);
+  const [message, setMessage] = useState("Connecting…"),
+    [log, setLog] = useState(""),
+    [pending, setPending] = useState<string>();
+  const project = projects[projectIndex];
+  const projectRuns = runs.filter((run) => run.projectId === project?.id);
+  const run = projectRuns[runIndex];
+  const session = sessions[sessionIndex];
+  const steps = events.filter((event) => event.kind === "step");
+  const selectedStep = steps[stepIndex];
+  const showLog = (path: string) => {
+    void readFile(path, "utf8").then(
+      (text) => setLog(text.split("\n").slice(-8).join("\n")),
+      (error) => setMessage(`Log unavailable: ${String(error)}`),
+    );
+  };
+  const selectedRunId = run?.id;
+  useEffect(() => {
+    let closed = false,
+      busy = false;
+    const update = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const [nextProjects, nextRuns] = await Promise.all([
+          source.projects(),
+          source.runs(),
+        ]);
+        if (closed) return;
+        setProjects(nextProjects);
+        setRuns(nextRuns);
+        if (selectedRunId) {
+          const [nextSessions, nextEvents] = await Promise.all([
+            source.invocations(selectedRunId),
+            source.events(0, selectedRunId),
+          ]);
+          if (closed) return;
+          setSessions(nextSessions);
+          setEvents(
+            nextEvents.filter((event) => event.runId === selectedRunId),
+          );
+        } else {
+          setSessions([]);
+          setEvents([]);
+        }
+        if (pending) {
+          const command = (await source.commands()).find(
+            (command) => command.id === pending,
+          );
+          if (command && command.status !== "pending") {
+            setMessage(
+              `${command.kind}: ${command.status}${command.error ? ` — ${command.error}` : ""}`,
+            );
+            setPending(undefined);
+          }
+        } else
+          setMessage((current) =>
+            current === "Connecting…" ? "Connected" : current,
+          );
+      } catch (error) {
+        if (!closed) setMessage(`Connection error: ${String(error)}`);
+      } finally {
+        busy = false;
+      }
+    };
+    void update();
+    const timer = setInterval(() => void update(), 400);
+    return () => {
+      closed = true;
+      clearInterval(timer);
+    };
+  }, [source, selectedRunId, pending]);
+  const action = async (
+    kind: "pause" | "resume" | "stop" | "retry",
+    target: string,
+  ) => {
+    setMessage(`${kind}: pending`);
+    setPending("submitting");
+    try {
+      setPending(await source.request(kind, target));
+    } catch (error) {
+      setPending(undefined);
+      setMessage(`${kind}: failed — ${String(error)}`);
+    }
+  };
+  useInput((input, key) => {
+    if (input === "q") {
+      exit();
+      return;
+    }
+    if (key.leftArrow || key.rightArrow) {
+      setProjectIndex((index) =>
+        Math.max(
+          0,
+          Math.min(projects.length - 1, index + (key.rightArrow ? 1 : -1)),
+        ),
+      );
+      setRunIndex(0);
+      setSessionIndex(0);
+      setStepIndex(0);
+      setValidationIndex(0);
+      setLog("");
+    }
+    if (key.upArrow || key.downArrow) {
+      setRunIndex((index) =>
+        Math.max(
+          0,
+          Math.min(projectRuns.length - 1, index + (key.downArrow ? 1 : -1)),
+        ),
+      );
+      setSessionIndex(0);
+      setStepIndex(0);
+      setValidationIndex(0);
+      setLog("");
+    }
+    if (key.tab) {
+      setSessionIndex((index) => (index + 1) % Math.max(sessions.length, 1));
+      setLog("");
+    }
+    if (input === "l" && session) showLog(session.log);
+    if (input === "[" || input === "]")
+      setStepIndex((index) =>
+        Math.max(
+          0,
+          Math.min(steps.length - 1, index + (input === "]" ? 1 : -1)),
+        ),
+      );
+    if (input === "v" && run?.validation?.length) {
+      const check = run.validation[validationIndex % run.validation.length]!;
+      setMessage(`Validation: ${check.command} · exit ${check.exitCode}`);
+      showLog(check.log);
+      setValidationIndex((index) => index + 1);
+    }
+    if (pending) return;
+    if (input === "p" && project)
+      void action(project.paused ? "resume" : "pause", project.id);
+    if (input === "s" && run) void action("stop", run.id);
+    if (input === "r" && run) void action("retry", run.id);
+  });
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Text bold>Agent Workflows · Monitor</Text>
+      <Text>
+        ← → project · ↑ ↓ run · [ ] step/attempt · Tab session · l agent log · v
+        validation log · p pause/resume · s stop · r retry · q close
+      </Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text bold>
+          {project
+            ? `${project.id} · ${project.paused ? "intake paused" : "intake enabled"} · ${projectRuns.filter((run) => run.outcome === "queued").length} queued`
+            : "No projects registered. Start the runner to populate this view."}
+        </Text>
+        {project?.blocked && (
+          <Text color="yellow">Blocked: {project.blocked}</Text>
+        )}
+        {projectRuns
+          .slice(Math.max(0, runIndex - 1), runIndex + 2)
+          .map((item) => (
+            <Text key={item.id} inverse={item.id === run?.id}>
+              {item.id === run?.id ? ">" : " "} #{item.issue.number} · attempt{" "}
+              {item.attempt} · {item.outcome} · {item.phase}
+            </Text>
+          ))}
+        {project && projectRuns.length === 0 && (
+          <Text>No runs yet. Eligible issues appear after polling.</Text>
+        )}
+      </Box>
+      {run && (
+        <Box marginTop={1} flexDirection="column">
+          <Text bold>Run {run.id}</Text>
+          <Text>{run.issue.title}</Text>
+          {run.error && <Text color="red">{run.error}</Text>}
+          <Text>
+            Validation:{" "}
+            {run.validation
+              ?.map((check) => `${check.command}: exit ${check.exitCode}`)
+              .join(" · ") || "No checks recorded"}
+          </Text>
+          <Text>
+            Step/attempt event {steps.length ? stepIndex + 1 : 0}/{steps.length}
+            :{" "}
+            {selectedStep
+              ? JSON.stringify(selectedStep.payload)
+              : "No steps recorded"}
+          </Text>
+          <Text bold>Agent sessions · {sessions.length}</Text>
+          {session ? (
+            <>
+              <Text>
+                {session.step} · invocation {session.attempt} ·{" "}
+                {session.outcome}
+              </Text>
+              <Text>Session: {session.sessionId ?? session.sessionState}</Text>
+              <Text>Requested: {JSON.stringify(session.requested)}</Text>
+              <Text>Effective: {JSON.stringify(session.effective)}</Text>
+              <Text>Log: {session.log}</Text>
+            </>
+          ) : (
+            <Text>No agent sessions recorded</Text>
+          )}
+          {log && <Text>{log}</Text>}
+        </Box>
+      )}
+      <Box marginTop={1}>
+        <Text>{message}</Text>
+      </Box>
+      <Text dimColor>
+        Closing this monitor leaves the runner and its tasks running.
+      </Text>
+    </Box>
+  );
+}
