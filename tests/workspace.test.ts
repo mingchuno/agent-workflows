@@ -73,3 +73,55 @@ test("workspace blocks unresolved Git operations and unexpected changes", async 
     /Unexpected checkout mutation/,
   );
 });
+
+test("cancelling a Git push stops its hook before checkout reuse", async () => {
+  const { waitFor } = await import("./runner-fixtures.js");
+  const { assertProcessesStopped } = await import(
+    "../src/runtime/ownership.js"
+  );
+  const { root, project, git } = await repository();
+  const ready = join(root, ".git", "push-ready");
+  await writeFile(
+    join(root, ".git", "hooks", "pre-push"),
+    `#!/usr/bin/env node\nrequire("node:fs").writeFileSync(${JSON.stringify(ready)}, "ready");\nsetInterval(() => {}, 1000);\n`,
+    { mode: 0o700 },
+  );
+  const workspace = new ExistingCheckout();
+  const controller = new AbortController();
+  const head = (await git("rev-parse", "HEAD")).stdout.trim();
+  const pushing = workspace.push(
+    project,
+    "agent/cancelled",
+    head,
+    controller.signal,
+  );
+  const cancelled = assert.rejects(pushing, /cancelled/);
+  try {
+    await waitFor(async () =>
+      readFile(ready, "utf8").then(
+        () => true,
+        () => false,
+      ),
+    );
+    controller.abort();
+    await cancelled;
+    await assertProcessesStopped(
+      join(root, ".git", "agent-workflows-processes"),
+    );
+    await workspace.check(project);
+    assert.equal(
+      (
+        await git(
+          "ls-remote",
+          "--heads",
+          "origin",
+          "refs/heads/agent/cancelled",
+        )
+      ).stdout.trim(),
+      "",
+    );
+  } finally {
+    controller.abort();
+    await cancelled;
+  }
+});

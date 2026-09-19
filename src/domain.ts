@@ -50,7 +50,11 @@ export interface Snapshot {
 }
 export interface Workspace {
   check(project: Project): Promise<void>;
-  prepare(project: Project, branch: string): Promise<Snapshot>;
+  prepare(
+    project: Project,
+    branch: string,
+    signal?: AbortSignal,
+  ): Promise<Snapshot>;
   inspect(project: Project): Promise<Snapshot>;
   verify(project: Project, expected: Snapshot): Promise<void>;
   commit(
@@ -58,8 +62,14 @@ export interface Workspace {
     expected: Snapshot,
     publication: Publication,
     runId: string,
+    signal?: AbortSignal,
   ): Promise<string>;
-  push(project: Project, branch: string, head: string): Promise<void>;
+  push(
+    project: Project,
+    branch: string,
+    head: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
   release(project: Project): Promise<void>;
 }
 export interface HostingAdapter {
@@ -96,6 +106,7 @@ export interface AgentInvocation {
   processFile?: string;
   readOnly: boolean;
   signal: AbortSignal;
+  timeoutMs?: number;
   session: (id: string) => Promise<void>;
   event: (event: unknown) => Promise<void>;
 }

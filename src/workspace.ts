@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { access, lstat, readFile, realpath } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { access, lstat, mkdir, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import type { Project } from "./config.js";
 import {
@@ -8,13 +8,43 @@ import {
   type Snapshot,
   type Workspace,
 } from "./domain.js";
-import { command } from "./runtime/process.js";
+import { type CommandOptions, command } from "./runtime/process.js";
 
 export class ExistingCheckout implements Workspace {
+  private readonly processDirectories = new Map<string, Promise<string>>();
+  private processDirectory(project: Project): Promise<string> {
+    let directory = this.processDirectories.get(project.checkout);
+    if (!directory) {
+      directory = (async () => {
+        const result = await command(
+          "git",
+          ["rev-parse", "--absolute-git-dir"],
+          {
+            cwd: project.checkout,
+          },
+        );
+        const path = join(result.stdout.trim(), "agent-workflows-processes");
+        await mkdir(path, { recursive: true, mode: 0o700 });
+        return path;
+      })();
+      this.processDirectories.set(project.checkout, directory);
+    }
+    return directory;
+  }
+  private async runGit(
+    project: Project,
+    args: string[],
+    options: Pick<CommandOptions, "signal" | "allowFailure"> = {},
+  ) {
+    const directory = await this.processDirectory(project);
+    return command("git", args, {
+      ...options,
+      cwd: project.checkout,
+      processFile: join(directory, `${randomUUID()}.process.json`),
+    });
+  }
   private async git(project: Project, ...args: string[]) {
-    return (
-      await command("git", args, { cwd: project.checkout })
-    ).stdout.trimEnd();
+    return (await this.runGit(project, args)).stdout.trimEnd();
   }
   async check(project: Project): Promise<void> {
     const top = await this.git(project, "rev-parse", "--show-toplevel");
@@ -47,28 +77,31 @@ export class ExistingCheckout implements Workspace {
       if (exists) throw new BlockedError(`Unresolved Git operation: ${marker}`);
     }
   }
-  async prepare(project: Project, branch: string): Promise<Snapshot> {
+  async prepare(
+    project: Project,
+    branch: string,
+    signal?: AbortSignal,
+  ): Promise<Snapshot> {
+    signal?.throwIfAborted();
     await this.check(project);
     const original = await this.inspect(project);
     await this.git(project, "check-ref-format", "--branch", project.baseBranch);
     await this.git(project, "check-ref-format", "--branch", branch);
-    const existing = await command(
-      "git",
+    const existing = await this.runGit(
+      project,
       ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
-      { cwd: project.checkout, allowFailure: true },
+      { signal, allowFailure: true },
     );
     if (existing.exitCode === 0)
       throw new BlockedError(`Branch already exists: ${branch}`);
-    await this.git(
+    await this.runGit(
       project,
-      "fetch",
-      "--no-tags",
-      project.remote,
-      project.baseBranch,
+      ["fetch", "--no-tags", project.remote, project.baseBranch],
+      { signal },
     );
     const base = await this.git(project, "rev-parse", "FETCH_HEAD");
     await this.verify(project, original);
-    await this.git(project, "switch", "-c", branch, base);
+    await this.runGit(project, ["switch", "-c", branch, base], { signal });
     const prepared = await this.inspect(project);
     if (prepared.paths.length)
       throw new BlockedError("Checkout changed during branch preparation");
@@ -157,7 +190,9 @@ export class ExistingCheckout implements Workspace {
     expected: Snapshot,
     publication: Publication,
     runId: string,
+    signal?: AbortSignal,
   ): Promise<string> {
+    signal?.throwIfAborted();
     const current = await this.inspect(project);
     if (current.head !== expected.head) {
       const message = await this.git(project, "log", "-1", "--format=%B");
@@ -204,40 +239,47 @@ export class ExistingCheckout implements Workspace {
     }
     await this.verify(project, expected);
     if (!expected.paths.length) throw new BlockedError("No changes to commit");
-    await this.git(project, "add", "--", ...expected.paths);
-    await this.git(
+    await this.runGit(project, ["add", "--", ...expected.paths], { signal });
+    await this.runGit(
       project,
-      "-c",
-      `user.name=${project.gitIdentity.name}`,
-      "-c",
-      `user.email=${project.gitIdentity.email}`,
-      "-c",
-      "core.hooksPath=/dev/null",
-      "commit",
-      "-m",
-      `${publication.commitMessage}\n\nAgent-Workflows-Run: ${runId}`,
+      [
+        "-c",
+        `user.name=${project.gitIdentity.name}`,
+        "-c",
+        `user.email=${project.gitIdentity.email}`,
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "-m",
+        `${publication.commitMessage}\n\nAgent-Workflows-Run: ${runId}`,
+      ],
+      { signal },
     );
     return this.git(project, "rev-parse", "HEAD");
   }
-  async push(project: Project, branch: string, head: string): Promise<void> {
+  async push(
+    project: Project,
+    branch: string,
+    head: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted();
     await this.check(project);
     if ((await this.git(project, "rev-parse", "HEAD")) !== head)
       throw new BlockedError("Head changed before push");
-    const existing = await this.git(
+    const result = await this.runGit(
       project,
-      "ls-remote",
-      "--heads",
-      project.remote,
-      `refs/heads/${branch}`,
+      ["ls-remote", "--heads", project.remote, `refs/heads/${branch}`],
+      { signal },
     );
+    const existing = result.stdout.trimEnd();
     if (existing && existing.split(/\s/)[0] !== head)
       throw new BlockedError("Remote branch changed; refusing overwrite");
     if (!existing)
-      await this.git(
+      await this.runGit(
         project,
-        "push",
-        project.remote,
-        `${head}:refs/heads/${branch}`,
+        ["push", project.remote, `${head}:refs/heads/${branch}`],
+        { signal },
       );
   }
   async release(project: Project): Promise<void> {

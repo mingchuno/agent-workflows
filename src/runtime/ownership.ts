@@ -55,6 +55,9 @@ export class CheckoutOwnership {
     }
     try {
       await guard.writeFile(JSON.stringify({ pid: process.pid }));
+      await assertProcessesStopped(
+        join(gitDirectory, "agent-workflows-processes"),
+      );
       try {
         const previous = JSON.parse(await readFile(path, "utf8")) as {
           pid: number;

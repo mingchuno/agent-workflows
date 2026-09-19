@@ -10,6 +10,8 @@ Exports are in `src/index.ts`; the built package resolves to `dist/src/index.js`
 
 Use `try/finally` to call `shutdown()`, including failed startup. A custom `workflowVersion` must change when its durable step order changes; finish existing work before replacing an incompatible version.
 
+Polling runs independently per project, with at most one scan in flight per project. `start()` does not wait for scans to finish; `poll(projectId?)` waits for the requested scans, joining any already in flight. Shutdown drains outstanding scans without admitting their results or starting queued work.
+
 Retry admission serializes competing requests per project. One request creates
 the next attempt; another request for the same task fails while that retry is
 queued or running. Replaying the same command ID returns its existing retry,
@@ -42,7 +44,9 @@ Put side effects inside `step`; custom effects must be idempotent or reconcile t
 
 `Workspace` separates `check`, `prepare`, `inspect`, `verify`, `commit`, `push` and `release`. `Snapshot` contains branch/head, changed paths, diff and a content fingerprint. Never implement release by discarding files. A future isolated workspace implementation can replace this interface without changing workflow composition.
 
-`AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)` receives working directory, prompt/skills, read-only intent, abort signal and session/event callbacks. Call `session(id)` immediately when available. Await event persistence; invocation must not settle until its work has stopped. SDK adapters enforce process-group lifecycle; custom adapters must uphold the same contract. `processFile` is available for controlled subprocess ownership.
+`prepare`, `commit` and `push` receive an optional final `AbortSignal`. Custom workspaces must stop their subprocesses before settling a cancelled operation. The existing-checkout strategy journals Git processes under the Git directory; ownership acquisition rejects surviving process groups after a runner crash.
+
+`AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)` receives working directory, prompt/skills, read-only intent, abort signal, stage `timeoutMs` and session/event callbacks. The abort signal also covers cancellation and time spent validating the profile. Call `session(id)` immediately when available. Await event persistence; invocation must not settle until its work has stopped. SDK adapters enforce process-group lifecycle; custom adapters must uphold the same contract. `processFile` is available for controlled subprocess ownership.
 
 `HostingAdapter` provides issue pagination/revalidation, instance-qualified `identity`, change-request lookup/create, remote head, and idempotent review publication. `preflight` is optional. Reconciliation keys must be stable across response loss; providers must never infer successful publication from agent prose.
 

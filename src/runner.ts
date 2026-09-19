@@ -43,6 +43,7 @@ export class Runner {
   private tickBusy = false;
   private timer?: NodeJS.Timeout;
   private readonly lastPoll = new Map<string, number>();
+  private readonly polling = new Map<string, Promise<void>>();
   constructor(readonly options: RunnerOptions) {
     this.config = configSchema.parse(options.config);
     this.store = new Store(options.databaseUrl, this.config.id, this.redact);
@@ -122,29 +123,48 @@ export class Runner {
       ),
     ])(text);
   async poll(projectId?: string): Promise<void> {
-    for (const project of this.config.projects.filter(
-      (p) => !projectId || p.id === projectId,
+    await Promise.all(
+      this.config.projects
+        .filter((p) => !projectId || p.id === projectId)
+        .map((project) => {
+          const pending = this.polling.get(project.id);
+          if (pending) return pending;
+          if (this.stopping) return Promise.resolve();
+          const polling = this.pollProject(project)
+            .catch(async (error) => {
+              await this.store.emit(null, "poll-error", {
+                projectId: project.id,
+                error: this.redact(String(error)),
+              });
+              throw error;
+            })
+            .finally(() => this.polling.delete(project.id));
+          this.polling.set(project.id, polling);
+          return polling;
+        }),
+    );
+  }
+  private async pollProject(project: Project): Promise<void> {
+    const state = await this.store.project(project.id);
+    if (state.paused || state.blocked || this.stopping) return;
+    const hosting = this.hosting.get(project.id)!;
+    for (const issue of (await hosting.listIssues(project.labels)).sort(
+      (a, b) => a.number - b.number,
     )) {
-      const state = await this.store.project(project.id);
-      if (state.paused || state.blocked || this.stopping) continue;
-      const hosting = this.hosting.get(project.id)!;
-      for (const issue of (await hosting.listIssues(project.labels)).sort(
-        (a, b) => a.number - b.number,
-      )) {
-        const now = new Date().toISOString();
-        const id = randomUUID();
-        const run = createQueuedRun({
-          id,
-          projectId: project.id,
-          checkout: project.checkout,
-          taskKey: `${hosting.identity}:${issue.id}`,
-          attempt: 1,
-          issue,
-          now,
-          branchTemplate: project.branchTemplate,
-        });
-        await this.store.insertRun(run);
-      }
+      if (this.stopping) return;
+      const now = new Date().toISOString();
+      const id = randomUUID();
+      const run = createQueuedRun({
+        id,
+        projectId: project.id,
+        checkout: project.checkout,
+        taskKey: `${hosting.identity}:${issue.id}`,
+        attempt: 1,
+        issue,
+        now,
+        branchTemplate: project.branchTemplate,
+      });
+      await this.store.insertRun(run);
     }
   }
   private async tick(): Promise<void> {
@@ -152,7 +172,7 @@ export class Runner {
     this.tickBusy = true;
     try {
       await this.processCommands();
-      await this.pollDueProjects();
+      this.pollDueProjects();
       await this.dispatchRuns();
     } finally {
       this.tickBusy = false;
@@ -175,28 +195,27 @@ export class Runner {
       }
     }
   }
-  private async pollDueProjects(): Promise<void> {
+  private pollDueProjects(): void {
+    if (this.stopping) return;
     for (const project of this.config.projects) {
       if (
+        !this.polling.has(project.id) &&
         Date.now() - (this.lastPoll.get(project.id) ?? 0) >=
-        project.pollIntervalMs
+          project.pollIntervalMs
       ) {
         this.lastPoll.set(project.id, Date.now());
-        try {
-          await this.poll(project.id);
-        } catch (error) {
-          await this.store.emit(null, "poll-error", {
-            projectId: project.id,
-            error: this.redact(String(error)),
-          });
-        }
+        void this.poll(project.id).catch((error) =>
+          runtimeLogger(this.redact).error(String(error)),
+        );
       }
     }
   }
   private async dispatchRuns(): Promise<void> {
+    if (this.stopping) return;
     const runs = await this.store.runs();
     for (const project of this.config.projects) {
       const state = await this.store.project(project.id);
+      if (this.stopping) return;
       if (state.paused || state.blocked) continue;
       const run = runs.find(
         (r) =>
@@ -236,6 +255,7 @@ export class Runner {
   }
   private async execute(runId: string): Promise<void> {
     const controller = new AbortController();
+    if (this.stopping) controller.abort();
     this.controllers.set(runId, controller);
     try {
       await this.executeOwned(runId, controller);
@@ -273,6 +293,7 @@ export class Runner {
         controller.signal.throwIfAborted();
         await DBOS.sleepms(200);
       }
+      controller.signal.throwIfAborted();
       await (this.options.workflow ?? defaultWorkflow)(operations);
       await DBOS.runStep(
         async () => {
@@ -369,6 +390,7 @@ export class Runner {
     while (this.controllers.size || this.tickBusy)
       await new Promise((resolve) => setTimeout(resolve, 20));
     await Promise.all(this.active.values());
+    await Promise.allSettled(this.polling.values());
     if (this.ownsRuntime) {
       await DBOS.shutdown({
         deregister: true,

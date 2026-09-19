@@ -13,6 +13,7 @@ export interface WorkerInput {
   skills: string[];
   readOnly: boolean;
   processFile?: string;
+  timeoutMs?: number;
 }
 export type Emit = (type: string, value: unknown) => void;
 export interface CodexClient {
@@ -101,7 +102,7 @@ export async function runCopilot(
     session.on((event) => emit("event", event));
     const response = await session.sendAndWait(
       { prompt: input.prompt },
-      1_800_000,
+      input.timeoutMs ?? 1_800_000,
     );
     emit("result", response?.data.content ?? "");
     await session.disconnect();

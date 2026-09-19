@@ -70,3 +70,38 @@ test("public runner completes durable issue-to-review workflow and deduplicates 
     await runner.shutdown();
   }
 });
+
+test("configured stage timeout reaches the agent adapter", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project } = await repository();
+  project.stages.implementation.timeoutMs = 3_600_000;
+  const observed: Array<number | undefined> = [];
+  const runner = new Runner({
+    config: configSchema.parse({
+      id: "timeout_" + randomUUID().replaceAll("-", ""),
+      stateDirectory: await mkdtemp(join(tmpdir(), "aw-timeout-")),
+      projects: [project],
+    }),
+    databaseUrl: databaseUrl!,
+    hosting: () => new FixtureHosting(),
+    agents: {
+      codex: {
+        validate: agent.validate,
+        async invoke(input) {
+          observed.push(input.timeoutMs);
+          return "No changes needed";
+        },
+      },
+    },
+  });
+  try {
+    await runner.start();
+    await waitFor(async () =>
+      (await runner.store.runs()).some((run) => run.outcome === "no-change"),
+    );
+    assert.deepEqual(observed, [3_600_000]);
+  } finally {
+    await runner.shutdown();
+  }
+});

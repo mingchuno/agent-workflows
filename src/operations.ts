@@ -106,7 +106,11 @@ export class Operations {
   async prepare(): Promise<void> {
     await this.step("prepare", async (run) => {
       const { workspace, project, store } = this.dependencies;
-      const snapshot = await workspace.prepare(project, run.branch);
+      const snapshot = await workspace.prepare(
+        project,
+        run.branch,
+        this.dependencies.signal,
+      );
       await store.patchRun(run.id, {
         base: snapshot.head,
         snapshot,
@@ -191,6 +195,7 @@ export class Operations {
           processFile: record.log + ".process.json",
           readOnly,
           signal: invocationSignal,
+          timeoutMs: stage.timeoutMs,
           session: async (sessionId) => {
             record.sessionId = sessionId;
             record.sessionState = "available";
@@ -346,6 +351,7 @@ export class Operations {
         run.snapshot,
         run.publication,
         run.id,
+        this.dependencies.signal,
       );
       const snapshot = await this.dependencies.workspace.inspect(
         this.dependencies.project,
@@ -360,6 +366,7 @@ export class Operations {
         this.dependencies.project,
         run.branch,
         run.head,
+        this.dependencies.signal,
       );
     });
   }

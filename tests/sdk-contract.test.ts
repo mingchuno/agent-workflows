@@ -101,3 +101,32 @@ test("Copilot contract starts fresh sessions with context controls and stops on 
   assert.deepEqual(messages[0], ["session", "invocation"]);
   assert.equal(stopped, true);
 });
+
+test("Copilot honors a configured timeout longer than the default", async () => {
+  let observedTimeout: number | undefined;
+  await runCopilot(
+    {
+      async listModels() {
+        return [];
+      },
+      async createSession() {
+        return {
+          sessionId: "long-stage",
+          on() {},
+          async sendAndWait(_message, timeout) {
+            observedTimeout = timeout;
+            return { data: { content: "finished" } };
+          },
+          async disconnect() {},
+        };
+      },
+      async stop() {
+        return [];
+      },
+      async forceStop() {},
+    },
+    { ...input, timeoutMs: 3_600_000 },
+    () => {},
+  );
+  assert.equal(observedTimeout, 3_600_000);
+});

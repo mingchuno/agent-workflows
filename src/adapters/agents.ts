@@ -118,6 +118,7 @@ export class SDKAgent implements AgentAdapter {
         profile: invocation.profile,
         skills: invocation.skills,
         readOnly: invocation.readOnly,
+        timeoutMs: invocation.timeoutMs ?? 1_800_000,
       },
       invocation,
     );
@@ -165,7 +166,7 @@ export class SDKAgent implements AgentAdapter {
           ]),
           captureOutput: false,
           processFile: invocation?.processFile,
-          timeoutMs: invocation ? 1_800_000 : 30_000,
+          timeoutMs: invocation ? (invocation.timeoutMs ?? 1_800_000) : 30_000,
           onOutput: (chunk) => {
             buffer += chunk;
             for (;;) {

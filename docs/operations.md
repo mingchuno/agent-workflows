@@ -24,6 +24,8 @@ In the monitor, Left/Right selects a project, Up/Down a run, `[`/`]` a step/atte
 
 Only the runner may edit or switch managed checkouts while it is active. PostgreSQL advisory locks protect runner/configuration and checkout identities. A local Git-directory lease also prevents runners using different databases from owning the same checkout. Worker/validation process-group journals prevent reuse while old work may still run.
 
+Git process journals live in `<git-directory>/agent-workflows-processes/`, independently of the configured state directory. A surviving Git process blocks ownership acquisition after a crash. Stop requests propagate to active fetch, staging, commit and push commands; interrupted effects still require reconciliation.
+
 Startup and phase boundaries check ownership assumptions, branch/head and actual changes. Unfinished files are never reset, cleaned, stashed or discarded automatically. Dirty files, unresolved Git operations, branch collisions, unexpected mutations and ambiguous agent recovery become inspectable blocked states. Other eligible projects continue.
 
 Publication effects have independent DBOS checkpoints. A task commit carries `Agent-Workflows-Run`; commit recovery checks parent and marker, push recovery checks the remote ref, request creation checks the source branch, and review publication checks stable markers. Transient publication failures use bounded retries and reconciliation. Interrupted agent stages block rather than starting another writer.

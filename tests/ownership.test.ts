@@ -49,3 +49,55 @@ test("process journal blocks recovery until a real process group has stopped", a
   await assert.rejects(running, /cancelled/);
   await assertProcessesStopped(directory);
 });
+
+test("recovery refuses checkout ownership while a crashed runner's Git push survives", async () => {
+  const { spawn } = await import("node:child_process");
+  const { readFile, writeFile } = await import("node:fs/promises");
+  const { resolve } = await import("node:path");
+  const { waitFor } = await import("./runner-fixtures.js");
+  const { root, project } = await repository();
+  const directory = await mkdtemp(join(tmpdir(), "aw-git-owner-"));
+  const config = join(directory, "project.json");
+  const ready = join(directory, "ready");
+  await writeFile(config, JSON.stringify(project));
+  await writeFile(
+    join(root, ".git", "hooks", "pre-push"),
+    '#!/bin/sh\nps -o pgid= -p $$ > "$AW_PUSH_READY"\nwhile :; do sleep 1; done\n',
+    { mode: 0o700 },
+  );
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", resolve("tests/git-push-worker.ts"), config, directory],
+    {
+      stdio: "ignore",
+      env: { ...process.env, AW_PUSH_READY: ready },
+    },
+  );
+  const exited = new Promise<void>((resolve) =>
+    child.once("exit", () => resolve()),
+  );
+  let group: number | undefined;
+  const replacement = new CheckoutOwnership();
+  try {
+    await waitFor(async () => {
+      try {
+        group = Number((await readFile(ready, "utf8")).trim());
+        return !!group;
+      } catch {
+        return false;
+      }
+    });
+    child.kill("SIGKILL");
+    await exited;
+    await assert.rejects(replacement.acquire(root, directory), /still alive/);
+  } finally {
+    child.kill("SIGKILL");
+    await exited;
+    if (group) {
+      try {
+        process.kill(-group, "SIGKILL");
+      } catch {}
+    }
+    await replacement.release();
+  }
+});
