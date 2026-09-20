@@ -40,7 +40,7 @@
     "pack:smoke": "pnpm build && node scripts/test.mjs --pack-smoke",
     "release:publish": "node scripts/publish.mjs",
     "lint:pr": "node scripts/lint-pr-title.mjs",
-    "start": "tsx src/cli.ts",
+    "start": "node --import tsx -- src/cli.ts",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome check .",

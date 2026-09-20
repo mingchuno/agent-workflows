@@ -148,6 +148,11 @@ try {
   );
   const cli = join(consumer, "node_modules/.bin/agent-workflows");
   assert.match(run(cli, ["--help"]), /Local durable issue-to-review workflows/);
+  assert.throws(
+    () => run(cli, ["--env-file", "missing.env", "init"]),
+    (error) =>
+      error.status === 1 && /Cannot read environment file/.test(error.stderr),
+  );
   run(cli, ["init"]);
   const config = JSON.parse(
     await readFile(join(consumer, "agent-workflows.json"), "utf8"),

@@ -19,6 +19,21 @@ Codex implementation uses its workspace-write sandbox. Copilot implementation ap
 
 The runner deliberately does not automatically resume interrupted agent work. Runtime session existence does not establish whether old processes are still writing. Use runtime-specific tools/SDKs to inspect sessions after stopping the runner and establishing ownership; there is no universal session-opening command.
 
+## Environment inheritance
+
+CLI `--env-file` values reach validation commands, Git subprocesses and agent
+workers through the runner's process environment. SDK callers get the same
+inheritance from their own process environment. The installed Codex SDK forwards
+that environment to its executable; Copilot uses it for its local runtime, with
+SDK-specific adjustments such as removing `NODE_DEBUG`.
+
+Commands launched inside a provider remain subject to its runtime configuration.
+For example, Codex's [shell environment policy](https://developers.openai.com/codex/config-advanced/#shell-environment-policy)
+can filter or replace inherited values. The CLI does not override these policies
+or inject environment values into an already-running remote Copilot runtime.
+Controlled executable tests cover the SDK worker boundary; live model-driven
+shell-tool inheritance requires the explicit smoke verification below.
+
 ## GitHub
 
 Set `hosting.origin` to `https://github.com` or the GitHub Enterprise web origin. Repository is `owner/name`; the adapter derives the REST endpoint. `tokenEnv` names the environment variable holding a token authorized to read issues and create change requests/reviews. Git push uses the checkout's configured remote and Git credentials, independently of the API token. Do not embed credentials in remote URLs.

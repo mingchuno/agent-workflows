@@ -1,6 +1,7 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { parseEnv } from "node:util";
 import { Command } from "commander";
 import { render } from "ink";
 import React from "react";
@@ -11,10 +12,31 @@ import { Runner } from "./runner.js";
 import { Store } from "./store.js";
 import { Monitor } from "./tui.js";
 
+const launchDirectory = process.cwd();
 const program = new Command()
   .name("agent-workflows")
   .description("Local durable issue-to-review workflows")
-  .option("-c, --config <file>", "configuration path", "agent-workflows.json");
+  .option("-c, --config <file>", "configuration path", "agent-workflows.json")
+  .option(
+    "--env-file <path>",
+    "load literal dotenv values; existing environment wins",
+  )
+  .hook("preAction", async () => {
+    const path = program.opts().envFile as string | undefined;
+    if (path === undefined) return;
+    const file = resolve(launchDirectory, path);
+    let contents: string;
+    try {
+      contents = await readFile(file, "utf8");
+    } catch (error) {
+      throw new Error(
+        `Cannot read environment file ${file} (${(error as NodeJS.ErrnoException).code ?? "read failed"})`,
+      );
+    }
+    for (const [name, value] of Object.entries(parseEnv(contents))) {
+      if (process.env[name] === undefined) process.env[name] = value;
+    }
+  });
 async function configuration(): Promise<Configuration> {
   return configSchema.parse(
     JSON.parse(await readFile(resolve(program.opts().config), "utf8")),

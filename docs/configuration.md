@@ -24,6 +24,60 @@ The CLI reads `agent-workflows.json`, or `--config PATH`. Unknown properties are
 
 Issues are selected in ascending issue-number order within each intake scan. Deduplication persists across restarts. An explicit retry is a new numbered attempt linked through `retryOf`.
 
+## CLI environment files
+
+Select one file explicitly for any CLI command:
+
+```sh
+agent-workflows --env-file ./runner.env run
+agent-workflows --env-file ./runner.env status --json
+agent-workflows --env-file /absolute/path/runner.env monitor
+```
+
+Example `runner.env` (replace placeholders locally):
+
+```dotenv
+AGENT_WORKFLOWS_DATABASE_URL="postgresql://USER:PASSWORD@localhost/agent_workflows"
+GITHUB_TOKEN="YOUR_GITHUB_TOKEN"
+APP_MODE=development # unquoted comment
+APP_GREETING="hello # literal text"
+APP_REFERENCE='${APP_MODE}'
+```
+
+- Existing process values win, including empty strings. Empty required database
+  or hosting values still fail existing validation. Missing keys are filled from
+  the file; arbitrary application variable names are supported. `databaseUrlEnv`
+  and `hosting.tokenEnv` still select which names the runner uses.
+- Relative paths resolve from the CLI launch directory, independently of
+  `--config` and project checkouts. Absolute paths work too. No `.env` discovery
+  or multiple-file layering is performed.
+- Parsing uses Node's literal dotenv syntax: quotes and comments are supported;
+  `$NAME`, `${NAME}`, backticks and `$(command)` in values are not expanded or
+  executed. This is not shell sourcing.
+- The file is read once before the command action, database access, hosting
+  adapters or runner creation. Missing or unreadable files stop the command with
+  a nonzero exit and a path/error code, without printing file contents. Restart
+  the runner to pick up edits. Help only displays usage and does not load files.
+- The merged environment is shared across all projects in the runner. Validation,
+  Git and agent worker subprocesses inherit it. Provider runtimes may apply their
+  own environment policies to tools they launch; see [providers](providers.md).
+  No per-project environment isolation is added.
+
+Keep local environment files out of version control. Add their actual names to
+`.gitignore` (or `.git/info/exclude`), especially inside managed checkouts where
+untracked files interfere with cleanliness checks. Do not copy credentials into
+configuration, prompts or issue bodies. Existing database/hosting credential
+redaction remains in effect; arbitrary variable support does not classify every
+application value as a secret. A GitHub API token does not configure Git push
+credentials.
+
+The flag belongs to `agent-workflows`, not the separate `pnpm db:migrate` command.
+SDK callers load their own process environment before creating a runner and
+continue passing `databaseUrl` explicitly. Node startup-only settings, such as
+`NODE_EXTRA_CA_CERTS`, must be set before launching Node to affect the CLI process.
+When invoking the script directly through Node, separate Node arguments from
+application arguments: `node -- dist/src/cli.js --env-file ./runner.env status`.
+
 ## Profiles
 
 A profile has `provider`, optional `model`, optional `reasoningEffort`, and optional `context`. Each stage merges its profile over project defaults. Switching provider discards the old provider's settings, so incompatible defaults cannot leak between providers. Each invocation starts a fresh session, including repeated custom steps.
