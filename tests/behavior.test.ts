@@ -369,20 +369,29 @@ test("stop waits for controlled child termination and prevents checkout reuse", 
         process.execPath,
         [
           "-e",
-          'process.on("SIGTERM",()=>{}); console.log(process.pid); setInterval(()=>{},100)',
+          `
+            process.on("SIGTERM", () => {});
+            require("node:fs").writeFileSync(process.argv[1], String(process.pid));
+            console.log(process.pid);
+            console.error("controlled startup diagnostic");
+            setInterval(() => {}, 100);
+          `,
+          readyFile,
         ],
         {
           cwd: input.cwd,
           signal: input.signal,
           processFile: input.processFile,
           killGraceMs: 100,
-          onOutput: (chunk) => (childPid = Number(chunk.trim())),
         },
       );
       return "";
     },
   };
-  const { runner, hosts } = await setup([project], { codex: controlled });
+  const { runner, hosts, config } = await setup([project], {
+    codex: controlled,
+  });
+  const readyFile = join(config.stateDirectory, "controlled-child.ready");
   hosts.get(project.id)!.issues.push({
     ...hosts.get(project.id)!.issues[0]!,
     id: "2",
@@ -390,7 +399,31 @@ test("stop waits for controlled child termination and prevents checkout reuse", 
   });
   try {
     await runner.start();
-    await waitFor(async () => childPid > 0);
+    try {
+      await waitFor(async () => {
+        try {
+          childPid = Number(await readFile(readyFile, "utf8"));
+          return Number.isSafeInteger(childPid) && childPid > 0;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+          throw error;
+        }
+      });
+    } catch (error) {
+      const runs = (await runner.store.runs()).map(
+        ({ id, outcome, error }) => ({
+          id,
+          outcome,
+          error,
+        }),
+      );
+      throw new Error(
+        `Controlled child did not become ready: ${JSON.stringify(runs)}`,
+        {
+          cause: error,
+        },
+      );
+    }
     await runner.pause(project.id);
     const run = (await runner.store.runs())[0]!;
     await runner.stop(run.id);

@@ -7,7 +7,8 @@
       "!!**/node_modules",
       "!!.artifacts",
       "!!drizzle/meta",
-      "!!.agent-workflows"
+      "!!.agent-workflows",
+      "!!.release-please-manifest.json"
     ]
   },
   "formatter": {
