@@ -10,7 +10,7 @@ import { createHosting } from "./adapters/hosting.js";
 import { type Configuration, configSchema } from "./config.js";
 import { Runner } from "./runner.js";
 import { Store } from "./store.js";
-import { Monitor } from "./tui.js";
+import { Monitor } from "./tui/index.js";
 
 const launchDirectory = process.cwd();
 const program = new Command()
@@ -220,14 +220,14 @@ for (const kind of ["pause", "resume", "stop", "retry", "recover"] as const)
       }),
     );
 program.command("monitor").action(async () => {
-  if (!process.stdin.isTTY)
+  if (!process.stdin.isTTY || !process.stdout.isTTY)
     throw new Error(
       "Monitor requires an interactive terminal; use status --json instead",
     );
   await withStore(async (store) => {
-    await render(
-      React.createElement(Monitor, { source: store }),
-    ).waitUntilExit();
+    await render(React.createElement(Monitor, { source: store }), {
+      alternateScreen: true,
+    }).waitUntilExit();
   });
 });
 try {

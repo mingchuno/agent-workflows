@@ -322,6 +322,7 @@ export class Runner {
         const current = await this.store.run(runId);
         const execution = current.executions?.at(-1);
         if (!execution?.recoveryOf) {
+          await this.store.patchRun(runId, { outcome: "running" });
           recoveryChecked = true;
           return;
         }
@@ -340,8 +341,8 @@ export class Runner {
           if (!state.paused) break;
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
-        await this.checkRecoveryState(current, project, controller.signal);
         await this.store.patchRun(runId, { outcome: "running" });
+        await this.checkRecoveryState(current, project, controller.signal);
         recoveryChecked = true;
       },
     });
@@ -415,7 +416,7 @@ export class Runner {
           // Capture inputs after prepare fetches and checks out the actual base.
           fingerprint: "",
           recoverySupported: !this.options.workflow,
-          createdAt: new Date().toISOString(),
+          createdAt: run.createdAt,
           outcome: run.outcome,
           phase: run.phase,
         },

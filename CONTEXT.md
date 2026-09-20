@@ -17,6 +17,10 @@ replaying an accepted command identifies its existing retry.
 One execution of a run, with its own outcome and failure evidence. Recovery
 adds an execution to the same run; retry creates a new run.
 
+**Execution duration**:
+Wall-clock time spent in one execution, excluding queue waiting before it
+starts and gaps between executions awaiting publication recovery.
+
 **Publication recovery**:
 Continuing a failed run at its failed publication step, reusing completed work
 and preserving the branch, revision, and publication identity.

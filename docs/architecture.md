@@ -10,7 +10,7 @@ DBOS owns workflow execution, durable steps and concurrency-one project queues. 
 - `store.ts`: typed Drizzle queries for run, invocation, project, command and event records; `db/schema.ts` and `drizzle/` own the application schema and migrations.
 - `adapters/`: provider clients and isolated SDK workers.
 - `runtime/`: process groups, ownership journals and redacted logging.
-- `cli.ts` / `tui.tsx`: shared command/query interfaces.
+- `cli.ts` / `tui/`: shared command/query interfaces.
 
 Application records live in `agent_workflows`; DBOS maintains its own execution schema in the same PostgreSQL database. Large streamed agent/validation logs live under the configured state directory, referenced by records. Agent calls are never automatically retried. Publication retries and explicit recovery reconcile external state first. Clean terminal state and terminal workflow outcome are deliberately separate.
 
@@ -22,7 +22,7 @@ The runner supports existing checkouts only. Higher per-project concurrency requ
 
 ## Package boundary
 
-Keep one package while the SDK, CLI and TUI share a runtime, schema and release cycle. `src/adapters`, `src/runtime` and `src/db` provide internal boundaries without workspace packages. Split into a monorepo when a separately deployed app or independently versioned package needs its own dependencies and build. `pnpm-workspace.yaml` currently configures installation policy only.
+Keep one package while the SDK, CLI and TUI share a runtime, schema and release cycle. `src/adapters`, `src/runtime`, `src/db` and `src/tui` provide internal boundaries without workspace packages. Split into a monorepo when a separately deployed app or independently versioned package needs its own dependencies and build. `pnpm-workspace.yaml` currently configures installation policy only.
 
 ## Run and execution identity
 

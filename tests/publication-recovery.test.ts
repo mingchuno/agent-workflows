@@ -144,6 +144,14 @@ for (const phase of ["push", "change-request", "review-publication"]) {
       assert.equal(recovered.executions?.[0]?.outcome, "failed");
       assert.equal(recovered.executions?.[1]?.id, executionId);
       assert.equal(recovered.executions?.[1]?.outcome, "completed");
+      assert.equal(
+        recovered.executions?.[0]?.finishedAt,
+        run.executions?.[0]?.finishedAt,
+      );
+      const timing = recovered.executions![1]!;
+      assert.ok(timing.startedAt && timing.finishedAt);
+      assert.ok(Date.parse(timing.startedAt) >= Date.parse(timing.createdAt));
+      assert.ok(Date.parse(timing.finishedAt) >= Date.parse(timing.startedAt));
       assert.equal(await readFile(validationCount, "utf8"), "checked\n");
       const completedSessions = await runner.store.invocations(run.id);
       assert.equal(completedSessions.length, 3);

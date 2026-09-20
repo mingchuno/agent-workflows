@@ -202,6 +202,12 @@ importers:
       react:
         specifier: ^19.3.0
         version: 19.3.0
+      string-width:
+        specifier: ^8.2.2
+        version: 8.2.2
+      wrap-ansi:
+        specifier: ^9.0.2
+        version: 9.0.2
       zod:
         specifier: ^4.6.5
         version: 4.6.5

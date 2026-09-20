@@ -19,7 +19,50 @@ All commands accept `--config PATH` before the subcommand.
 
 Control commands return a command ID and `pending`; inspect `status --json` or the monitor for success/failure. With no runner, commands stay pending. Run and monitor are separate processes. Closing the monitor never cancels work. Ctrl-C on the runner stops intake, cancels active work, waits for process termination and releases ownership. Queued issues remain durable for the next start.
 
-In the monitor, Left/Right selects a project, Up/Down a run, `[`/`]` a step/attempt event, Tab an agent invocation, `l` displays its log tail, `v` cycles validation logs, `p` pauses/resumes intake, `s` stops the selected run, `r` retries it, `c` recovers publication, and `q` closes the view. Session IDs are displayed in full for terminal selection/copying. Outcomes, validation, profiles and session state use text as well as color. Noninteractive tools use `status --json` and `inspect`.
+The monitor uses a full-screen view and restores the terminal when closed.
+It refreshes persisted workflow state and open logs every 400 ms. Database
+connectivity is shown separately from command acknowledgements; it does not
+prove that a runner is alive. Requires an interactive terminal of at least
+80 columns by 24 rows. Wide terminals show run list, summary and sessions;
+compact terminals show the focused pane. Titles and identifiers are available
+in full in scrollable details. `NO_COLOR=1` disables semantic colors.
+
+| Context | Keys |
+| --- | --- |
+| Dashboard | Left/Right project; Tab/Shift+Tab pane; Up/Down selection or scroll |
+| Details | Enter opens; Up/Down or PgUp/PgDn scroll; Esc returns |
+| Progress | `[`/`]` inspect step history; End follows latest event |
+| Sessions | `a` focuses session list; Up/Down selects invocation; `l` opens log |
+| Validation | `v` opens validation logs |
+| Controls | `p` pauses/resumes intake; `s` stops; `r` retries; `c` recovers publication |
+| Monitor | `?` opens the shortcut dialog; `q` or Ctrl-C closes only the monitor |
+| Shortcut dialog | Tab/Shift+Tab or Left/Right changes category; Up/Down scrolls; Esc closes |
+| Logs | Up/Down or `j`/`k` scroll; PgUp/PgDn page; Left/Right pan long lines |
+| Logs | Home/End or `g`/`G` first/last page; `f` resumes live follow |
+| Logs | Tab selects next log; `R` toggles readable/raw presentation |
+| Search | `/` opens; Enter applies; `n`/`N` next/previous matching record |
+| Back | Esc dismisses search/help first, then returns from logs |
+
+Stop, retry and publication recovery require confirmation of the selected issue;
+The centered dialog defaults to Cancel. Tab/Shift+Tab or Left/Right switches
+between Cancel and Confirm; Enter activates the highlighted option and Esc
+cancels. Unavailable actions are omitted from the footer.
+A pending command stays pending until the runner acknowledges it, including
+while switching projects. Logs and search cannot send workflow commands.
+
+Search is literal and covers the entire selected file, not only the visible page.
+Lowercase queries ignore case; any uppercase character makes the query
+case-sensitive. Search wraps at file boundaries. Scrolling or searching pauses
+follow so arriving output does not move the view. Known agent events render as
+readable messages/tool activity; unknown events remain visible as JSON. Raw
+presentation preserves the stored text except unsafe terminal control codes.
+
+Execution duration includes eligibility, preparation and waits within one
+execution. It excludes queue waiting and gaps before publication recovery.
+Details show each execution, its queue wait and the run's total elapsed time.
+Completed execution durations freeze at their first terminal outcome. Records
+without timing evidence show an em dash. Noninteractive tools use `status --json`
+and `inspect`. See [TUI design](tui-redesign.md) for implementation boundaries.
 
 ## Observability Landscape
 

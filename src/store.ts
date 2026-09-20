@@ -439,7 +439,10 @@ export class Store {
         execution.phase = merged.phase;
         execution.error = merged.error;
         execution.failedStep = merged.failedStep;
-        if (!["queued", "running"].includes(merged.outcome))
+        if (
+          !execution.finishedAt &&
+          !["queued", "running"].includes(merged.outcome)
+        )
           execution.finishedAt = change.updatedAt;
       }
       await tx.update(runs).set({ record: merged }).where(predicate);

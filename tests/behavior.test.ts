@@ -605,3 +605,36 @@ for (const failure of [
       await runner.shutdown();
     }
   });
+
+test("execution timing includes eligibility failures and freezes terminal duration", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project } = await repository();
+  const { runner, hosts } = await setup([project]);
+  let observedStart: string | undefined;
+  hosts.get(project.id)!.getIssue = async () => {
+    const [run] = await runner.store.runs();
+    assert.equal(run!.outcome, "running");
+    observedStart = run!.executions?.at(-1)?.startedAt;
+    assert.ok(
+      observedStart,
+      "Execution starts before eligibility and preparation",
+    );
+    throw new Error("eligibility unavailable");
+  };
+  try {
+    await runner.start();
+    await waitFor(() => terminal(runner, 1));
+    const [run] = await runner.store.runs();
+    const execution = run!.executions!.at(-1)!;
+    assert.ok(observedStart);
+    assert.equal(execution.startedAt, observedStart);
+    assert.equal(execution.createdAt, run!.createdAt);
+    assert.ok(execution.finishedAt);
+    await runner.store.patchRun(run!.id, { error: "Additional diagnostic" });
+    const later = await runner.store.run(run!.id);
+    assert.equal(later.executions!.at(-1)!.finishedAt, execution.finishedAt);
+  } finally {
+    await runner.shutdown();
+  }
+});
