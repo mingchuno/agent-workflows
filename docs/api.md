@@ -4,7 +4,7 @@ Exports are in `src/index.ts`; the built package resolves to `dist/src/index.js`
 
 ## Runner and controls
 
-`new Runner({config,databaseUrl,hosting,agents,workspace?,workflow?,workflowVersion?})` injects hosting/agent adapters and optionally a workspace strategy or workflow. `hosting(project)` returns a host-qualified adapter. `agents` maps provider names to adapters. The default workspace uses the existing checkout. One DBOS runtime runs per Node process; one runner owns each configuration and checkout.
+`new Runner({config,databaseUrl,hosting,agents,workspace?,workflow?,workflowVersion?,promptBaseDirectory?})` injects hosting/agent adapters and optionally a workspace strategy or workflow. `hosting(project)` returns a host-qualified adapter. `agents` maps provider names to adapters. The default workspace uses the existing checkout. One DBOS runtime runs per Node process; one runner owns each configuration and checkout.
 
 `start()` validates registration, acquires ownership, launches DBOS, registers concurrency-one project queues, and starts polling. `poll(projectId?)` performs an immediate scan. `pause(projectId)` stops new starts while active work continues. `resume(projectId)` refuses blocked checkouts. `stop(runId)` waits for the active invocation/process to end, or cancels queued work. `retry(runId)` requires a terminal failed/blocked/cancelled run and a clean checkout, then returns a new linked run ID. `recover(runId)` returns a new execution ID for publication recovery of the same run. `shutdown()` stops intake, cancels and awaits active work, closes DBOS and releases ownership.
 
@@ -36,7 +36,30 @@ commit together; failure preserves the blocked state.
 | `publishReview()`                        | Reject stale head; reconcile review marker; map valid added-line findings    |
 | `complete(outcome?)`                     | Require clean checkout and persist terminal outcome                          |
 | `step(name, operation)`                  | Custom durable operation receiving current `RunRecord`                       |
-| `invoke(name, stage, prompt, readOnly?)` | Custom agentic step with profile resolution and session history              |
+| `invoke(name, stage, task)` | Custom agentic step with profile resolution and session history              |
+
+`task` separates `defaultPrompt` from an optional `context(run)` supplier.
+Optional `readOnly`, Zod `outputContract`, and captured `evidence` control runtime
+checks. Stage overrides replace only `defaultPrompt`. Custom stages have no
+inferred built-in default; resolve file-based custom stages before invocation
+with `resolveStagePrompt(stage, defaultPrompt, baseDirectory)` if they must be
+frozen alongside startup configuration. The runner resolves built-in prompt files
+at construction using `promptBaseDirectory`.
+
+```ts
+await operations.invoke("report", stage, {
+  defaultPrompt: "Summarize the recorded validation.",
+  context: (run) => JSON.stringify(run.validation ?? []),
+  readOnly: true,
+});
+```
+
+An output contract enables strict response validation and one format correction
+within the original deadline. Both attempts retain separate invocation/session
+records under the same durable step. The returned string is validated JSON when
+a contract is supplied. Codex output contracts must use its supported JSON-schema
+subset: every property is required; use nullable defaults for optional locations.
+Built-in review parsing accepts omitted locations and normalizes them to `null`. Interrupted calls are never automatically replayed.
 
 Put side effects inside `step`; custom effects must be idempotent or reconcile their own ambiguous results. A DBOS checkpoint does not snapshot a checkout. Returning from a custom workflow without calling a terminal operation is invalid. [Reporting workflow](../examples/custom-workflow.ts) inserts a validation report without editing provider code.
 
@@ -116,7 +139,7 @@ Caveats:
 
 `prepare`, `commit` and `push` receive an optional final `AbortSignal`. Custom workspaces must stop their subprocesses before settling a cancelled operation. The existing-checkout strategy journals Git processes under the Git directory; ownership acquisition rejects surviving process groups after a runner crash.
 
-`AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)` receives working directory, prompt/skills, read-only intent, abort signal, stage `timeoutMs` and session/event callbacks. The abort signal also covers cancellation and time spent validating the profile. Call `session(id)` immediately when available. Await event persistence; invocation must not settle until its work has stopped. SDK adapters enforce process-group lifecycle; custom adapters must uphold the same contract. `processFile` is available for controlled subprocess ownership.
+`AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)` receives working directory, prompt, optional application-owned `outputSchema`, read-only intent, abort signal, stage `timeoutMs` and session/event callbacks. The abort signal also covers cancellation and time spent validating the profile. Call `session(id)` immediately when available. Await event persistence; invocation must not settle until its work has stopped. SDK adapters enforce process-group lifecycle; custom adapters must uphold the same contract. `processFile` is available for controlled subprocess ownership.
 
 `HostingAdapter` provides issue pagination/revalidation, instance-qualified `identity`, change-request lookup/create, remote head, and idempotent review publication. `preflight` is optional. Reconciliation keys must be stable across response loss; providers must never infer successful publication from agent prose.
 
@@ -129,7 +152,7 @@ and process safety check, which runs under the project lock for new admissions
 only. This callback must not mutate Store records. Operator tools should use
 `retry` commands or `Runner.retry`, preserving those safety checks.
 
-Invocation records include project/run IDs, stable DBOS step ID and name, invocation ID, attempt, timestamps, requested/effective profile, provider, prompt/skill snapshots, artifact path and session state (`pending`, `available`, `unavailable`). Repeated custom steps retain separate invocations. A retry has a separate run record linked to its predecessor.
+Invocation records include project/run IDs, stable DBOS step ID and name, invocation ID, attempt, timestamps, requested/effective profile, provider, effective task prompt/source/hash, output-contract and evidence identities, artifact path and session state (`pending`, `available`, `unavailable`). Repeated custom steps retain separate invocations. A retry has a separate run record linked to its predecessor.
 
 `request(kind,target)` queues the same `pause`, `resume`, `stop`, `retry`, or `recover` commands used by the CLI/TUI; `commands()` reports pending/success/failure. A runner must be active to execute them. `finishCommand` and record-writing methods support adapters and custom workflows; operator tools should prefer commands over direct mutation.
 

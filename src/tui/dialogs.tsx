@@ -4,6 +4,11 @@ import { colorFor, wrapLines } from "./format.js";
 import { Lines } from "./views.js";
 
 type DialogSize = { columns: number; rows: number };
+const dialogHorizontalMargin = 8;
+const dialogVerticalMargin = 4;
+const dialogContentWidthOffset = 6;
+const dialogChromeHeight = 11;
+
 function Dialog({
   columns,
   rows,
@@ -115,9 +120,9 @@ export function HelpDialog({
 }) {
   const [page, setPage] = useState(initialPage);
   const [offset, setOffset] = useState(0);
-  const width = Math.min(86, columns - 8);
-  const height = Math.min(23, rows - 4);
-  const bodyHeight = height - 11;
+  const width = Math.min(86, columns - dialogHorizontalMargin);
+  const height = Math.min(23, rows - dialogVerticalMargin);
+  const bodyHeight = height - dialogChromeHeight;
   const current = helpPages[page]!;
   const content = [
     ...current.rows.map(
@@ -127,7 +132,7 @@ export function HelpDialog({
   ];
   const maxOffset = Math.max(
     0,
-    wrapLines(content, width - 6).length - bodyHeight,
+    wrapLines(content, width - dialogContentWidthOffset).length - bodyHeight,
   );
   const changePage = (delta: number) => {
     setPage((value) => (value + delta + helpPages.length) % helpPages.length);
@@ -167,7 +172,7 @@ export function HelpDialog({
       <Box height={1} flexShrink={0} />
       <Lines
         lines={content}
-        width={width - 6}
+        width={width - dialogContentWidthOffset}
         height={bodyHeight}
         offset={offset}
       />
@@ -202,7 +207,7 @@ export function ConfirmDialog({
 }) {
   const [selected, setSelected] = useState<"cancel" | "confirm">("cancel");
   const [offset, setOffset] = useState(0);
-  const width = Math.min(78, columns - 8);
+  const width = Math.min(78, columns - dialogHorizontalMargin);
   const content = [
     subject,
     "",
@@ -211,9 +216,15 @@ export function ConfirmDialog({
       ? ["", "This action is no longer available. Cancel to refresh the view."]
       : []),
   ];
-  const contentLines = wrapLines(content, width - 6).length;
-  const height = Math.min(rows - 4, contentLines + 11);
-  const bodyHeight = height - 11;
+  const contentLines = wrapLines(
+    content,
+    width - dialogContentWidthOffset,
+  ).length;
+  const height = Math.min(
+    rows - dialogVerticalMargin,
+    contentLines + dialogChromeHeight,
+  );
+  const bodyHeight = height - dialogChromeHeight;
   const maxOffset = Math.max(0, contentLines - bodyHeight);
   useInput((input, key) => {
     if (key.ctrl || key.meta || key.eventType === "release") return;
@@ -238,7 +249,7 @@ export function ConfirmDialog({
     >
       <Lines
         lines={content}
-        width={width - 6}
+        width={width - dialogContentWidthOffset}
         height={bodyHeight}
         offset={offset}
       />

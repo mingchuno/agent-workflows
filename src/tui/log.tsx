@@ -6,6 +6,8 @@ import { presentLogLine } from "./log-file.js";
 import { matchIndex } from "./text.js";
 import { useLogController } from "./use-log-controller.js";
 
+const horizontalPanColumns = 20;
+
 export interface LogSource {
   path: string;
   label: string;
@@ -117,8 +119,8 @@ function LogScreen({
     else if (key.pageDown || input === " ") log.scroll(height);
     else if (key.home || input === "g") log.firstPage();
     else if (key.end || input === "G") log.lastPage();
-    else if (key.leftArrow) log.pan(-20);
-    else if (key.rightArrow) log.pan(20);
+    else if (key.leftArrow) log.pan(-horizontalPanColumns);
+    else if (key.rightArrow) log.pan(horizontalPanColumns);
   });
   if (help)
     return (

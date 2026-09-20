@@ -3,6 +3,7 @@ import { matchIndex, terminalText } from "./text.js";
 
 const chunkSize = 64 * 1024;
 const checkpointInterval = 256;
+const lineFeedByte = 0x0a;
 
 export function presentLogLine(line: string, raw: boolean): string {
   if (raw) return terminalText(line);
@@ -83,8 +84,8 @@ export class LogFile {
         signal.throwIfAborted();
         if (!bytesRead) break;
         for (let i = 0; i < bytesRead; i++) {
-          this.tail = buffer[i] !== 10;
-          if (buffer[i] === 10) {
+          this.tail = buffer[i] !== lineFeedByte;
+          if (buffer[i] === lineFeedByte) {
             this.completeLines++;
             if (this.completeLines % checkpointInterval === 0)
               this.checkpoints[this.completeLines / checkpointInterval] =
@@ -117,7 +118,7 @@ export class LogFile {
         if (!bytesRead) break;
         let beginning = 0;
         for (let i = 0; i < bytesRead; i++) {
-          if (buffer[i] !== 10) continue;
+          if (buffer[i] !== lineFeedByte) continue;
           parts.push(Buffer.from(buffer.subarray(beginning, i)));
           if (number >= start)
             yield {

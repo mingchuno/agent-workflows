@@ -50,7 +50,7 @@ test("all four provider combinations run concurrently, each project remains sequ
       const { project } = await repository();
       project.id = `${provider}_${host}`;
       project.agent = { provider, model: "implementation" };
-      project.stages.writing.profile = { provider, model: "writer" };
+      project.stages.publication.profile = { provider, model: "writer" };
       project.stages.review.profile = {
         provider: provider === "codex" ? "copilot" : "codex",
         model: "reviewer",
@@ -99,7 +99,7 @@ test("all four provider combinations run concurrently, each project remains sequ
     for (const host of hosts.values()) assert.equal(host.changes.length, 2);
     assert.ok(
       observed.some(
-        (value) => value.step === "writing" && value.model === "writer",
+        (value) => value.step === "publication" && value.model === "writer",
       ),
     );
     assert.ok(
@@ -139,7 +139,7 @@ test("validation failure, malformed publication and no-change stop publication; 
         await input.session("no-change-session");
         return "nothing to do";
       }
-      if (project.id === "malformed" && input.step === "writing")
+      if (project.id === "malformed" && input.step === "publication")
         return '{"title":"incomplete"}';
       return agent.invoke(input);
     },
@@ -261,18 +261,14 @@ test("custom agent steps keep multiple invocations and query events survive rest
   let events = 0;
   runner.options.workflow = async (operations) => {
     await operations.prepare();
-    await operations.invoke(
-      "custom-report",
-      project.stages.writing,
-      () => "Return a report",
-      true,
-    );
-    await operations.invoke(
-      "custom-report",
-      project.stages.writing,
-      () => "Return a second report",
-      true,
-    );
+    await operations.invoke("custom-report", project.stages.publication, {
+      defaultPrompt: "Return a report",
+      readOnly: true,
+    });
+    await operations.invoke("custom-report", project.stages.publication, {
+      defaultPrompt: "Return a second report",
+      readOnly: true,
+    });
     await operations.complete("no-change");
   };
   let runId = "";
@@ -566,8 +562,10 @@ for (const failure of [
       await operations.invoke(
         "characterization",
         project.stages.implementation,
-        () => "Exercise invocation boundary",
-        failure === "read-only",
+        {
+          defaultPrompt: "Exercise invocation boundary",
+          readOnly: failure === "read-only",
+        },
       );
       await operations.complete();
     };
@@ -638,3 +636,86 @@ test("execution timing includes eligibility failures and freezes terminal durati
     await runner.shutdown();
   }
 });
+
+for (const scenario of [
+  "corrected",
+  "invalid",
+  "provider-failure",
+  "mutation",
+  "incomplete",
+] as const) {
+  test(`structured stage outcome: ${scenario}`, {
+    skip: !databaseUrl,
+  }, async () => {
+    const { project } = await repository();
+    project.stages.publication.prompt = "Custom publication task";
+    const calls: import("../src/domain.js").AgentInvocation[] = [];
+    const controlled: AgentAdapter = {
+      validate: agent.validate,
+      async invoke(input) {
+        if (input.step === "publication") {
+          calls.push(input);
+          assert.match(input.prompt, /Custom publication task/);
+          assert.match(input.prompt, /Issue:/);
+          assert.match(input.prompt, /Change evidence index:/);
+          assert.doesNotMatch(input.prompt, /Prepare a Git commit message/);
+          assert.ok(input.outputSchema);
+          assert.equal(input.readOnly, true);
+          if (scenario === "provider-failure")
+            throw new Error("provider failed");
+          if (scenario === "mutation")
+            await writeFile(join(input.cwd, "unexpected.txt"), "mutation");
+          if (
+            scenario === "invalid" ||
+            (scenario === "corrected" && calls.length === 1) ||
+            scenario === "mutation"
+          )
+            return "not JSON";
+        }
+        if (input.step === "review" && scenario === "incomplete")
+          return JSON.stringify({
+            complete: false,
+            limitations: ["Could not inspect a dependency"],
+            summary: "Partial",
+            findings: [{ body: "Partial finding" }],
+          });
+        return agent.invoke(input);
+      },
+    };
+    const { runner, hosts } = await setup([project], { codex: controlled });
+    try {
+      await runner.start();
+      await waitFor(() => terminal(runner, 1));
+      const run = (await runner.store.runs())[0]!;
+      const records = (await runner.store.invocations(run.id)).filter(
+        (record) => record.step === "publication",
+      );
+      if (scenario === "corrected") {
+        assert.equal(
+          run.outcome,
+          "completed",
+          run.error ?? "unexpected outcome",
+        );
+        assert.equal(calls.length, 2);
+        assert.ok(calls[1]!.timeoutMs! < calls[0]!.timeoutMs!);
+        assert.equal(calls[0]!.signal, calls[1]!.signal);
+        assert.notEqual(records[0]!.id, records[1]!.id);
+        assert.deepEqual(records.map((record) => record.outcome).sort(), [
+          "completed",
+          "invalid-output",
+        ]);
+      } else {
+        assert.notEqual(run.outcome, "completed");
+        assert.equal(calls.length, scenario === "invalid" ? 2 : 1);
+        assert.equal(hosts.get(project.id)!.reviews.length, 0);
+        if (scenario === "incomplete") {
+          assert.equal(run.review?.complete, false);
+          assert.equal(run.review?.findings.length, 1);
+          assert.match(run.error!, /Incomplete review/);
+        } else assert.equal(run.publication, undefined);
+      }
+    } finally {
+      await runner.shutdown();
+    }
+  });
+}

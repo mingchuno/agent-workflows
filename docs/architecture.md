@@ -5,6 +5,8 @@ DBOS owns workflow execution, durable steps and concurrency-one project queues. 
 - `config.ts` / `domain.ts`: validated configuration, vocabulary and adapter contracts.
 - `runner.ts`: local ownership, intake/deduplication, DBOS lifecycle and operator controls.
 - `operations.ts`: reusable durable coding operations and the default workflow.
+- `prompts.ts` / `invocation.ts`: resolved task text, output contracts and bounded format correction.
+- `evidence.ts`: indexed, hashed change artifacts and capture limits.
 - `recovery.ts`: publication recovery eligibility, input fingerprints and live safety checks.
 - `workspace.ts`: existing-checkout Git operations and change verification.
 - `store.ts`: typed Drizzle queries for run, invocation, project, command and event records; `db/schema.ts` and `drizzle/` own the application schema and migrations.
@@ -12,7 +14,7 @@ DBOS owns workflow execution, durable steps and concurrency-one project queues. 
 - `runtime/`: process groups, ownership journals and redacted logging.
 - `cli.ts` / `tui/`: shared command/query interfaces.
 
-Application records live in `agent_workflows`; DBOS maintains its own execution schema in the same PostgreSQL database. Large streamed agent/validation logs live under the configured state directory, referenced by records. Agent calls are never automatically retried. Publication retries and explicit recovery reconcile external state first. Clean terminal state and terminal workflow outcome are deliberately separate.
+Application records live in `agent_workflows`; DBOS maintains its own execution schema in the same PostgreSQL database. Large streamed agent/validation logs live under the configured state directory, referenced by records. Interrupted or failed agent calls are never automatically retried. A returned response that fails its output contract may receive one fresh inspection-only format-correction attempt within the same stage deadline. Publication retries and explicit recovery reconcile external state first. Clean terminal state and terminal workflow outcome are deliberately separate.
 
 Node/PostgreSQL/Git are the only runtime infrastructure; providers require their normal local authentication. Zod, Commander, Ink/React, Drizzle/node-postgres, Pino, Octokit and Gitbeaker handle standard infrastructure. Drizzle ORM and Codex SDK are Apache-2.0; the other listed runtime libraries and Copilot SDK are MIT-licensed. Exact dependency versions are pinned by the lockfile. No custom HTTP client, CLI parser or terminal renderer is introduced.
 

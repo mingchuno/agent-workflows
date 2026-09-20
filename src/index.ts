@@ -3,6 +3,7 @@ export * from "./adapters/hosting.js";
 export * from "./config.js";
 export * from "./domain.js";
 export * from "./operations.js";
+export * from "./prompts.js";
 export * from "./runner.js";
 export * from "./store.js";
 export * from "./workspace.js";

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --
 import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { Command } from "commander";
 import { render } from "ink";
@@ -8,6 +8,7 @@ import React from "react";
 import { createAgents } from "./adapters/agents.js";
 import { createHosting } from "./adapters/hosting.js";
 import { type Configuration, configSchema } from "./config.js";
+import { defaultValidationTimeoutMs } from "./defaults.js";
 import { Runner } from "./runner.js";
 import { Store } from "./store.js";
 import { Monitor } from "./tui/index.js";
@@ -65,7 +66,10 @@ program
     const config = {
       id: "local",
       databaseUrlEnv: "AGENT_WORKFLOWS_DATABASE_URL",
-      stateDirectory: resolve(".agent-workflows"),
+      stateDirectory: resolve(
+        "..",
+        `${basename(process.cwd())}.agent-workflows`,
+      ),
       projects: [
         {
           id: "example",
@@ -81,20 +85,14 @@ program
           branchTemplate: "agent/{issue}-{attempt}",
           gitIdentity: { name: "YOUR NAME", email: "you@example.com" },
           agent: { provider: "codex" },
-          validation: [{ command: "pnpm", args: ["test"], timeoutMs: 300000 }],
-          stages: {
-            implementation: {
-              prompt:
-                "Implement the issue and preserve repository conventions.",
+          validation: [
+            {
+              command: "pnpm",
+              args: ["test"],
+              timeoutMs: defaultValidationTimeoutMs,
             },
-            writing: {
-              prompt: "Describe the actual changes and validation accurately.",
-            },
-            review: {
-              prompt:
-                "Review correctness, safety and the issue acceptance criteria.",
-            },
-          },
+          ],
+          stages: { implementation: {}, publication: {}, review: {} },
         },
       ],
     };
@@ -122,6 +120,7 @@ program
       );
     }
     const runner = new Runner({
+      promptBaseDirectory: dirname(resolve(program.opts().config)),
       config,
       databaseUrl: databaseUrl(config),
       hosting: createHosting,

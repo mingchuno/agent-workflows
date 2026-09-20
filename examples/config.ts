@@ -23,7 +23,7 @@ export const configuration = configSchema.parse({
         implementation: {
           prompt: "Implement the issue and follow repository guidance.",
         },
-        writing: {
+        publication: {
           profile: { provider: "copilot" },
           prompt:
             "Write concise publication text from the diff and validation evidence.",
@@ -45,7 +45,7 @@ export const modelOverrides = {
     model: "YOUR_CODEX_MODEL",
     reasoningEffort: "high",
   },
-  writing: {
+  publication: {
     provider: "copilot" as const,
     model: "YOUR_COPILOT_MODEL",
     reasoningEffort: "low",

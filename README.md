@@ -90,6 +90,7 @@ Use `pnpm start --help` to run the CLI from source. `pnpm build` emits the runti
 Schema changes and database upgrades: [database maintenance](docs/database.md). Biome formats and lints supported source/configuration files; Markdown and YAML are maintained manually.
 
 - [Configuration and profiles](docs/configuration.md)
+- [Default stage prompts](docs/configuration.md#default-stage-prompts)
 - [Public SDK API and composition](docs/api.md)
 - [DBOS SDK direct usage](docs/api.md#dbos-sdk-direct-usage)
 - [Authentication and provider capabilities](docs/providers.md)

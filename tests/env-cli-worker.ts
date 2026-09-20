@@ -14,7 +14,6 @@ const invocation: AgentInvocation = {
   cwd: process.cwd(),
   prompt: "Implement task",
   profile: { provider: "codex" },
-  skills: [],
   readOnly: false,
   signal: new AbortController().signal,
   session: async () => {},

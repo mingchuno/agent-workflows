@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
+import { screenChromeRows, tuiRefreshIntervalMs } from "./constants.js";
 import { LogFile, presentLogLine } from "./log-file.js";
 import { matchIndex, terminalText } from "./text.js";
 
 /** Owned by one keyed log screen; unmount cancels polling and search. */
 export function useLogController(path: string, columns: number, rows: number) {
   const file = useMemo(() => new LogFile(path), [path]);
-  const height = Math.max(1, rows - 6);
+  const height = Math.max(1, rows - screenChromeRows);
   const [following, setFollowing] = useState(true);
   const [top, setTop] = useState(0);
   const [horizontal, setHorizontal] = useState(0);
@@ -55,7 +56,7 @@ export function useLogController(path: string, columns: number, rows: number) {
       }
     };
     void update();
-    const timer = setInterval(() => void update(), 400);
+    const timer = setInterval(() => void update(), tuiRefreshIntervalMs);
     return () => {
       controller.abort();
       clearInterval(timer);

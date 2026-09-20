@@ -3,6 +3,11 @@ import wrapAnsi from "wrap-ansi";
 import type { ExecutionRecord, RunRecord } from "../domain.js";
 import { terminalText } from "./text.js";
 
+const millisecondsPerSecond = 1_000;
+const secondsPerMinute = 60;
+const secondsPerHour = 60 * secondsPerMinute;
+const secondsPerDay = 24 * secondsPerHour;
+
 export function duration(
   start?: string,
   end?: string,
@@ -11,11 +16,14 @@ export function duration(
   if (!start || !Number.isFinite(Date.parse(start))) return "—";
   const finish = end ? Date.parse(end) : now;
   if (!Number.isFinite(finish)) return "—";
-  const seconds = Math.max(0, Math.floor((finish - Date.parse(start)) / 1000));
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return `${days ? `${days}d ` : ""}${hours ? `${hours}h ` : ""}${minutes}m ${seconds % 60}s`;
+  const seconds = Math.max(
+    0,
+    Math.floor((finish - Date.parse(start)) / millisecondsPerSecond),
+  );
+  const days = Math.floor(seconds / secondsPerDay);
+  const hours = Math.floor((seconds % secondsPerDay) / secondsPerHour);
+  const minutes = Math.floor((seconds % secondsPerHour) / secondsPerMinute);
+  return `${days ? `${days}d ` : ""}${hours ? `${hours}h ` : ""}${minutes}m ${seconds % secondsPerMinute}s`;
 }
 export function executionDuration(
   execution: ExecutionRecord | undefined,

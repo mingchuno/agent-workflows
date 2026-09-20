@@ -32,6 +32,7 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "aw-env-"));
   const config = configSchema.parse({
     id: "env_" + randomUUID().replaceAll("-", ""),
+    stateDirectory: root + "-state",
     projects: [
       {
         id: "test",
@@ -303,7 +304,7 @@ test("runner workers and validation inherit literal startup values and retain cr
         assert.equal(child.exitCode, null, output);
         return (await store.runs()).some((run) => run.outcome === "failed");
       });
-      for (const stage of ["implementation", "validation", "writing"]) {
+      for (const stage of ["implementation", "validation", "publication"]) {
         assert.deepEqual(
           JSON.parse(await readFile(join(directory, `${stage}.json`), "utf8")),
           expected,
@@ -413,7 +414,7 @@ test("CLI startup feeds literal values to SDK workers and later children without
       { cwd: directory, env: workerEnvironment, allowFailure: true },
     );
     assert.equal(result.exitCode, 0, result.stderr);
-    for (const stage of ["implementation", "validation", "writing"]) {
+    for (const stage of ["implementation", "validation", "publication"]) {
       assert.deepEqual(
         JSON.parse(await readFile(join(directory, `${stage}.json`), "utf8")),
         expected,

@@ -336,7 +336,7 @@ test("configuration, artifacts, remote revision and checkpoint loss refuse recov
     const project = runner.config.projects[0]!;
     project.stages.review.prompt = "changed";
     await assert.rejects(runner.recover(run.id), /configuration|skills/);
-    project.stages.review.prompt = "";
+    delete project.stages.review.prompt;
     const log = (await runner.store.invocations(run.id))[0]!.log;
     const contents = await readFile(log);
     await unlink(log);
@@ -404,7 +404,7 @@ test("recovery refuses changed files and unrelated project blocks without mutati
   }
 });
 
-test("recovery fingerprints skills from the fetched base and allows credential rotation", {
+test("recovery fingerprints inline prompts and allows credential rotation", {
   skip: !databaseUrl,
 }, async () => {
   const { runner, run, restore } = await failedPublication(
@@ -415,7 +415,7 @@ test("recovery fingerprints skills from the fetched base and allows credential r
       await git("commit", "-m", "add skill on remote base");
       await git("push", "origin", "HEAD:refs/heads/main");
       await git("reset", "--hard", "HEAD~1");
-      project.stages.implementation.skills = ["SKILL.md"];
+      project.stages.implementation.prompt = "Use the configured instructions";
     },
   );
   try {

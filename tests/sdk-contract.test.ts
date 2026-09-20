@@ -15,7 +15,6 @@ const input: WorkerInput = {
   cwd: "/workspace",
   prompt: "Task",
   profile: { provider: "codex", model: "model", reasoningEffort: "high" },
-  skills: [],
   readOnly: true,
 };
 test("Codex contract passes requested profile and emits thread ID before a failed turn", async () => {
@@ -88,7 +87,6 @@ test("Copilot contract starts fresh sessions with context controls and stops on 
             bufferExhaustionThreshold: 0.9,
           },
         },
-        skills: ["/skills/review/SKILL.md"],
       },
       (type, value) => messages.push([type, value]),
     ),
@@ -97,7 +95,7 @@ test("Copilot contract starts fresh sessions with context controls and stops on 
   assert.equal(options?.sessionId, "invocation");
   assert.equal(options?.model, "review-model");
   assert.equal(options?.infiniteSessions?.backgroundCompactionThreshold, 0.7);
-  assert.deepEqual(options?.skillDirectories, ["/skills/review"]);
+  assert.equal(options?.skillDirectories, undefined);
   assert.deepEqual(messages[0], ["session", "invocation"]);
   assert.equal(stopped, true);
 });
@@ -129,4 +127,99 @@ test("Copilot honors a configured timeout longer than the default", async () => 
     () => {},
   );
   assert.equal(observedTimeout, 3_600_000);
+});
+
+test("Codex forwards the output contract independently of task text", async () => {
+  const schema = {
+    type: "object",
+    properties: { text: { type: "string" } },
+    required: ["text"],
+    additionalProperties: false,
+  };
+  let received: unknown;
+  await runCodex(
+    {
+      startThread(options) {
+        assert.equal(options.sandboxMode, "read-only");
+        return {
+          async runStreamed(_prompt, turnOptions) {
+            received = turnOptions?.outputSchema;
+            return {
+              events: (async function* (): AsyncGenerator<ThreadEvent> {
+                yield { type: "thread.started", thread_id: "structured" };
+              })(),
+            };
+          },
+        };
+      },
+    },
+    { ...input, prompt: "Ignore formatting", outputSchema: schema },
+    () => {},
+  );
+  assert.deepEqual(received, schema);
+});
+
+test("Copilot permits outside-checkout file reads while denying shell and writes", async () => {
+  const { mkdtemp, readFile, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const directory = await mkdtemp(join(tmpdir(), "copilot-evidence-"));
+  const file = join(directory, "evidence.txt");
+  await writeFile(file, "captured evidence");
+  const messages: unknown[] = [];
+  await runCopilot(
+    {
+      async listModels() {
+        return [];
+      },
+      async createSession(options) {
+        const permission = options.onPermissionRequest!;
+        const result = await permission(
+          { kind: "read", path: file, intention: "read evidence" },
+          { sessionId: "test" },
+        );
+        assert.equal(result.kind, "approve-once");
+        const denied = await permission(
+          {
+            kind: "write",
+            fileName: file,
+            diff: "",
+            intention: "write",
+            canOfferSessionApproval: false,
+          },
+          { sessionId: "test" },
+        );
+        assert.notEqual(denied.kind, "approve-once");
+        const shell = await permission(
+          {
+            kind: "shell",
+            fullCommandText: "git diff",
+            commands: [],
+            possiblePaths: [],
+            possibleUrls: [],
+            hasWriteFileRedirection: false,
+            intention: "inspect",
+            canOfferSessionApproval: false,
+          },
+          { sessionId: "test" },
+        );
+        assert.notEqual(shell.kind, "approve-once");
+        return {
+          sessionId: "test",
+          on() {},
+          async sendAndWait() {
+            return { data: { content: await readFile(file, "utf8") } };
+          },
+          async disconnect() {},
+        };
+      },
+      async stop() {
+        return [];
+      },
+      async forceStop() {},
+    },
+    { ...input, provider: "copilot", prompt: `Read ${file}` },
+    (_type, value) => messages.push(value),
+  );
+  assert.ok(messages.includes("captured evidence"));
 });

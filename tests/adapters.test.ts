@@ -147,6 +147,8 @@ test("agent capabilities reject unsupported settings without invoking a provider
 });
 test("inline findings include only added lines in the published diff", () => {
   const review = {
+    complete: true,
+    limitations: [],
     summary: "Review",
     findings: [
       { body: "valid", path: "a.txt", line: 4 },
@@ -256,6 +258,8 @@ for (const major of [17, 18, 19])
         head: "head",
         runId: "run",
         review: {
+          complete: true,
+          limitations: [],
           summary: "Summary",
           findings: [{ body: "Finding", path: "a.txt", line: 4 }],
         },

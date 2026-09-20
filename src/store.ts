@@ -35,7 +35,12 @@ export interface InvocationRecord {
   requested: unknown;
   effective: unknown;
   prompt: string;
-  skills: unknown;
+  /** Historical records only. New stages use runtime-managed skills. */
+  skills?: unknown;
+  taskPrompt?: import("./prompts.js").ResolvedPrompt;
+  outputContract?: string;
+  evidence?: import("./evidence.js").ChangeEvidence;
+  validationError?: string;
   outcome: string;
   startedAt: string;
   finishedAt?: string;

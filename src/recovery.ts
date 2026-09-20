@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, readFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Project } from "./config.js";
 import {
@@ -8,6 +8,8 @@ import {
   type RunRecord,
   type Workspace,
 } from "./domain.js";
+import { verifyEvidence } from "./evidence.js";
+import { projectPrompts } from "./prompts.js";
 import { assertProcessesStopped } from "./runtime/ownership.js";
 import { command } from "./runtime/process.js";
 import type { Store } from "./store.js";
@@ -52,16 +54,7 @@ export async function executionFingerprint(
     ...execution
   } = project;
   const { tokenEnv: _token, ...destination } = hosting;
-  const skills = await Promise.all(
-    Object.values(project.stages)
-      .flatMap((stage) => stage.skills)
-      .map(async (path) => ({
-        path: resolve(project.checkout, path),
-        hash: createHash("sha256")
-          .update(await readFile(resolve(project.checkout, path)))
-          .digest("hex"),
-      })),
-  );
+  const prompts = projectPrompts(project);
   const remote = await command(
     "git",
     ["remote", "get-url", "--push", "--all", project.remote],
@@ -75,11 +68,11 @@ export async function executionFingerprint(
   return createHash("sha256")
     .update(
       JSON.stringify({
-        version: 1,
+        version: 2,
         workflowVersion,
         execution,
         destination,
-        skills,
+        prompts,
         remote: remote.stdout,
         fetchRemote: fetchRemote.stdout,
       }),
@@ -122,7 +115,7 @@ export async function verifyPublicationRecovery(
   );
   if (fingerprint !== run.executions?.at(-1)?.fingerprint)
     throw new BlockedError(
-      "Execution configuration or skills changed; use retry",
+      "Execution configuration or prompts changed; use retry",
     );
   await assertProcessesStopped(resolve(stateDirectory, run.id));
   const gitDirectory = (
@@ -144,6 +137,9 @@ export async function verifyPublicationRecovery(
     signal,
   });
   const invocations = await store.invocations(run.id);
+  for (const invocation of invocations) {
+    if (invocation.evidence) await verifyEvidence(invocation.evidence);
+  }
   for (const path of [
     ...invocations.map((item) => item.log),
     ...(run.validation ?? []).map((item) => item.log),

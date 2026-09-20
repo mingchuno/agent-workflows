@@ -1,6 +1,7 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 import { actionAvailability } from "./actions.js";
+import { minimumTerminalSize } from "./constants.js";
 import { type MonitorSource, useMonitorData } from "./data.js";
 import { ConfirmDialog, HelpDialog } from "./dialogs.js";
 import { cells, colorFor, wrapLines } from "./format.js";
@@ -16,6 +17,7 @@ type Confirmation = {
   title: string;
 };
 const focuses: Focus[] = ["runs", "summary", "sessions"];
+const statusRefreshIntervalMs = 1_000;
 const actionDescriptions = {
   stop: "Cancel this run and wait for its active local work to stop.",
   retry: "Create a new run and branch; execute the workflow again.",
@@ -53,7 +55,10 @@ export function Monitor({
   const event =
     events.find((item) => item.sequence === stepSequence) ?? events.at(-1);
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    const timer = setInterval(
+      () => setNow(Date.now()),
+      statusRefreshIntervalMs,
+    );
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
@@ -100,13 +105,16 @@ export function Monitor({
   });
   useInput((input, key) => {
     if (key.ctrl || key.meta || key.eventType === "release") return;
-    if (logs && columns >= 80 && rows >= 24) return;
-    if (columns >= 80 && rows >= 24 && (confirmation || helpOpen)) return;
+    const terminalIsLargeEnough =
+      columns >= minimumTerminalSize.columns &&
+      rows >= minimumTerminalSize.rows;
+    if (logs && terminalIsLargeEnough) return;
+    if (terminalIsLargeEnough && (confirmation || helpOpen)) return;
     if (input === "q") {
       exit();
       return;
     }
-    if (columns < 80 || rows < 24) return;
+    if (!terminalIsLargeEnough) return;
     if (key.escape) {
       setScreen("dashboard");
       setFocus("runs");
@@ -208,12 +216,12 @@ export function Monitor({
         title: `#${run.issue.number} ${run.issue.title}`,
       });
   });
-  if (columns < 80 || rows < 24)
+  if (columns < minimumTerminalSize.columns || rows < minimumTerminalSize.rows)
     return (
       <Box width={columns} height={rows} flexDirection="column">
         <Text>
           {cells(
-            "Resize terminal to at least 80×24. q closes monitor.",
+            `Resize terminal to at least ${minimumTerminalSize.columns}×${minimumTerminalSize.rows}. q closes monitor.`,
             columns,
           )}
         </Text>
@@ -254,7 +262,7 @@ export function Monitor({
         onBack={() => setLogs(undefined)}
       />
     );
-  const status = `${data.connection}${data.lastUpdated ? ` · refreshed ${Math.max(0, Math.floor((now - data.lastUpdated) / 1000))}s ago` : ""}`;
+  const status = `${data.connection}${data.lastUpdated ? ` · refreshed ${Math.max(0, Math.floor((now - data.lastUpdated) / statusRefreshIntervalMs))}s ago` : ""}`;
   const sessionIndex = Math.max(
     0,
     sessions.findIndex((item) => item.id === session?.id),

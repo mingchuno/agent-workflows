@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { unlinkSync, writeFileSync } from "node:fs";
 
+export const maxCapturedOutputBytes = 32 * 1024 * 1024;
+
 export interface CommandOptions {
   cwd: string;
   processFile?: string;
@@ -10,6 +12,7 @@ export interface CommandOptions {
   env?: NodeJS.ProcessEnv;
   allowFailure?: boolean;
   captureOutput?: boolean;
+  strictUtf8?: boolean;
   onOutput?: (chunk: string) => void;
 }
 export interface CommandResult {
@@ -42,10 +45,17 @@ export function command(
         if (process.platform === "win32") child.kill(signal);
         else process.kill(-child.pid, signal);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") failure = error;
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH")
+          failure = failure
+            ? new AggregateError(
+                [failure, error],
+                `${String(failure)}; process group termination failed: ${String(error)}`,
+              )
+            : error;
       }
     };
     const stop = () => {
+      if (cancelled) return;
       cancelled = true;
       kill("SIGTERM");
       killTimer ??= setTimeout(
@@ -64,25 +74,49 @@ export function command(
     }
     const timeout = setTimeout(stop, options.timeoutMs ?? 300_000);
     options.signal?.addEventListener("abort", stop, { once: true });
-    const collect = (target: "stdout" | "stderr", chunk: Buffer) => {
-      const value = chunk.toString();
+    const decoders = {
+      stdout: new TextDecoder("utf-8", {
+        fatal: options.strictUtf8,
+        ignoreBOM: true,
+      }),
+      stderr: new TextDecoder("utf-8", {
+        fatal: options.strictUtf8,
+        ignoreBOM: true,
+      }),
+    };
+    let capturedBytes = 0;
+    const decodeOutput = (target: "stdout" | "stderr", chunk?: Buffer) => {
       try {
-        options.onOutput?.(value);
+        const value = decoders[target].decode(chunk, {
+          stream: chunk !== undefined,
+        });
+        if (value) options.onOutput?.(value);
+        if (options.captureOutput !== false) {
+          if (target === "stdout") stdout += value;
+          else stderr += value;
+        }
       } catch (error) {
-        failure = error;
+        failure ??= error;
         stop();
       }
-      if (
-        options.captureOutput !== false &&
-        stdout.length + stderr.length <= 32 * 1024 * 1024
-      ) {
-        if (target === "stdout") stdout += value;
-        else stderr += value;
-        if (stdout.length + stderr.length > 32 * 1024 * 1024) stop();
+    };
+    const collect = (target: "stdout" | "stderr", chunk: Buffer) => {
+      if (options.captureOutput !== false) {
+        capturedBytes += chunk.length;
+        if (capturedBytes > maxCapturedOutputBytes) {
+          failure ??= new Error(
+            `Command output size ${capturedBytes} bytes exceeds capture limit ${maxCapturedOutputBytes} bytes`,
+          );
+          stop();
+          return;
+        }
       }
+      decodeOutput(target, chunk);
     };
     child.stdout.on("data", (chunk: Buffer) => collect("stdout", chunk));
     child.stderr.on("data", (chunk: Buffer) => collect("stderr", chunk));
+    child.stdout.on("end", () => decodeOutput("stdout"));
+    child.stderr.on("end", () => decodeOutput("stderr"));
     const cleanup = () => {
       clearTimeout(timeout);
       if (killTimer) clearTimeout(killTimer);

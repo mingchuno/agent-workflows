@@ -6,7 +6,7 @@ The CLI reads `agent-workflows.json`, or `--config PATH`. Unknown properties are
 | ---------------- | --------------------------------------------------------------------------------------------------------- |
 | `id`             | Required stable letters/digits/underscore/hyphen identity; scopes records and queues                      |
 | `databaseUrlEnv` | `AGENT_WORKFLOWS_DATABASE_URL`; environment variable containing a PostgreSQL connection URL with username |
-| `stateDirectory` | `.agent-workflows`; persistent local artifact directory                                                   |
+| `stateDirectory` | `.agent-workflows`; must resolve outside every managed checkout                                                   |
 | `projects`       | Nonempty array; duplicate IDs or canonical checkout roots are rejected                                    |
 
 | Project field          | Default / meaning                                                                                   |
@@ -20,7 +20,7 @@ The CLI reads `agent-workflows.json`, or `--config PATH`. Unknown properties are
 | `gitIdentity`          | Required `name` and `email`; used by application commits                                            |
 | `validation`           | Array of `{command,args,timeoutMs}`; no shell expansion; timeout defaults to 300000 ms              |
 | `agent`                | Required default profile                                                                            |
-| `stages`               | `implementation`, `writing`, `review`; each has optional `profile`, `prompt`, `skills`, `timeoutMs` |
+| `stages`               | `implementation`, `publication`, `review`; each has optional `profile`, `prompt`, `promptFile`, `timeoutMs` |
 
 Issues are selected in ascending issue-number order within each intake scan. Deduplication persists across restarts. An explicit retry is a new numbered attempt linked through `retryOf`.
 
@@ -88,8 +88,86 @@ Copilot queries its SDK model catalog for explicit settings. Supported context c
 
 See [checked examples](../examples/config.ts). Model IDs in `modelOverrides` are placeholders that must be replaced with available models. No provider silently clamps or substitutes explicit options.
 
-## Prompts and skills
+## Stage prompts
 
-`prompt` is literal stage text. `skills` contains paths to `SKILL.md` files, relative to the checkout or absolute. The runner snapshots their content and SHA-256 revision into invocation records and explicitly tells the agent to apply them. Copilot additionally receives skill directories; Codex receives explicit skill text. Automatic provider discovery is not assumed equivalent.
+Omit `prompt` and `promptFile` to use the installed defaults. `init` leaves both
+out so package upgrades update default task instructions. An override replaces
+only task instructions; issue context, captured change evidence, permission rules
+and output contracts remain application-owned.
 
-Stage timeout defaults to 30 minutes. Custom agent steps use the same `Stage` schema, profile resolution, snapshots, cancellation and session tracking as built-in stages. Credentials stay in environment variables/runtime authentication stores; do not place them in prompts or source files.
+### Default stage prompts
+
+Implementation:
+
+```text
+Implement the supplied issue in the current checkout. Follow repository
+instructions and existing conventions. Keep changes focused on the issue's
+requirements, and add or update tests where needed to verify the behavior.
+```
+
+Publication:
+
+```text
+Prepare a Git commit message and a pull request or merge request title and
+description for the supplied changes. Follow repository conventions. Describe
+what changed and why, summarize the recorded validation accurately, and state
+material limitations. Do not claim checks passed unless the supplied evidence
+shows they ran and passed.
+```
+
+Review:
+
+```text
+Independently review the supplied published changes against the issue's
+requirements and repository conventions. Inspect the change artifacts and
+relevant source for correctness, regressions, and missing validation. Report
+actionable findings with supporting locations where possible. State any gaps
+in inspection explicitly; do not present an incomplete review as a clean review.
+```
+
+These exact defaults are checked against the runtime source.
+
+Use either nonblank literal `prompt` text or a `promptFile` path, never both.
+Files must contain nonblank UTF-8 text. Relative paths resolve from the CLI
+configuration file's directory, independently of the launch directory; absolute
+paths are allowed. Files load once when the runner is constructed. Restart to
+apply edits. No templating, interpolation, or includes are supported. SDK callers
+supply `promptBaseDirectory` for relative paths.
+
+```json
+"stages": {
+  "implementation": {},
+  "publication": { "promptFile": "prompts/publication.md" },
+  "review": { "prompt": "Review correctness and missing regression tests." }
+}
+```
+
+`writing` is now `publication`; `skills` was removed. Both old keys are rejected
+without aliases. Configure skills in the selected agent runtime and request them
+in task text. Old invocation records and skill snapshots remain readable.
+
+Stage timeout defaults to 30 minutes, including profile validation and at most
+one format-correction attempt. Correction uses a fresh inspection-only session
+and only the remaining deadline. Provider failures, cancellation, timeout and
+workspace mutation never trigger correction. Custom text-only stages do not
+receive format correction. Credentials belong in environment variables or
+runtime authentication stores, not prompts.
+
+## Change evidence
+
+Use a `stateDirectory` outside every managed checkout. `init` chooses a sibling
+`<checkout-name>.agent-workflows` directory. Publication and review receive a
+small overview and an absolute index path, then read ordered artifact chunks.
+Publication captures staged, unstaged and untracked changes. Review captures the
+exact base and published head. Hash checks reject missing or modified evidence.
+
+Text chunks are at most 64 KiB; total text evidence, including indexes, is at most
+32 MiB per stage. Capture fails explicitly above the limit. Large indexes have
+bounded pages; binary changes contain metadata instead of encoded content.
+These are internal limits, not configurable model context limits.
+
+Review output includes `complete` and `limitations`. Incomplete reviews preserve
+partial findings locally and block normal review publication. Prompt content,
+output contract and evidence identities are retained with each response attempt.
+Changed effective prompts, including upgraded defaults, block recovery with
+fresh-retry guidance; file edits do not change an already running instance.

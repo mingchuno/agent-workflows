@@ -100,7 +100,8 @@ test("configured stage timeout reaches the agent adapter", {
     await waitFor(async () =>
       (await runner.store.runs()).some((run) => run.outcome === "no-change"),
     );
-    assert.deepEqual(observed, [3_600_000]);
+    assert.equal(observed.length, 1);
+    assert.ok(observed[0]! > 3_590_000 && observed[0]! <= 3_600_000);
   } finally {
     await runner.shutdown();
   }

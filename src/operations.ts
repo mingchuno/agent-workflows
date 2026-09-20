@@ -1,9 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { appendFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { DBOS } from "@dbos-inc/dbos-sdk";
 import type { Project, Stage } from "./config.js";
-import { resolveProfile } from "./config.js";
 import {
   type AgentAdapter,
   BlockedError,
@@ -15,13 +14,23 @@ import {
   type Snapshot,
   type Workspace,
 } from "./domain.js";
+import {
+  type ChangeEvidence,
+  captureEvidence,
+  evidenceContext,
+} from "./evidence.js";
+import { type InvocationTask, invokeStage } from "./invocation.js";
+import { defaultStagePrompts } from "./prompts.js";
 import { publicationSteps } from "./recovery.js";
 import { command } from "./runtime/process.js";
-import type { InvocationRecord, Store } from "./store.js";
+import type { Store } from "./store.js";
+
+export type { InvocationTask } from "./invocation.js";
 
 const maxStepAttempts = 3;
 
 export interface OperationDependencies {
+  promptBaseDirectory?: string;
   store: Store;
   project: Project;
   workspace: Workspace;
@@ -139,133 +148,22 @@ export class Operations {
   async invoke(
     name: string,
     stage: Stage,
-    prompt: (run: RunRecord) => string,
-    readOnly = false,
+    task: InvocationTask,
   ): Promise<string> {
-    return this.step(name, async (run) => {
-      const { store, project, agents, signal, workspace, redact } =
-        this.dependencies;
-      const previous = (await store.invocations(run.id)).filter(
-        (invocation) => invocation.stepId === DBOS.stepID,
-      );
-      if (previous.length) {
-        for (const invocation of previous) {
-          if (invocation.outcome === "running") {
-            invocation.outcome = "interrupted";
-            invocation.finishedAt = new Date().toISOString();
-            if (!invocation.sessionId) invocation.sessionState = "unavailable";
-            await store.saveInvocation(invocation);
-          }
-        }
-        throw new BlockedError(
-          `Interrupted agent stage ${name}; inspect existing sessions before explicit retry`,
-        );
-      }
-      if (!run.snapshot) throw new BlockedError("Missing workspace snapshot");
-      await workspace.verify(project, run.snapshot);
-      const profile = resolveProfile(project.agent, stage.profile);
-      const adapter = agents[profile.provider];
-      if (!adapter)
-        throw new Error(`Missing agent adapter ${profile.provider}`);
-      const invocationSignal = AbortSignal.any([
-        signal,
-        AbortSignal.timeout(stage.timeoutMs),
-      ]);
-      const effective = await adapter.validate(profile, invocationSignal);
-      const { skills, fullPrompt } = await this.prepareInvocationPrompt(
+    return this.step(name, (run) =>
+      invokeStage({
+        run,
+        name,
         stage,
-        () => prompt(run),
-      );
-      const id = randomUUID();
-      const directory = join(this.dependencies.artifacts, run.id);
-      await mkdir(directory, { recursive: true, mode: 0o700 });
-      const record: InvocationRecord = {
-        id,
-        runId: run.id,
-        projectId: project.id,
-        step: name,
+        task,
         stepId: DBOS.stepID!,
-        attempt: previous.length + 1,
-        provider: profile.provider,
-        sessionId: null,
-        sessionState: "pending",
-        requested: profile,
-        effective,
-        prompt: redact(fullPrompt),
-        skills: skills.map((skill) => ({
-          ...skill,
-          content: redact(skill.content),
-        })),
-        outcome: "running",
-        startedAt: new Date().toISOString(),
-        log: join(directory, `${id}.jsonl`),
-      };
-      await store.saveInvocation(record);
-      try {
-        const output = await adapter.invoke({
-          id,
-          runId: run.id,
-          step: name,
-          cwd: project.checkout,
-          prompt: fullPrompt,
-          profile,
-          skills: skills.map((skill) => skill.path),
-          processFile: record.log + ".process.json",
-          readOnly,
-          signal: invocationSignal,
-          timeoutMs: stage.timeoutMs,
-          session: async (sessionId) => {
-            record.sessionId = sessionId;
-            record.sessionState = "available";
-            await store.saveInvocation(record);
-          },
-          event: async (event) => {
-            await appendFile(record.log, redact(JSON.stringify(event)) + "\n", {
-              mode: 0o600,
-            });
-          },
-        });
-        // Even adapters without streamed events leave a readable artifact for
-        // a completed invocation, so recovery can verify evidence availability.
-        await appendFile(record.log, "", { mode: 0o600 });
-        invocationSignal.throwIfAborted();
-        if (readOnly) await workspace.verify(project, run.snapshot);
-        else await this.saveImplementationSnapshot(run.id, run.snapshot);
-        record.outcome = "completed";
-        return redact(output);
-      } catch (error) {
-        record.outcome = "failed";
-        throw error;
-      } finally {
-        record.finishedAt = new Date().toISOString();
-        if (!record.sessionId) record.sessionState = "unavailable";
-        await store.saveInvocation(record);
-      }
-    });
-  }
-  private async prepareInvocationPrompt(stage: Stage, prompt: () => string) {
-    const { project } = this.dependencies;
-    const skills = await Promise.all(
-      stage.skills.map(async (path) => {
-        const absolute = resolve(project.checkout, path);
-        const content = await readFile(absolute, "utf8");
-        return {
-          path: absolute,
-          sha256: createHash("sha256").update(content).digest("hex"),
-          content,
-        };
+        dependencies: this.dependencies,
+        saveImplementationSnapshot: (runId, expected) =>
+          this.saveImplementationSnapshot(runId, expected),
       }),
     );
-    const fullPrompt = [
-      stage.prompt,
-      prompt(),
-      ...skills.map(
-        (skill) =>
-          `Apply this selected skill (${skill.path}):\n${skill.content}`,
-      ),
-    ].join("\n\n");
-    return { skills, fullPrompt };
   }
+
   private async saveImplementationSnapshot(
     runId: string,
     expected: Snapshot,
@@ -280,10 +178,13 @@ export class Operations {
     await this.invoke(
       "implementation",
       this.dependencies.project.stages.implementation,
-      (run) =>
-        `Implement the following issue in the current checkout. Do not commit, push, or publish.\n${run.issue.title}\n${run.issue.body}`,
+      {
+        defaultPrompt: defaultStagePrompts.implementation,
+        context: (run) => `Issue: ${JSON.stringify(run.issue)}`,
+      },
     );
   }
+
   async validate(): Promise<boolean> {
     return this.step("validation", async (run) => {
       const { project, workspace, store, signal, redact } = this.dependencies;
@@ -342,13 +243,40 @@ export class Operations {
       return true;
     });
   }
+  private async prepareEvidence(
+    name: string,
+    published = false,
+  ): Promise<ChangeEvidence> {
+    return this.step(name, async (run) => {
+      const { project, workspace, artifacts, signal } = this.dependencies;
+      if (!run.snapshot) throw new BlockedError("Missing workspace snapshot");
+      if (published && (!run.base || !run.head))
+        throw new BlockedError("Missing published revisions");
+      await workspace.verify(project, run.snapshot);
+      const evidence = await captureEvidence({
+        project,
+        snapshot: run.snapshot,
+        directory: join(artifacts, run.id, `${name}-${randomUUID()}`),
+        signal,
+        revisions: published ? { base: run.base!, head: run.head! } : undefined,
+      });
+      await workspace.verify(project, run.snapshot);
+      return evidence;
+    });
+  }
   async writePublication(): Promise<void> {
+    const evidence = await this.prepareEvidence("publication-input");
     const output = await this.invoke(
-      "writing",
-      this.dependencies.project.stages.writing,
-      (run) =>
-        `Return ONLY JSON with commitMessage, title, description (all nonempty strings). Describe actual changes and exact validation; do not claim unrun checks. Do not modify files.\nIssue: ${JSON.stringify(run.issue)}\nDiff: ${run.snapshot?.diff}\nValidation: ${JSON.stringify(run.validation ?? [])}`,
-      true,
+      "publication",
+      this.dependencies.project.stages.publication,
+      {
+        defaultPrompt: defaultStagePrompts.publication,
+        readOnly: true,
+        outputContract: publicationSchema,
+        evidence,
+        context: (run) =>
+          `${evidenceContext(evidence)}\nIssue: ${JSON.stringify(run.issue)}\nValidation: ${JSON.stringify(run.validation ?? [])}`,
+      },
     );
     await this.step("publication-content", async (run) => {
       await this.dependencies.store.patchRun(run.id, {
@@ -411,26 +339,29 @@ export class Operations {
     });
   }
   async review(): Promise<void> {
-    const diff = await this.step("review-input", async (run) => {
-      if (!run.base || !run.head) throw new Error("Missing published revision");
-      return (
-        await command("git", ["diff", "--no-ext-diff", run.base, run.head], {
-          cwd: this.dependencies.project.checkout,
-        })
-      ).stdout;
-    });
+    const evidence = await this.prepareEvidence("review-input", true);
     const output = await this.invoke(
       "review",
       this.dependencies.project.stages.review,
-      (run) =>
-        `Independently review this published revision without editing files. Return ONLY JSON {"summary":"...","findings":[{"body":"...","path":"optional relative path","line":1}]}. Omit path/line where no valid added-line location exists.\nIssue: ${JSON.stringify(run.issue)}\nExact head: ${run.head}\nValidation: ${JSON.stringify(run.validation ?? [])}\nPublished diff:\n${diff}`,
-      true,
+      {
+        defaultPrompt: defaultStagePrompts.review,
+        readOnly: true,
+        outputContract: reviewSchema,
+        evidence,
+        context: (run) =>
+          `${evidenceContext(evidence)}\nIssue: ${JSON.stringify(run.issue)}\nValidation: ${JSON.stringify(run.validation ?? [])}\nSet complete=false with limitations if any required evidence cannot be inspected. Never report an incomplete review as clean. Use null for finding path/line where no valid added-line location exists.`,
+      },
     );
     await this.step("review-content", async (run) => {
+      const review = reviewSchema.parse(JSON.parse(output));
       await this.dependencies.store.patchRun(run.id, {
-        review: reviewSchema.parse(JSON.parse(output)),
+        review,
         reviewHead: run.head,
       });
+      if (!review.complete)
+        throw new BlockedError(
+          "Incomplete review; partial findings and limitations retained locally",
+        );
     });
   }
   async publishReview(): Promise<void> {
@@ -438,6 +369,10 @@ export class Operations {
       const { hosting, project } = this.dependencies;
       if (!run.change || !run.review || !run.reviewHead || !run.base)
         throw new Error("Missing review");
+      if (run.review.complete !== true)
+        throw new BlockedError(
+          "Incomplete or historical review; use retry for a fresh inspection",
+        );
       if ((await hosting.head(run.change)) !== run.reviewHead)
         throw new BlockedError("Review stale: remote head changed");
       const diff = (

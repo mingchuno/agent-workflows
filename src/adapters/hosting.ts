@@ -9,6 +9,11 @@ import {
   type Review,
 } from "../domain.js";
 
+const hostingRequestTimeoutMs = 30_000;
+const hostingPageSize = 100;
+const minimumGitLabMajorVersion = 17;
+const maximumGitLabMajorVersion = 19;
+
 function origin(value: string): string {
   const url = new URL(value);
   if (url.username || url.password || url.search || url.hash)
@@ -89,7 +94,7 @@ export class GitHubHosting implements HostingAdapter {
         host === "https://github.com"
           ? "https://api.github.com"
           : `${host}/api/v3`,
-      request: { timeout: 30000, redirect: "error" },
+      request: { timeout: hostingRequestTimeoutMs, redirect: "error" },
     });
   }
   async listIssues(labels: string[]): Promise<Issue[]> {
@@ -97,7 +102,7 @@ export class GitHubHosting implements HostingAdapter {
       ...this.repo,
       state: "open",
       labels: labels.join(","),
-      per_page: 100,
+      per_page: hostingPageSize,
     });
     return issues
       .filter((issue) => !issue.pull_request)
@@ -135,7 +140,7 @@ export class GitHubHosting implements HostingAdapter {
       ...this.repo,
       head: `${this.repo.owner}:${branch}`,
       state: "all",
-      per_page: 100,
+      per_page: hostingPageSize,
     });
     if (changes.length > 1)
       throw new BlockedError("Multiple change requests match branch");
@@ -168,7 +173,7 @@ export class GitHubHosting implements HostingAdapter {
     const reviews = await this.client.paginate(this.client.pulls.listReviews, {
       ...this.repo,
       pull_number: input.change.id,
-      per_page: 100,
+      per_page: hostingPageSize,
     });
     if (reviews.some((review) => review.body?.includes(marker(input.runId))))
       return;
@@ -201,15 +206,19 @@ export class GitLabHosting implements HostingAdapter {
     this.client = new Gitlab({
       host,
       token: token(project),
-      queryTimeout: 30000,
+      queryTimeout: hostingRequestTimeoutMs,
     });
   }
   async preflight(): Promise<void> {
     const metadata = await this.client.Metadata.show();
     const major = Number(metadata.version.split(".")[0]);
-    if (!Number.isInteger(major) || major < 17 || major > 19)
+    if (
+      !Number.isInteger(major) ||
+      major < minimumGitLabMajorVersion ||
+      major > maximumGitLabMajorVersion
+    )
       throw new Error(
-        `Supported GitLab versions are 17.x–19.x; instance reports ${metadata.version}`,
+        `Supported GitLab versions are ${minimumGitLabMajorVersion}.x–${maximumGitLabMajorVersion}.x; instance reports ${metadata.version}`,
       );
   }
   async listIssues(labels: string[]): Promise<Issue[]> {
@@ -217,7 +226,7 @@ export class GitLabHosting implements HostingAdapter {
       projectId: this.repository,
       state: "opened",
       labels: labels.join(","),
-      perPage: 100,
+      perPage: hostingPageSize,
     });
     return issues.map((issue) => ({
       id: String(issue.id),
@@ -249,7 +258,7 @@ export class GitLabHosting implements HostingAdapter {
     const changes = await this.client.MergeRequests.all({
       projectId: this.repository,
       sourceBranch: branch,
-      perPage: 100,
+      perPage: hostingPageSize,
     });
     if (changes.length > 1)
       throw new BlockedError("Multiple merge requests match branch");
@@ -283,7 +292,7 @@ export class GitLabHosting implements HostingAdapter {
     const notes = await this.client.MergeRequestNotes.all(
       this.repository,
       input.change.id,
-      { perPage: 100 },
+      { perPage: hostingPageSize },
     );
     if (notes.some((note) => note.body.includes(marker(input.runId)))) return;
     const change = await this.client.MergeRequests.show(

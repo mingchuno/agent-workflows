@@ -1,7 +1,11 @@
-import { dirname } from "node:path";
 import type { ModelInfo, SessionConfig } from "@github/copilot-sdk";
-import type { ThreadEvent, ThreadOptions } from "@openai/codex-sdk";
+import type {
+  ThreadEvent,
+  ThreadOptions,
+  TurnOptions,
+} from "@openai/codex-sdk";
 import type { AgentProfile } from "../config.js";
+import { defaultStageTimeoutMs } from "../defaults.js";
 
 export interface WorkerInput {
   provider: "codex" | "copilot";
@@ -10,7 +14,7 @@ export interface WorkerInput {
   cwd: string;
   prompt: string;
   profile: AgentProfile;
-  skills: string[];
+  outputSchema?: unknown;
   readOnly: boolean;
   processFile?: string;
   timeoutMs?: number;
@@ -20,6 +24,7 @@ export interface CodexClient {
   startThread(options: ThreadOptions): {
     runStreamed(
       prompt: string,
+      options?: TurnOptions,
     ): Promise<{ events: AsyncIterable<ThreadEvent> }>;
   };
 }
@@ -36,7 +41,9 @@ export async function runCodex(
     sandboxMode: input.readOnly ? "read-only" : "workspace-write",
     approvalPolicy: "never",
   });
-  const turn = await thread.runStreamed(input.prompt);
+  const turn = await thread.runStreamed(input.prompt, {
+    outputSchema: input.outputSchema,
+  });
   let output = "";
   for await (const event of turn.events) {
     if (event.type === "thread.started") emit("session", event.thread_id);
@@ -89,20 +96,20 @@ export async function runCopilot(
       reasoningEffort: input.profile
         .reasoningEffort as SessionConfig["reasoningEffort"],
       workingDirectory: input.cwd,
-      skillDirectories: input.skills.map(dirname),
       infiniteSessions: input.profile.context
         ? { enabled: true, ...input.profile.context }
         : undefined,
       onPermissionRequest: async (request) =>
-        input.readOnly && request.kind !== "read"
-          ? { kind: "denied-no-approval-rule-and-could-not-request-from-user" }
-          : { kind: "approved" },
+        request.managedApprovalRequired ||
+        (input.readOnly && request.kind !== "read")
+          ? { kind: "reject" }
+          : { kind: "approve-once" },
     });
     emit("session", session.sessionId);
     session.on((event) => emit("event", event));
     const response = await session.sendAndWait(
       { prompt: input.prompt },
-      input.timeoutMs ?? 1_800_000,
+      input.timeoutMs ?? defaultStageTimeoutMs,
     );
     emit("result", response?.data.content ?? "");
     await session.disconnect();

@@ -4,6 +4,16 @@ Local coding work progresses through issue-linked runs and explicit recovery.
 
 ## Language
 
+**Stage prompt**:
+User-customizable instructions describing an agent stage's task. The workflow
+supplies run evidence and enforces its result contract separately.
+
+**Publication stage**:
+The agent stage that drafts a Git commit message and the title and description
+of a pull request or merge request. Creating the commit and publishing the
+request are separate workflow operations.
+_Avoid_: Writing stage, commit stage
+
 **Run**:
 One attempt to complete an issue through a coding workflow, with its own
 outcome and recovery evidence.

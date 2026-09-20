@@ -21,17 +21,24 @@ export const publicationSchema = z.strictObject({
   description: z.string().trim().min(1).max(60000),
 });
 export type Publication = z.infer<typeof publicationSchema>;
-export const reviewSchema = z.strictObject({
-  summary: z.string().min(1),
-  findings: z.array(
-    z.strictObject({
-      body: z.string().min(1),
-      path: z.string().optional(),
-      line: z.number().int().positive().optional(),
-    }),
-  ),
-});
-export type Review = z.infer<typeof reviewSchema>;
+export const reviewSchema = z
+  .strictObject({
+    complete: z.boolean(),
+    limitations: z.array(z.string().trim().min(1)),
+    summary: z.string().min(1),
+    findings: z.array(
+      z.strictObject({
+        body: z.string().min(1),
+        path: z.string().nullable().default(null),
+        line: z.number().int().positive().nullable().default(null),
+      }),
+    ),
+  })
+  .refine((review) => review.complete || review.limitations.length > 0, {
+    message: "Incomplete review requires at least one inspection limitation",
+    path: ["limitations"],
+  });
+export type Review = z.input<typeof reviewSchema>;
 export interface ValidationResult {
   command: string;
   args: string[];
@@ -102,7 +109,7 @@ export interface AgentInvocation {
   cwd: string;
   prompt: string;
   profile: AgentProfile;
-  skills: string[];
+  outputSchema?: unknown;
   processFile?: string;
   readOnly: boolean;
   signal: AbortSignal;

@@ -6,6 +6,7 @@ import type {
   ProjectState,
   Store,
 } from "../store.js";
+import { tuiRefreshIntervalMs } from "./constants.js";
 
 export interface MonitorSource {
   projects: Store["projects"];
@@ -88,7 +89,7 @@ export function useMonitorData(
       }
     };
     void update();
-    const timer = setInterval(() => void update(), 400);
+    const timer = setInterval(() => void update(), tuiRefreshIntervalMs);
     return () => {
       closed = true;
       clearInterval(timer);
@@ -122,7 +123,7 @@ export function useMonitorData(
       }
     };
     void update();
-    const timer = setInterval(() => void update(), 400);
+    const timer = setInterval(() => void update(), tuiRefreshIntervalMs);
     return () => {
       closed = true;
       clearInterval(timer);

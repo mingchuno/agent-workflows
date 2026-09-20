@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  defaultStageTimeoutMs,
+  defaultValidationTimeoutMs,
+} from "./defaults.js";
 
 export const profileSchema = z.strictObject({
   provider: z.enum(["codex", "copilot"]),
@@ -12,12 +16,34 @@ export const profileSchema = z.strictObject({
     .optional(),
 });
 export type AgentProfile = z.infer<typeof profileSchema>;
-export const stageSchema = z.strictObject({
-  profile: profileSchema.partial().optional(),
-  prompt: z.string().default(""),
-  skills: z.array(z.string()).default([]),
-  timeoutMs: z.number().int().positive().default(1_800_000),
-});
+export const stageSchema = z
+  .strictObject(
+    {
+      profile: profileSchema.partial().optional(),
+      prompt: z
+        .string()
+        .refine((text) => text.trim().length > 0, "Prompt must be nonblank")
+        .optional(),
+      promptFile: z
+        .string()
+        .refine(
+          (text) => text.trim().length > 0,
+          "Prompt file path must be nonblank",
+        )
+        .optional(),
+      timeoutMs: z.number().int().positive().default(defaultStageTimeoutMs),
+    },
+    {
+      error: (issue) =>
+        issue.code === "unrecognized_keys" && issue.keys.includes("skills")
+          ? "Stage skills was removed; configure skills in your agent runtime and request them in prompt"
+          : undefined,
+    },
+  )
+  .refine(
+    (stage) => stage.prompt === undefined || stage.promptFile === undefined,
+    "Specify either prompt or promptFile, never both",
+  );
 export const projectSchema = z.strictObject({
   id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
   checkout: z.string().min(1),
@@ -43,35 +69,31 @@ export const projectSchema = z.strictObject({
       z.strictObject({
         command: z.string().min(1),
         args: z.array(z.string()).default([]),
-        timeoutMs: z.number().int().positive().default(300_000),
+        timeoutMs: z
+          .number()
+          .int()
+          .positive()
+          .default(defaultValidationTimeoutMs),
       }),
     )
     .default([]),
   gitIdentity: z.strictObject({ name: z.string().min(1), email: z.email() }),
   agent: profileSchema,
   stages: z
-    .strictObject({
-      implementation: stageSchema.default(() => ({
-        prompt: "",
-        skills: [],
-        timeoutMs: 1_800_000,
-      })),
-      writing: stageSchema.default(() => ({
-        prompt: "",
-        skills: [],
-        timeoutMs: 1_800_000,
-      })),
-      review: stageSchema.default(() => ({
-        prompt: "",
-        skills: [],
-        timeoutMs: 1_800_000,
-      })),
-    })
-    .default(() => ({
-      implementation: { prompt: "", skills: [], timeoutMs: 1_800_000 },
-      writing: { prompt: "", skills: [], timeoutMs: 1_800_000 },
-      review: { prompt: "", skills: [], timeoutMs: 1_800_000 },
-    })),
+    .strictObject(
+      {
+        implementation: stageSchema.prefault({}),
+        publication: stageSchema.prefault({}),
+        review: stageSchema.prefault({}),
+      },
+      {
+        error: (issue) =>
+          issue.code === "unrecognized_keys" && issue.keys.includes("writing")
+            ? "Stage writing was renamed to publication; update projects.stages.writing"
+            : undefined,
+      },
+    )
+    .prefault({}),
 });
 export const configSchema = z.strictObject({
   id: z.string().regex(/^[a-zA-Z0-9_-]+$/),

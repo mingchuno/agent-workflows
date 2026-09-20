@@ -65,13 +65,18 @@ export const agent: AgentAdapter = {
       await writeFile(join(invocation.cwd, "implemented.txt"), "implemented\n");
       return "done";
     }
-    if (invocation.step === "writing")
+    if (invocation.step === "publication")
       return JSON.stringify({
         commitMessage: "feat: implement issue",
         title: "Implemented issue",
         description: "Adds requested file. No validation configured.",
       });
-    return JSON.stringify({ summary: "Reviewed exact revision", findings: [] });
+    return JSON.stringify({
+      complete: true,
+      limitations: [],
+      summary: "Reviewed exact revision",
+      findings: [],
+    });
   },
 };
 export async function waitFor(predicate: () => Promise<boolean>) {

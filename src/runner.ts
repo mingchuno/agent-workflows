@@ -11,7 +11,9 @@ import {
   type RunRecord,
   type Workspace,
 } from "./domain.js";
+import { assertEvidenceDirectory } from "./evidence.js";
 import { defaultWorkflow, Operations } from "./operations.js";
+import { projectPrompts } from "./prompts.js";
 import { executionFingerprint, verifyPublicationRecovery } from "./recovery.js";
 import { createQueuedRun } from "./run-record.js";
 import {
@@ -22,7 +24,11 @@ import { createRedactor, runtimeLogger } from "./runtime/redaction.js";
 import { Store } from "./store.js";
 import { ExistingCheckout } from "./workspace.js";
 
+const runnerPollIntervalMs = 100;
+const shutdownPollIntervalMs = 20;
+
 export interface RunnerOptions {
+  promptBaseDirectory?: string;
   config: Configuration;
   databaseUrl: string;
   hosting: (project: Project) => HostingAdapter;
@@ -47,6 +53,8 @@ export class Runner {
   private readonly polling = new Map<string, Promise<void>>();
   constructor(readonly options: RunnerOptions) {
     this.config = configSchema.parse(options.config);
+    for (const project of this.config.projects)
+      projectPrompts(project, options.promptBaseDirectory);
     this.store = new Store(options.databaseUrl, this.config.id, this.redact);
   }
   private queue(id: string) {
@@ -63,6 +71,10 @@ export class Runner {
     const ids = new Set<string>();
     for (const project of this.config.projects) {
       project.checkout = await realpath(project.checkout);
+      await assertEvidenceDirectory(
+        project.checkout,
+        this.config.stateDirectory,
+      );
       if (canonical.has(project.checkout) || ids.has(project.id))
         throw new Error("Duplicate project identity or canonical checkout");
       canonical.add(project.checkout);
@@ -94,7 +106,7 @@ export class Runner {
     DBOS.setConfig({
       name: `agent-workflows-${this.config.id}`,
       systemDatabaseUrl: this.options.databaseUrl,
-      applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v1"}`,
+      applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v2"}`,
       executorID: this.config.id,
       listenQueues: this.config.projects.map((p) => this.queue(p.id)),
       logger: runtimeLogger(this.redact),
@@ -105,7 +117,7 @@ export class Runner {
       await DBOS.registerQueue(this.queue(project.id), {
         globalConcurrency: 1,
         workerConcurrency: 1,
-        minPollingIntervalMs: 100,
+        minPollingIntervalMs: runnerPollIntervalMs,
       });
     this.timer = setInterval(() => {
       void this.tick().catch((error) =>
@@ -113,7 +125,7 @@ export class Runner {
           error: this.redact(String(error)),
         }),
       );
-    }, 100);
+    }, runnerPollIntervalMs);
     await this.tick();
   }
   private redact = (text: string): string =>
@@ -246,7 +258,7 @@ export class Runner {
       return DBOS.forkWorkflow(execution.recoveryOf, execution.startStep!, {
         newWorkflowID: execution.id,
         queueName: this.queue(project.id),
-        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v1"}`,
+        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v2"}`,
       });
     }
     return DBOS.startWorkflow(this.workflow, {
@@ -303,6 +315,7 @@ export class Runner {
     const workspace = this.options.workspace ?? new ExistingCheckout();
     let recoveryChecked = false;
     const operations = new Operations(runId, {
+      promptBaseDirectory: this.options.promptBaseDirectory,
       store: this.store,
       project,
       workspace,
@@ -314,7 +327,7 @@ export class Runner {
       executionFingerprint: () =>
         executionFingerprint(
           project,
-          this.options.workflowVersion ?? "phase1-v1",
+          this.options.workflowVersion ?? "phase1-v2",
           controller.signal,
         ),
       beforeStep: async () => {
@@ -339,7 +352,9 @@ export class Runner {
           const state = await this.store.project(project.id);
           if (state.blocked) throw new BlockedError(state.blocked);
           if (!state.paused) break;
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          await new Promise((resolve) =>
+            setTimeout(resolve, runnerPollIntervalMs),
+          );
         }
         await this.store.patchRun(runId, { outcome: "running" });
         await this.checkRecoveryState(current, project, controller.signal);
@@ -434,7 +449,9 @@ export class Runner {
     if (controller) {
       controller.abort();
       while (this.controllers.has(runId))
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        await new Promise((resolve) =>
+          setTimeout(resolve, shutdownPollIntervalMs),
+        );
       return;
     }
     if (run.outcome === "queued") {
@@ -490,7 +507,7 @@ export class Runner {
           throw new Error("Source execution has not finished");
         if (
           status.applicationVersion !==
-          `${this.config.id}-${this.options.workflowVersion ?? "phase1-v1"}`
+          `${this.config.id}-${this.options.workflowVersion ?? "phase1-v2"}`
         )
           throw new Error("Workflow version changed; use retry");
         const steps = await DBOS.listWorkflowSteps(execution.id);
@@ -527,7 +544,7 @@ export class Runner {
       workspace: this.options.workspace ?? new ExistingCheckout(),
       hosting: this.hosting.get(project.id)!,
       stateDirectory: this.config.stateDirectory,
-      workflowVersion: this.options.workflowVersion ?? "phase1-v1",
+      workflowVersion: this.options.workflowVersion ?? "phase1-v2",
     });
   }
   async shutdown(): Promise<void> {
@@ -535,7 +552,9 @@ export class Runner {
     if (this.timer) clearInterval(this.timer);
     for (const controller of this.controllers.values()) controller.abort();
     while (this.controllers.size || this.tickBusy)
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) =>
+        setTimeout(resolve, shutdownPollIntervalMs),
+      );
     await Promise.all(this.active.values());
     await Promise.allSettled(this.polling.values());
     if (this.ownsRuntime) {

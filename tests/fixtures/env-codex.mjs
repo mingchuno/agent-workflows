@@ -5,14 +5,14 @@ import { snapshot } from "./env-child.mjs";
 
 let prompt = "";
 for await (const chunk of process.stdin) prompt += chunk;
-const writing = prompt.includes("commitMessage");
-const values = await snapshot(writing ? "writing" : "implementation");
+const publication = prompt.includes("commitMessage");
+const values = await snapshot(publication ? "publication" : "implementation");
 const emit = (value) => console.log(JSON.stringify(value));
 emit({
   type: "thread.started",
-  thread_id: writing ? "writing" : "implementation",
+  thread_id: publication ? "publication" : "implementation",
 });
-if (writing) {
+if (publication) {
   // Stop before publication, exercising persisted error redaction as well.
   emit({ type: "turn.failed", error: { message: JSON.stringify(values) } });
 } else {

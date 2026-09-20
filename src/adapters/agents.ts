@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentProfile } from "../config.js";
+import { defaultStageTimeoutMs } from "../defaults.js";
 import type {
   AgentAdapter,
   AgentInvocation,
@@ -116,9 +117,9 @@ export class SDKAgent implements AgentAdapter {
         cwd: invocation.cwd,
         prompt: invocation.prompt,
         profile: invocation.profile,
-        skills: invocation.skills,
+        outputSchema: invocation.outputSchema,
         readOnly: invocation.readOnly,
-        timeoutMs: invocation.timeoutMs ?? 1_800_000,
+        timeoutMs: invocation.timeoutMs ?? defaultStageTimeoutMs,
       },
       invocation,
     );
@@ -166,7 +167,9 @@ export class SDKAgent implements AgentAdapter {
           ]),
           captureOutput: false,
           processFile: invocation?.processFile,
-          timeoutMs: invocation ? (invocation.timeoutMs ?? 1_800_000) : 30_000,
+          timeoutMs: invocation
+            ? (invocation.timeoutMs ?? defaultStageTimeoutMs)
+            : 30_000,
           onOutput: (chunk) => {
             buffer += chunk;
             for (;;) {

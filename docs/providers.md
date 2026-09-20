@@ -6,7 +6,7 @@ Authenticate the selected local agent runtime before starting. Codex SDK uses th
 
 | Capability                                  | Codex                                                                | Copilot                                                           |
 | ------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Implementation, writing, independent review | SDK fresh thread                                                     | SDK fresh session                                                 |
+| Implementation, publication, independent review | SDK fresh thread                                                     | SDK fresh session                                                 |
 | Explicit model/effort validation            | Runtime model cache or injected catalog                              | SDK model catalog or injected catalog                             |
 | Runtime context controls                    | Rejected                                                             | Compaction/exhaustion utilization fractions                       |
 | Structured publication/review               | Application JSON schema validation                                   | Application JSON schema validation                                |
@@ -86,3 +86,20 @@ Draft MRs use the supported `Draft:` title prefix. Revision-bound inline discuss
 ## Explicit smoke verification
 
 Real-provider smoke tests are opt-in manual runs: configure a disposable repository/issue, authenticated agent, hosting token, Git push access and validation; run one project; inspect the draft request, exact-head review and session records. This performs paid agent usage and real remote writes. The automated acceptance evidence is fixture-based, not a claim of live-provider compatibility or account access.
+
+## Structured output and evidence access
+
+Codex receives the application output schema through `runStreamed` options.
+Copilot receives generated JSON instructions; common strict validation gates both
+providers. Stage task text cannot remove those checks. Both retain their existing
+inspection permissions: Codex's read-only sandbox and Copilot's read-only
+permission handler (`approve-once` for reads, `reject` for non-read requests).
+Managed human-approval requirements remain denied. No shell permission is added
+for Copilot.
+
+Evidence indexes use absolute paths outside the checkout. Controlled tests check
+schema mapping, outside-directory reads and denied write/shell requests. The
+optional `AGENT_WORKFLOWS_LIVE_AGENTS=codex,copilot` test checks actual runtime
+file-reader access using the authenticated local providers; it is separate from
+local fixture acceptance. Missing runtime authentication is a live-test failure,
+not evidence of successful provider access.
