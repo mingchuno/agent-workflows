@@ -4,6 +4,25 @@ A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues i
 
 Phase 1 includes Codex and Copilot SDK adapters, GitHub and GitLab.com/self-hosted GitLab adapters, durable publication reconciliation, session observability and explicit operator controls. Human review and merging remain separate.
 
+## Why use this SDK over DBOS directly?
+
+DBOS provides durable execution, checkpoints and queues. This SDK supplies the
+coding-workflow behavior a client would otherwise build around it:
+
+- **Ready-made operations:** issue intake, agent implementation, validation,
+  draft PR/MR publication and independent review, with Codex/Copilot and
+  GitHub/GitLab adapters.
+- **Checkout and recovery rules:** exclusive checkout ownership, process
+  cancellation, preservation of unfinished work, and reconciliation of interrupted
+  commits, pushes and publication.
+- **Application controls and evidence:** explicit run outcomes, safe retry
+  admission, session/log records, and a shared SDK, CLI and terminal monitor.
+
+Clients configure providers and compose operations while DBOS remains responsible
+for durability. [Custom workflows can call DBOS directly](docs/api.md#dbos-sdk-direct-usage).
+Use this SDK when its existing-checkout, one-task-per-project model fits; use DBOS
+directly when you need general-purpose workflows or want to own these policies.
+
 ## Quickstart
 
 Prerequisites: Node.js 22.12+, Git, PostgreSQL 17+, and an authenticated Codex or Copilot runtime. macOS and Linux are supported; Windows process-group ownership is not supported.
@@ -66,8 +85,10 @@ Schema changes and database upgrades: [database maintenance](docs/database.md). 
 
 - [Configuration and profiles](docs/configuration.md)
 - [Public SDK API and composition](docs/api.md)
+- [DBOS SDK direct usage](docs/api.md#dbos-sdk-direct-usage)
 - [Authentication and provider capabilities](docs/providers.md)
 - [CLI, TUI, observability and recovery](docs/operations.md)
+- [Observability Landscape](docs/operations.md#observability-landscape)
 - [Architecture and review evidence](docs/architecture.md)
 - [Phase 1 acceptance](docs/acceptance.md)
 - [Release setup, first publication and recovery](docs/releases.md)

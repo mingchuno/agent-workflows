@@ -40,6 +40,76 @@ commit together; failure preserves the blocked state.
 
 Put side effects inside `step`; custom effects must be idempotent or reconcile their own ambiguous results. A DBOS checkpoint does not snapshot a checkout. Returning from a custom workflow without calling a terminal operation is invalid. [Reporting workflow](../examples/custom-workflow.ts) inserts a validation report without editing provider code.
 
+## DBOS SDK direct usage
+
+A custom `workflow(operations)` runs inside the runner's registered DBOS workflow.
+It can mix predefined operations with direct SDK calls; no additional workflow
+registration or DBOS runtime is needed. In a consuming application, declare
+`@dbos-inc/dbos-sdk` as a direct dependency compatible with this package's SDK
+version, and ensure both resolve to the same runtime instance.
+
+This example adds a checkpointed health check against a local service before the
+standard workflow. The service must expose `/health` on port 8080.
+
+```ts
+import { DBOS } from "@dbos-inc/dbos-sdk";
+import {
+  defaultWorkflow,
+  type Operations,
+} from "@mingchuno/agent-workflows";
+
+export async function customWorkflow(operations: Operations): Promise<void> {
+  await DBOS.runStep(
+    async () => {
+      const signal = AbortSignal.any([
+        operations.dependencies.signal,
+        AbortSignal.timeout(5_000),
+      ]);
+      signal.throwIfAborted();
+      const response = await fetch("http://127.0.0.1:8080/health", { signal });
+      await response.body?.cancel();
+      if (!response.ok) {
+        throw new Error(`Local service returned ${response.status}`);
+      }
+    },
+    { name: "check-local-service", retriesAllowed: false },
+  );
+
+  await defaultWorkflow(operations);
+}
+```
+
+In the [runner example](../examples/run.ts), import this function and replace its
+`workflow` and `workflowVersion` options:
+
+```ts
+workflow: customWorkflow,
+workflowVersion: "local-health-v1",
+```
+
+The successful check is checkpointed and skipped during recovery; it is not a
+fresh health check on every restart. `defaultWorkflow` supplies the normal coding
+operations and terminal outcome. See the [DBOS step API](https://docs.dbos.dev/typescript/reference/workflows-steps).
+
+Caveats:
+
+- `operations.step(name, callback)` adds cancellation and checkout checks, phase
+  updates, step events and error redaction around `DBOS.runStep`. Prefer it for
+  custom application operations. Raw steps retain DBOS history but bypass those
+  additions; pass the runner's abort signal to cancellable work, as above.
+- Keep I/O, time reads and randomness inside durable steps. Call orchestration
+  APIs such as `DBOS.sleepms` at workflow level. Do not wrap predefined operations
+  or the whole workflow inside `runStep`; each operation owns its checkpoints.
+- Disabling retries does not make external writes exactly-once. A crash after an
+  effect but before checkpointing can repeat it. Use stable idempotency keys or
+  reconcile ambiguous results. DBOS does not snapshot or restore checkout files.
+- Finish custom paths with a terminal operation such as `operations.complete()`;
+  returning while a run remains queued/running is invalid.
+- Change `workflowVersion` when durable step order changes, and finish or
+  explicitly resolve pending runs before deploying an incompatible workflow.
+- Let `Runner` own `DBOS.setConfig`, `launch` and `shutdown`. Direct SDK use inside
+  a workflow does not grant another runtime or bypass checkout ownership rules.
+
 ## Extension contracts
 
 `Workspace` separates `check`, `prepare`, `inspect`, `verify`, `commit`, `push` and `release`. `Snapshot` contains branch/head, changed paths, diff and a content fingerprint. Never implement release by discarding files. A future isolated workspace implementation can replace this interface without changing workflow composition.

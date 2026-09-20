@@ -20,6 +20,47 @@ Control commands return a command ID and `pending`; inspect `status --json` or t
 
 In the monitor, Left/Right selects a project, Up/Down a run, `[`/`]` a step/attempt event, Tab an agent invocation, `l` displays its log tail, `v` cycles validation logs, `p` pauses/resumes intake, `s` stops the selected run, `r` retries it, and `q` closes the view. Session IDs are displayed in full for terminal selection/copying. Outcomes, validation, profiles and session state use text as well as color. Noninteractive tools use `status --json` and `inspect`.
 
+## Observability Landscape
+
+This section includes only options that run locally without a license key.
+Cloud services and tools requiring a license key are excluded. These boundaries
+apply to observability; agent and hosting providers retain their own requirements.
+
+| Option | Available information | Integration path |
+| ------ | --------------------- | ---------------- |
+| Project CLI/TUI | Run outcomes, phases, invocations, sessions and local logs | Built in: `monitor`, `status --json`, `inspect RUN`, `logs RUN` |
+| DBOS SDK CLI | Durable workflow status and step history | Connect directly to the runner's PostgreSQL database |
+| Project `Store` API | Application records and ordered events | Build a local script or dashboard using `runs`, `run`, `invocations`, `events` and `subscribe` |
+| `DBOSClient` | DBOS workflow and step records | Build a local inspector using `getWorkflow`, `listWorkflows` and `listWorkflowSteps`; close it with `destroy()` |
+
+For DBOS CLI inspection from this repository:
+
+```sh
+pnpm exec dbos workflow list --sys-db-url "$AGENT_WORKFLOWS_DATABASE_URL"
+pnpm exec dbos workflow get "<run-id>" --sys-db-url "$AGENT_WORKFLOWS_DATABASE_URL"
+pnpm exec dbos workflow steps "<run-id>" --sys-db-url "$AGENT_WORKFLOWS_DATABASE_URL"
+```
+
+Use the database URL selected by `config.databaseUrlEnv` if it differs from the
+default above. These commands use the installed SDK CLI and require no running
+Conductor service or cloud login. See the [DBOS CLI reference](https://docs.dbos.dev/typescript/reference/cli).
+
+The DBOS workflow ID equals the application run ID. Inspect both layers: the
+runner catches execution errors and persists application outcomes, so a DBOS
+`SUCCESS` can accompany an application `failed` or `blocked` outcome. DBOS step
+history does not replace the local agent/validation artifacts.
+
+A browser dashboard is an extension path, not a bundled feature. A local server
+could combine the [Store query/event API](api.md#query-and-event-interface) with
+`DBOSClient.create({ systemDatabaseUrl: databaseUrl })`, joining records by run ID.
+Neither inspector needs to launch another DBOS runtime. Keep database access on
+the server and bind a local-only dashboard to loopback. See the
+[inspection example](../examples/observe.ts) for Store lifecycle handling.
+
+Route dashboard controls through `Store.request` or the runner's public controls.
+Direct DBOS cancellation, resumption or forking bypasses application coordination
+for process termination, checkout safety and retry admission.
+
 ## Ownership and recovery
 
 Only the runner may edit or switch managed checkouts while it is active. PostgreSQL advisory locks protect runner/configuration and checkout identities. A local Git-directory lease also prevents runners using different databases from owning the same checkout. Worker/validation process-group journals prevent reuse while old work may still run.
