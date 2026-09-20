@@ -38,7 +38,7 @@ agent-workflows init
 
 For SDK use, install locally with `npm install @mingchuno/agent-workflows`. Both interfaces ship in the same package.
 
-Edit `agent-workflows.json`: set the checkout, hosting origin/repository, Git identity, agent stages and validation commands. Set the named hosting-token environment variable through your usual secret manager. Commit or ignore the configuration before running. Keep the state directory outside managed checkouts, or explicitly Git-ignore it.
+Edit `agent-workflows.json`: set the checkout, hosting origin/repository, Git identity, agent stages and validation commands. Set the named hosting-token environment variable through your usual secret manager; for GitHub, follow the [PAT creation and required permissions](docs/providers.md#create-a-fine-grained-personal-access-token) guide before running. Commit or ignore the configuration before running. Keep the state directory outside managed checkouts, or explicitly Git-ignore it.
 
 ```sh
 agent-workflows run
