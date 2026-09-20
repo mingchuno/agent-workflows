@@ -133,6 +133,22 @@ export type Outcome =
   | "cancelled"
   | "no-change"
   | "ineligible";
+export interface ExecutionRecord {
+  /** DBOS workflow identity; publication markers continue to use the run ID. */
+  id: string;
+  recoveryOf?: string;
+  startStep?: number;
+  reusedSteps?: string[];
+  fingerprint: string;
+  recoverySupported: boolean;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  outcome: Outcome;
+  phase: string;
+  failedStep?: number;
+  error?: string;
+}
 export interface RunRecord {
   id: string;
   projectId: string;
@@ -155,6 +171,8 @@ export interface RunRecord {
   review?: Review;
   reviewHead?: string;
   error?: string;
+  failedStep?: number;
+  executions?: ExecutionRecord[];
 }
 export class BlockedError extends Error {
   constructor(message: string) {

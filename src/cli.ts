@@ -172,6 +172,7 @@ program.command("inspect <run>").action(async (run: string) =>
         {
           run: await store.run(run),
           invocations: await store.invocations(run),
+          recovery: await store.recoveryPlan(run),
         },
         null,
         2,
@@ -204,7 +205,7 @@ program
       }
     }),
   );
-for (const kind of ["pause", "resume", "stop", "retry"] as const)
+for (const kind of ["pause", "resume", "stop", "retry", "recover"] as const)
   program
     .command(`${kind} <target>`)
     .description(`${kind} project or run through the active runner`)

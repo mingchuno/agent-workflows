@@ -12,6 +12,7 @@ import {
   type Workspace,
 } from "./domain.js";
 import { defaultWorkflow, Operations } from "./operations.js";
+import { executionFingerprint, verifyPublicationRecovery } from "./recovery.js";
 import { createQueuedRun } from "./run-record.js";
 import {
   assertProcessesStopped,
@@ -188,6 +189,8 @@ export class Runner {
         else if (request.kind === "stop") await this.stop(request.target);
         else if (request.kind === "retry")
           await this.retry(request.target, request.id);
+        else if (request.kind === "recover")
+          await this.recover(request.target, request.id);
         else throw new Error("Unknown command");
         await this.store.finishCommand(request.id);
       } catch (error) {
@@ -223,10 +226,7 @@ export class Runner {
           (r.outcome === "queued" || r.outcome === "running"),
       );
       if (!run || this.active.has(run.id)) continue;
-      const handle = await DBOS.startWorkflow(this.workflow, {
-        workflowID: run.id,
-        queueName: this.queue(project.id),
-      })(run.id);
+      const handle = await this.dispatch(run, project);
       const result = handle
         .getResult()
         .catch(async (error) => {
@@ -236,21 +236,45 @@ export class Runner {
       this.active.set(run.id, result);
     }
   }
+  private async dispatch(run: RunRecord, project: Project) {
+    const execution = run.executions?.at(-1);
+    if (execution?.recoveryOf) {
+      // Intent is committed first. On restart, adopt an existing fork instead of
+      // creating it twice after an uncertain DBOS response.
+      if (await DBOS.getWorkflowStatus(execution.id))
+        return DBOS.retrieveWorkflow(execution.id);
+      return DBOS.forkWorkflow(execution.recoveryOf, execution.startStep!, {
+        newWorkflowID: execution.id,
+        queueName: this.queue(project.id),
+        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v1"}`,
+      });
+    }
+    return DBOS.startWorkflow(this.workflow, {
+      workflowID: run.id,
+      queueName: this.queue(project.id),
+    })(run.id);
+  }
   private async recordWorkflowFailure(
     run: RunRecord,
     error: unknown,
   ): Promise<void> {
     const message = this.redact(String(error));
-    await this.store.emit(run.id, "workflow-error", { error: message });
+    const executionId = run.executions?.at(-1)?.id ?? run.id;
+    await this.store.emit(run.id, "workflow-error", {
+      executionId,
+      error: message,
+    });
     const current = await this.store.run(run.id);
+    if ((current.executions?.at(-1)?.id ?? current.id) !== executionId) return;
     if (["queued", "running"].includes(current.outcome)) {
       await this.store.patchRun(run.id, {
         outcome: "blocked",
         error: message,
       });
-      await this.store.setProject(run.projectId, {
-        blocked: `DBOS execution failed for ${run.id}; inspect recovery evidence`,
-      });
+      await this.store.blockProject(
+        run.projectId,
+        `DBOS execution failed for ${run.id}; inspect recovery evidence`,
+      );
     }
   }
   private async execute(runId: string): Promise<void> {
@@ -258,6 +282,10 @@ export class Runner {
     if (this.stopping) controller.abort();
     this.controllers.set(runId, controller);
     try {
+      if (DBOS.workflowID !== runId && this.options.workflow)
+        throw new BlockedError(
+          "Publication recovery supports the default workflow only",
+        );
       await this.executeOwned(runId, controller);
     } finally {
       this.controllers.delete(runId);
@@ -267,12 +295,13 @@ export class Runner {
     runId: string,
     controller: AbortController,
   ): Promise<void> {
-    const run = await DBOS.runStep(() => this.store.run(runId), {
+    const run = await DBOS.runStep(() => this.initializeExecution(runId), {
       name: "load-run",
     });
     const project = this.config.projects.find((p) => p.id === run.projectId);
     if (!project) throw new Error("Project removed from configuration");
     const workspace = this.options.workspace ?? new ExistingCheckout();
+    let recoveryChecked = false;
     const operations = new Operations(runId, {
       store: this.store,
       project,
@@ -282,6 +311,39 @@ export class Runner {
       artifacts: resolve(this.config.stateDirectory),
       signal: controller.signal,
       redact: this.redact,
+      executionFingerprint: () =>
+        executionFingerprint(
+          project,
+          this.options.workflowVersion ?? "phase1-v1",
+          controller.signal,
+        ),
+      beforeStep: async () => {
+        if (recoveryChecked) return;
+        const current = await this.store.run(runId);
+        const execution = current.executions?.at(-1);
+        if (!execution?.recoveryOf) {
+          recoveryChecked = true;
+          return;
+        }
+        if (execution.id !== DBOS.workflowID)
+          throw new BlockedError("Execution has been superseded");
+        if (DBOS.stepID! < execution.startStep!)
+          throw new BlockedError(
+            "A reused checkpoint is missing; recovery refused",
+          );
+        // This runs inside the first non-replayed step, so copied start-gate
+        // checkpoints cannot bypass today's pause or checkout checks.
+        while (true) {
+          controller.signal.throwIfAborted();
+          const state = await this.store.project(project.id);
+          if (state.blocked) throw new BlockedError(state.blocked);
+          if (!state.paused) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        await this.checkRecoveryState(current, project, controller.signal);
+        await this.store.patchRun(runId, { outcome: "running" });
+        recoveryChecked = true;
+      },
     });
     try {
       while (true) {
@@ -324,9 +386,10 @@ export class Runner {
             error: this.redact(String(error)),
           });
           if (unsafe || isBlockedError(error))
-            await this.store.setProject(project.id, {
-              blocked: `Run ${runId} requires recovery: ${this.redact(String(error))}`,
-            });
+            await this.store.blockProject(
+              project.id,
+              `Run ${runId} requires recovery: ${this.redact(String(error))}`,
+            );
         },
         { name: "record-failure", retriesAllowed: false },
       );
@@ -337,6 +400,27 @@ export class Runner {
   async pause(projectId: string): Promise<void> {
     await this.store.project(projectId);
     await this.store.setProject(projectId, { paused: true });
+  }
+  private async initializeExecution(runId: string): Promise<RunRecord> {
+    const run = await this.store.run(runId);
+    if (run.executions?.length) return run;
+    const project = this.config.projects.find(
+      (item) => item.id === run.projectId,
+    );
+    if (!project) throw new Error("Project removed from configuration");
+    return this.store.patchRun(runId, {
+      executions: [
+        {
+          id: run.id,
+          // Capture inputs after prepare fetches and checks out the actual base.
+          fingerprint: "",
+          recoverySupported: !this.options.workflow,
+          createdAt: new Date().toISOString(),
+          outcome: run.outcome,
+          phase: run.phase,
+        },
+      ],
+    });
   }
   async resume(projectId: string): Promise<void> {
     const state = await this.store.project(projectId);
@@ -353,7 +437,7 @@ export class Runner {
       return;
     }
     if (run.outcome === "queued") {
-      await DBOS.cancelWorkflow(runId);
+      await DBOS.cancelWorkflow(run.executions?.at(-1)?.id ?? runId);
       await this.store.patchRun(runId, { outcome: "cancelled" });
       return;
     }
@@ -381,6 +465,68 @@ export class Runner {
           branchTemplate: project.branchTemplate,
         };
       },
+    });
+  }
+  async recover(runId: string, commandId?: string): Promise<string> {
+    return this.store.admitRecovery(runId, {
+      commandId,
+      checkSafety: async (run) => {
+        if (!this.ownsRuntime || this.stopping)
+          throw new Error("Recovery requires an active runner");
+        if (this.options.workflow)
+          throw new Error(
+            "Publication recovery currently supports the default workflow only",
+          );
+        if (this.controllers.has(runId))
+          throw new Error("Work has not stopped");
+        const project = this.config.projects.find(
+          (item) => item.id === run.projectId,
+        );
+        if (!project) throw new Error("Project removed from configuration");
+        const execution = run.executions!.at(-1)!;
+        const status = await DBOS.getWorkflowStatus(execution.id);
+        if (!status || !["SUCCESS", "ERROR"].includes(status.status))
+          throw new Error("Source execution has not finished");
+        if (
+          status.applicationVersion !==
+          `${this.config.id}-${this.options.workflowVersion ?? "phase1-v1"}`
+        )
+          throw new Error("Workflow version changed; use retry");
+        const steps = await DBOS.listWorkflowSteps(execution.id);
+        const failed = steps?.find(
+          (step) => step.functionID === execution.failedStep,
+        );
+        if (!failed?.error || failed.name !== run.phase)
+          throw new Error("Failed publication checkpoint is unavailable");
+        const prefix = steps!.filter(
+          (step) => step.functionID < failed.functionID,
+        );
+        if (
+          prefix.length !== failed.functionID ||
+          prefix.some(
+            (step, index) => step.error || step.functionID !== index,
+          ) ||
+          !prefix.some((step) => step.name === "commit")
+        )
+          throw new Error("Completed publication checkpoints are unavailable");
+        await this.checkRecoveryState(run, project);
+        return prefix.map((step) => step.name);
+      },
+    });
+  }
+  private async checkRecoveryState(
+    run: RunRecord,
+    project: Project,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await verifyPublicationRecovery(run, {
+      project,
+      signal,
+      store: this.store,
+      workspace: this.options.workspace ?? new ExistingCheckout(),
+      hosting: this.hosting.get(project.id)!,
+      stateDirectory: this.config.stateDirectory,
+      workflowVersion: this.options.workflowVersion ?? "phase1-v1",
     });
   }
   async shutdown(): Promise<void> {

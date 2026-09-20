@@ -86,7 +86,7 @@ export function useMonitorData(
     };
   }, [source, selectedRunId, pending]);
   const action = async (
-    kind: "pause" | "resume" | "stop" | "retry",
+    kind: "pause" | "resume" | "stop" | "retry" | "recover",
     target: string,
   ) => {
     setMessage(`${kind}: pending`);

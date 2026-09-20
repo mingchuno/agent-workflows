@@ -6,7 +6,7 @@ Exports are in `src/index.ts`; the built package resolves to `dist/src/index.js`
 
 `new Runner({config,databaseUrl,hosting,agents,workspace?,workflow?,workflowVersion?})` injects hosting/agent adapters and optionally a workspace strategy or workflow. `hosting(project)` returns a host-qualified adapter. `agents` maps provider names to adapters. The default workspace uses the existing checkout. One DBOS runtime runs per Node process; one runner owns each configuration and checkout.
 
-`start()` validates registration, acquires ownership, launches DBOS, registers concurrency-one project queues, and starts polling. `poll(projectId?)` performs an immediate scan. `pause(projectId)` stops new starts while active work continues. `resume(projectId)` refuses blocked checkouts. `stop(runId)` waits for the active invocation/process to end, or cancels queued work. `retry(runId)` requires a terminal failed/blocked/cancelled run and a clean checkout, then returns a new linked run ID. `shutdown()` stops intake, cancels and awaits active work, closes DBOS and releases ownership.
+`start()` validates registration, acquires ownership, launches DBOS, registers concurrency-one project queues, and starts polling. `poll(projectId?)` performs an immediate scan. `pause(projectId)` stops new starts while active work continues. `resume(projectId)` refuses blocked checkouts. `stop(runId)` waits for the active invocation/process to end, or cancels queued work. `retry(runId)` requires a terminal failed/blocked/cancelled run and a clean checkout, then returns a new linked run ID. `recover(runId)` returns a new execution ID for publication recovery of the same run. `shutdown()` stops intake, cancels and awaits active work, closes DBOS and releases ownership.
 
 Use `try/finally` to call `shutdown()`, including failed startup. A custom `workflowVersion` must change when its durable step order changes; finish existing work before replacing an incompatible version.
 
@@ -131,4 +131,24 @@ only. This callback must not mutate Store records. Operator tools should use
 
 Invocation records include project/run IDs, stable DBOS step ID and name, invocation ID, attempt, timestamps, requested/effective profile, provider, prompt/skill snapshots, artifact path and session state (`pending`, `available`, `unavailable`). Repeated custom steps retain separate invocations. A retry has a separate run record linked to its predecessor.
 
-`request(kind,target)` queues the same `pause`, `resume`, `stop`, or `retry` commands used by the CLI/TUI; `commands()` reports pending/success/failure. A runner must be active to execute them. `finishCommand` and record-writing methods support adapters and custom workflows; operator tools should prefer commands over direct mutation.
+`request(kind,target)` queues the same `pause`, `resume`, `stop`, `retry`, or `recover` commands used by the CLI/TUI; `commands()` reports pending/success/failure. A runner must be active to execute them. `finishCommand` and record-writing methods support adapters and custom workflows; operator tools should prefer commands over direct mutation.
+
+## Publication recovery
+
+`Runner.recover(runId, commandId?)` supports failed publication steps in the
+default workflow. It validates the source execution, checkout, configuration,
+artifacts and remote state. `Store.admitRecovery` commits intent and its event
+under the same project lock as retry admission; its safety callback must not
+mutate Store records. Operator tools should use the runner or queued commands.
+
+`RunRecord.executions` contains the initial execution and recovery executions,
+including DBOS IDs, source execution, restart step, reused steps, configuration
+fingerprint and outcomes. Run IDs remain stable for invocations and publication
+markers. `Store.recoveryPlan(runId)` reports persisted eligibility and its reason;
+live safety checks happen at admission and execution. Runs without execution
+metadata remain readable and retryable, but cannot be recovered.
+
+Recovery uses DBOS forks, retaining the original workflow input and checkpoint
+prefix. The accepted command ID is the fork ID: dispatch adopts an existing fork
+after an uncertain response or crash. Copied start gates do not replace live
+checks in the first non-replayed operation. Successful prefixes cannot rerun.

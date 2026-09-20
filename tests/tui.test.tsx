@@ -104,9 +104,14 @@ test("monitor exposes keyboard selection, sessions and pending action state", as
     await new Promise((resolve) => setTimeout(resolve, 600));
     assert.match(view.lastFrame()!, /pause: failed/);
     assert.match(view.lastFrame()!, /intake paused/);
+    actionComplete = false;
+    view.stdin.write("c");
+    await delay();
+    assert.deepEqual(requests, ["pause:demo", "recover:run"]);
+    assert.match(view.lastFrame()!, /recover: pending/);
     view.stdin.write("q");
     await delay();
-    assert.deepEqual(requests, ["pause:demo"]);
+    assert.deepEqual(requests, ["pause:demo", "recover:run"]);
   } finally {
     view.unmount();
   }

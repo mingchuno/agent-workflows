@@ -13,12 +13,13 @@ All commands accept `--config PATH` before the subcommand.
 | `logs RUN [--invocation ID]`       | Local agent and validation artifacts                            |
 | `pause PROJECT` / `resume PROJECT` | Queue an intake control command                                 |
 | `stop RUN`                         | Queue cancellation; success means active local work has stopped |
+| `recover RUN`                      | Continue a failed publication step using completed checkpoints |
 | `retry RUN`                        | Queue an explicit new attempt after checkout validation         |
 | `monitor`                          | Attach an interactive terminal view                             |
 
 Control commands return a command ID and `pending`; inspect `status --json` or the monitor for success/failure. With no runner, commands stay pending. Run and monitor are separate processes. Closing the monitor never cancels work. Ctrl-C on the runner stops intake, cancels active work, waits for process termination and releases ownership. Queued issues remain durable for the next start.
 
-In the monitor, Left/Right selects a project, Up/Down a run, `[`/`]` a step/attempt event, Tab an agent invocation, `l` displays its log tail, `v` cycles validation logs, `p` pauses/resumes intake, `s` stops the selected run, `r` retries it, and `q` closes the view. Session IDs are displayed in full for terminal selection/copying. Outcomes, validation, profiles and session state use text as well as color. Noninteractive tools use `status --json` and `inspect`.
+In the monitor, Left/Right selects a project, Up/Down a run, `[`/`]` a step/attempt event, Tab an agent invocation, `l` displays its log tail, `v` cycles validation logs, `p` pauses/resumes intake, `s` stops the selected run, `r` retries it, `c` recovers publication, and `q` closes the view. Session IDs are displayed in full for terminal selection/copying. Outcomes, validation, profiles and session state use text as well as color. Noninteractive tools use `status --json` and `inspect`.
 
 ## Observability Landscape
 
@@ -45,7 +46,10 @@ Use the database URL selected by `config.databaseUrlEnv` if it differs from the
 default above. These commands use the installed SDK CLI and require no running
 Conductor service or cloud login. See the [DBOS CLI reference](https://docs.dbos.dev/typescript/reference/cli).
 
-The DBOS workflow ID equals the application run ID. Inspect both layers: the
+The initial DBOS workflow ID equals the run ID. Publication recovery keeps the
+run ID and adds a new DBOS execution ID; `inspect RUN` includes execution history
+and a persisted recovery eligibility assessment. Admission performs live checks.
+Inspect both layers: the
 runner catches execution errors and persists application outcomes, so a DBOS
 `SUCCESS` can accompany an application `failed` or `blocked` outcome. DBOS step
 history does not replace the local agent/validation artifacts.
@@ -71,7 +75,32 @@ Startup and phase boundaries check ownership assumptions, branch/head and actual
 
 Publication effects have independent DBOS checkpoints. A task commit carries `Agent-Workflows-Run`; commit recovery checks parent and marker, push recovery checks the remote ref, request creation checks the source branch, and review publication checks stable markers. Transient publication failures use bounded retries and reconciliation. Interrupted agent stages block rather than starting another writer.
 
-After a blocked/failed task:
+## Publication recovery
+
+For the default workflow, `recover RUN` continues a run whose latest execution
+failed at `push`, `change-request`, or `review-publication`. It reuses completed
+checkpoints, keeps the branch, commit and publication markers, and gives the
+failed step three new attempts. Later steps execute normally. Each execution
+retains its outcome, error and source execution; a repeated command ID identifies
+the same recovery.
+
+Keep the original branch and commit checked out with a clean working tree.
+Recovery verifies process ownership, complete checkpoint history, local artifacts,
+remote revision, workflow version, configuration and skill contents. Environment
+credential rotation is allowed. Changed code or execution inputs require a fresh
+retry. Recovery honors project pause and never removes an existing project block.
+Checks run again inside the first step that executes, including after a crash.
+
+Use `inspect RUN` before recovery and check command outcomes afterward. Monitor
+shows execution history and the recovery restriction, if any. Eligibility based
+on persisted records is provisional until the runner finishes live checks.
+
+Agent/validation failures, cancelled or blocked runs, custom workflows, and older
+runs without recovery metadata use the existing inspection and fresh-retry path.
+Recovery does not restore checkouts or accept arbitrary restart steps. A newer
+fresh attempt supersedes recovery of the older run.
+
+After a blocked/failed task that cannot be recovered:
 
 1. Read `inspect RUN`, logs, session IDs and the local Git diff.
 2. Establish that no worker/process group is still running. If startup reports an old PID or process journal, inspect that exact process and stop it before recovery. Never remove a live owner's lease.

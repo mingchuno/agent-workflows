@@ -16,6 +16,7 @@ const config = configSchema.parse(
 );
 const external = process.argv[3]!;
 const fault = process.env.FAULT_PHASE;
+let recovering = false;
 function crash(phase: string) {
   if (fault === phase) process.exit(77);
 }
@@ -31,7 +32,11 @@ class Workspace extends ExistingCheckout {
     return head;
   }
   override async push(project: Project, branch: string, head: string) {
+    if (fault?.startsWith("publication-") && !recovering)
+      throw new Error("Publication unavailable");
+    if (recovering) crash("publication-forked");
     await super.push(project, branch, head);
+    if (recovering) crash("publication-effect");
     crash("push");
   }
 }
@@ -90,6 +95,19 @@ const runner = new Runner({
     },
   },
 });
+if (fault === "publication-admitted") {
+  const finishCommand = runner.store.finishCommand.bind(runner.store);
+  runner.store.finishCommand = async (id, error) => {
+    if (
+      !error &&
+      (await runner.store.commands()).some(
+        (item) => item.id === id && item.kind === "recover",
+      )
+    )
+      crash("publication-admitted");
+    await finishCommand(id, error);
+  };
+}
 try {
   await runner.start();
   await waitFor(async () => {
@@ -98,6 +116,30 @@ try {
       runs.length === 1 && !["queued", "running"].includes(runs[0]!.outcome)
     );
   });
+  if (fault?.startsWith("publication-")) {
+    const run = (await runner.store.runs())[0]!;
+    const { DBOS } = await import("@dbos-inc/dbos-sdk");
+    await waitFor(
+      async () => (await DBOS.getWorkflowStatus(run.id))?.status === "SUCCESS",
+    );
+    await runner.pause(run.projectId);
+    recovering = true;
+    const id = await runner.store.request("recover", run.id);
+    await waitFor(
+      async () =>
+        (await runner.store.commands()).find((item) => item.id === id)
+          ?.status !== "pending",
+    );
+    const result = (await runner.store.commands()).find(
+      (item) => item.id === id,
+    )!;
+    if (result.status !== "success") throw new Error(result.error!);
+    crash("publication-admitted");
+    await runner.resume(run.projectId);
+    await waitFor(
+      async () => (await runner.store.run(run.id)).outcome === "completed",
+    );
+  }
   const runs = await runner.store.runs();
   await writeFile(
     join(config.stateDirectory, "result.json"),

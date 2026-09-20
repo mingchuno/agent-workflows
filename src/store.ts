@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, gt, Param, SQL } from "drizzle-orm";
+import { and, eq, gt, isNull, Param, SQL } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
 import { tryLock, unlockAll } from "./db/locks.js";
 import { migrateDatabase } from "./db/migrations.js";
 import * as tables from "./db/schema.js";
-import type { RunRecord } from "./domain.js";
+import type { ExecutionRecord, RunRecord } from "./domain.js";
+import { recoveryUnavailable } from "./recovery.js";
 import { createQueuedRun } from "./run-record.js";
 import { redactValue } from "./runtime/redaction.js";
 
@@ -45,6 +46,10 @@ interface RetryAdmission {
   checkSafety: (
     previous: RunRecord,
   ) => Promise<{ checkout: string; branchTemplate: string }>;
+}
+interface RecoveryAdmission {
+  commandId?: string;
+  checkSafety: (run: RunRecord) => Promise<string[]>;
 }
 /** Public persisted query surface. All queries work without a running executor. */
 export class Store {
@@ -149,6 +154,22 @@ export class Store {
     if (inserted.length) await this.emit(run.id, "run", run);
     return inserted.length > 0;
   }
+  async blockProject(id: string, reason: string): Promise<void> {
+    const { projects } = tables;
+    const updated = await this.db
+      .update(projects)
+      .set({ blocked: this.redact(reason) })
+      .where(
+        and(
+          eq(projects.scope, this.scope),
+          eq(projects.id, id),
+          isNull(projects.blocked),
+        ),
+      )
+      .returning({ id: projects.id });
+    if (updated.length)
+      await this.emit(null, "project", { id, blocked: reason });
+  }
   /**
    * Admit a retry and its events atomically. Safety checks run under the project
    * lock only for new admissions; they must not write through this Store.
@@ -244,6 +265,129 @@ export class Store {
       return id;
     });
   }
+  /** Persist recovery intent before dispatch; the command ID is its durable DBOS ID. */
+  async admitRecovery(
+    runId: string,
+    admission: RecoveryAdmission,
+  ): Promise<string> {
+    const original = await this.run(runId);
+    const { projects, runs, events } = tables;
+    const projectPredicate = and(
+      eq(projects.scope, this.scope),
+      eq(projects.id, original.projectId),
+    );
+    return this.db.transaction(async (tx) => {
+      const [project] = await tx
+        .select()
+        .from(projects)
+        .where(projectPredicate)
+        .for("update");
+      if (!project) throw new Error(`Unknown project: ${original.projectId}`);
+      const history = await tx
+        .select({ record: runs.record })
+        .from(runs)
+        .where(
+          and(eq(runs.scope, this.scope), eq(runs.taskKey, original.taskKey)),
+        )
+        .orderBy(runs.id)
+        .for("update");
+      const previous = history.find(
+        ({ record }) => record.id === runId,
+      )?.record;
+      if (!previous) throw new Error(`Unknown run: ${runId}`);
+      if (admission.commandId) {
+        const records = await tx
+          .select({ record: runs.record })
+          .from(runs)
+          .where(eq(runs.scope, this.scope));
+        const owner = records.find(
+          ({ record }) =>
+            record.id === admission.commandId ||
+            record.executions?.some((item) => item.id === admission.commandId),
+        )?.record;
+        if (owner) {
+          if (
+            owner.id !== runId ||
+            !owner.executions?.some(
+              (item) => item.id === admission.commandId && item.recoveryOf,
+            )
+          )
+            throw new Error(
+              "Recovery command identity belongs to a different execution",
+            );
+          return admission.commandId;
+        }
+      }
+      const unavailable = recoveryUnavailable(previous);
+      if (unavailable) throw new Error(unavailable);
+      if (
+        history.some(
+          ({ record }) =>
+            record.attempt > previous.attempt ||
+            (record.id !== runId &&
+              ["queued", "running"].includes(record.outcome)),
+        )
+      )
+        throw new Error("A newer attempt has superseded this run");
+      // Recovery must never remove a block imposed by a different operation.
+      if (project.blocked) throw new Error(project.blocked);
+      const reusedSteps = await admission.checkSafety(previous);
+      const source = previous.executions!.at(-1)!;
+      const id = admission.commandId ?? randomUUID();
+      const now = new Date().toISOString();
+      const execution: ExecutionRecord = {
+        id,
+        recoveryOf: source.id,
+        startStep: source.failedStep!,
+        reusedSteps,
+        fingerprint: source.fingerprint,
+        createdAt: now,
+        outcome: "queued",
+        phase: previous.phase,
+        recoverySupported: source.recoverySupported,
+      };
+      const recovered: RunRecord = {
+        ...previous,
+        outcome: "queued",
+        updatedAt: now,
+        executions: [...previous.executions!, execution],
+      };
+      delete recovered.error;
+      delete recovered.failedStep;
+      const persisted = redactValue(recovered, this.redact) as RunRecord;
+      await tx
+        .update(runs)
+        .set({ record: persisted })
+        .where(and(eq(runs.scope, this.scope), eq(runs.id, runId)));
+      await tx.insert(events).values({
+        scope: this.scope,
+        runId,
+        kind: "recovery",
+        payload: redactValue(execution, this.redact),
+      });
+      return id;
+    });
+  }
+  async recoveryPlan(runId: string) {
+    const run = await this.run(runId);
+    const reason =
+      recoveryUnavailable(run) ??
+      ((await this.runs()).some(
+        (item) => item.taskKey === run.taskKey && item.attempt > run.attempt,
+      )
+        ? "A newer attempt has superseded this run"
+        : undefined) ??
+      (await this.project(run.projectId)).blocked;
+    return {
+      eligible: !reason,
+      reason: reason ?? null,
+      fromStep: run.phase,
+      reuses:
+        "Completed steps before the failed publication step, including implementation, validation and commit",
+      checks:
+        "Runner verifies checkpoints, configuration, artifacts and checkout before recovery",
+    };
+  }
   async run(id: string): Promise<RunRecord> {
     const { runs } = tables;
     const [row] = await this.db
@@ -287,6 +431,17 @@ export class Store {
         JSON.stringify(redactValue(change, this.redact)),
       ) as Partial<RunRecord>;
       const merged = { ...row.record, ...persistedChange };
+      const execution = merged.executions?.at(-1);
+      if (execution) {
+        execution.outcome = merged.outcome;
+        if (merged.outcome === "running" && !execution.startedAt)
+          execution.startedAt = change.updatedAt;
+        execution.phase = merged.phase;
+        execution.error = merged.error;
+        execution.failedStep = merged.failedStep;
+        if (!["queued", "running"].includes(merged.outcome))
+          execution.finishedAt = change.updatedAt;
+      }
       await tx.update(runs).set({ record: merged }).where(predicate);
       return merged;
     });
@@ -394,7 +549,7 @@ export class Store {
     };
   }
   async request(
-    kind: "pause" | "resume" | "stop" | "retry",
+    kind: "pause" | "resume" | "stop" | "retry" | "recover",
     target: string,
   ): Promise<string> {
     const id = randomUUID();

@@ -15,8 +15,11 @@ import {
   type Snapshot,
   type Workspace,
 } from "./domain.js";
+import { publicationSteps } from "./recovery.js";
 import { command } from "./runtime/process.js";
 import type { InvocationRecord, Store } from "./store.js";
+
+const maxStepAttempts = 3;
 
 export interface OperationDependencies {
   store: Store;
@@ -27,6 +30,8 @@ export interface OperationDependencies {
   artifacts: string;
   signal: AbortSignal;
   redact: (text: string) => string;
+  beforeStep?: () => Promise<void>;
+  executionFingerprint?: () => Promise<string>;
 }
 /** Reusable durable coding operations. Call from a registered DBOS workflow. */
 export class Operations {
@@ -42,10 +47,12 @@ export class Operations {
       async () => {
         const { store, signal } = this.dependencies;
         signal.throwIfAborted();
+        await this.dependencies.beforeStep?.();
         const run = await store.run(this.runId);
         await store.patchRun(this.runId, { phase: name });
         await store.emit(this.runId, "step", {
           name,
+          executionId: DBOS.workflowID,
           stepId: DBOS.stepID,
           attempt: DBOS.stepStatus?.currentAttempt ?? 1,
           status: "running",
@@ -58,14 +65,22 @@ export class Operations {
           const result = await operation(run);
           await store.emit(this.runId, "step", {
             name,
+            executionId: DBOS.workflowID,
             stepId: DBOS.stepID,
             attempt: DBOS.stepStatus?.currentAttempt ?? 1,
             status: "completed",
           });
           return result;
         } catch (error) {
+          if (
+            !publicationSteps.includes(name) ||
+            isBlockedError(error) ||
+            DBOS.stepStatus?.currentAttempt === maxStepAttempts
+          )
+            await store.patchRun(this.runId, { failedStep: DBOS.stepID! });
           await store.emit(this.runId, "step", {
             name,
+            executionId: DBOS.workflowID,
             stepId: DBOS.stepID,
             attempt: DBOS.stepStatus?.currentAttempt ?? 1,
             status: "failed",
@@ -81,12 +96,8 @@ export class Operations {
       },
       {
         name,
-        retriesAllowed: [
-          "push",
-          "change-request",
-          "review-publication",
-        ].includes(name),
-        maxAttempts: 3,
+        retriesAllowed: publicationSteps.includes(name),
+        maxAttempts: maxStepAttempts,
         intervalSeconds: 0.2,
         backoffRate: 2,
         shouldRetry: (error) => !isBlockedError(error),
@@ -111,10 +122,17 @@ export class Operations {
         run.branch,
         this.dependencies.signal,
       );
+      const execution = run.executions?.at(-1);
+      if (
+        execution?.recoverySupported &&
+        this.dependencies.executionFingerprint
+      )
+        execution.fingerprint = await this.dependencies.executionFingerprint();
       await store.patchRun(run.id, {
         base: snapshot.head,
         snapshot,
         outcome: "running",
+        executions: run.executions,
       });
     });
   }
@@ -207,6 +225,9 @@ export class Operations {
             });
           },
         });
+        // Even adapters without streamed events leave a readable artifact for
+        // a completed invocation, so recovery can verify evidence availability.
+        await appendFile(record.log, "", { mode: 0o600 });
         invocationSignal.throwIfAborted();
         if (readOnly) await workspace.verify(project, run.snapshot);
         else await this.saveImplementationSnapshot(run.id, run.snapshot);

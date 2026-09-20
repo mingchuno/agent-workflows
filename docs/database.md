@@ -26,3 +26,10 @@ attempts. Runner's checkout/process safety check runs while that lock is held;
 command replay skips it and does not write new events.
 
 `src/db/locks.ts` contains the only application driver SQL: fixed, parameterized PostgreSQL session-lock calls, which have no Drizzle query-builder equivalent. Generated migration SQL and the frozen legacy-schema test fixture are intentional SQL artifacts. No interpolated SQL template strings are used for record access.
+
+Execution history is stored in the existing run JSON record. Publication recovery
+adds optional fields without changing SQL tables; no migration or backfill is
+required. Legacy records remain readable, but lack the evidence needed for
+recovery. Recovery admission atomically appends an execution, queues the same
+run and writes an event under the project/task locks used by retry admission.
+The persisted execution ID lets dispatch reconcile a DBOS fork across crashes.

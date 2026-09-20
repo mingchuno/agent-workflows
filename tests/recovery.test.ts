@@ -8,7 +8,16 @@ import type { RunRecord } from "../src/domain.js";
 import { command } from "../src/runtime/process.js";
 import { repository } from "./fixtures.js";
 
-for (const phase of ["edits", "commit", "push", "change-request", "review"])
+for (const phase of [
+  "edits",
+  "commit",
+  "push",
+  "change-request",
+  "review",
+  "publication-admitted",
+  "publication-forked",
+  "publication-effect",
+])
   test(`restart reconciles interruption after ${phase} without duplicate effects`, {
     skip: !process.env.TEST_DATABASE_URL,
   }, async () => {
@@ -43,6 +52,23 @@ for (const phase of ["edits", "commit", "push", "change-request", "review"])
       77,
       interrupted.stderr + interrupted.stdout,
     );
+    if (phase === "publication-admitted") {
+      // Admission is durable even when the runner dies before dispatch. Resume
+      // intake through a queued command, just as an operator would after restart.
+      const { Store } = await import("../src/store.js");
+      const saved = JSON.parse(await readFile(config, "utf8"));
+      const store = new Store(process.env.TEST_DATABASE_URL!, saved.id);
+      try {
+        assert.equal(
+          (await store.commands()).find((item) => item.kind === "recover")
+            ?.status,
+          "pending",
+        );
+        await store.request("resume", project.id);
+      } finally {
+        await store.close();
+      }
+    }
     const resumed = await command(process.execPath, args, {
       cwd: process.cwd(),
       env: { ...process.env, FAULT_PHASE: "" },
@@ -69,6 +95,12 @@ for (const phase of ["edits", "commit", "push", "change-request", "review"])
       phase === "edits" ? 1 : 2,
     );
     assert.equal(result.sessions.length, phase === "edits" ? 1 : 3);
+    if (phase.startsWith("publication-")) {
+      assert.equal(result.runs.length, 1);
+      assert.equal(result.runs[0]!.executions?.length, 2);
+      assert.equal(result.runs[0]!.executions?.[0]?.outcome, "failed");
+      assert.equal(result.runs[0]!.executions?.[1]?.outcome, "completed");
+    }
   });
 
 test("restart blocks a changed checkout registration without changing replay order", {

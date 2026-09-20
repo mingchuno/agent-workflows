@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Box, Text, useApp, useInput } from "ink";
 import { useState } from "react";
+import { recoveryUnavailable } from "./recovery.js";
 import { type MonitorSource, useMonitorData } from "./tui-data.js";
 
 export type { MonitorSource } from "./tui-data.js";
@@ -87,13 +88,14 @@ export function Monitor({ source }: { source: MonitorSource }) {
       void action(project.paused ? "resume" : "pause", project.id);
     if (input === "s" && run) void action("stop", run.id);
     if (input === "r" && run) void action("retry", run.id);
+    if (input === "c" && run) void action("recover", run.id);
   });
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text bold>Agent Workflows · Monitor</Text>
       <Text>
         ← → project · ↑ ↓ run · [ ] step/attempt · Tab session · l agent log · v
-        validation log · p pause/resume · s stop · r retry · q close
+        validation log · p pause/resume · s stop · r retry · c recover · q close
       </Text>
       <Box marginTop={1} flexDirection="column">
         <Text bold>
@@ -121,6 +123,25 @@ export function Monitor({ source }: { source: MonitorSource }) {
           <Text bold>Run {run.id}</Text>
           <Text>{run.issue.title}</Text>
           {run.error && <Text color="red">{run.error}</Text>}
+          <Text>
+            Recovery:{" "}
+            {recoveryUnavailable(run) ??
+              project?.blocked ??
+              (projectRuns.some(
+                (item) =>
+                  item.taskKey === run.taskKey && item.attempt > run.attempt,
+              )
+                ? "A newer attempt has superseded this run"
+                : `from ${run.phase}; runner checks required`)}
+          </Text>
+          {run.executions?.map((execution) => (
+            <Text key={execution.id}>
+              Execution {execution.id} · {execution.outcome} / {execution.phase}
+              {execution.recoveryOf
+                ? ` · recovered from ${execution.recoveryOf} · reused: ${execution.reusedSteps?.join(", ")}`
+                : ""}
+            </Text>
+          ))}
           <Text>
             Validation:{" "}
             {run.validation
