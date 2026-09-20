@@ -1,4 +1,4 @@
-import { Store } from "../src/index.js";
+import { Store } from "@mingchuno/agent-workflows";
 
 export async function inspectRun(
   databaseUrl: string,

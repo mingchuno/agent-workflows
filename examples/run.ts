@@ -4,7 +4,7 @@ import {
   createAgents,
   createHosting,
   Runner,
-} from "../src/index.js";
+} from "@mingchuno/agent-workflows";
 import { reportingWorkflow } from "./custom-workflow.js";
 
 const config = configSchema.parse(

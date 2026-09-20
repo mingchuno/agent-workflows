@@ -1,22 +1,45 @@
 {
-  "name": "agent-workflows",
+  "name": "@mingchuno/agent-workflows",
   "version": "0.1.0",
   "description": "Local durable coding workflows on DBOS",
   "type": "module",
-  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mingchuno/agent-workflows.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "dist/src",
+    "dist/drizzle",
+    "README.md",
+    "LICENCE",
+    "docs/*.md",
+    "examples"
+  ],
   "engines": {
     "node": ">=22.12"
   },
   "exports": {
-    ".": "./dist/src/index.js"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
   },
   "bin": {
     "agent-workflows": "./dist/src/cli.js"
   },
   "scripts": {
-    "build": "tsc && node scripts/copy-migrations.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "check": "tsc --noEmit",
-    "test": "pnpm build && node scripts/test.mjs",
+    "test": "pnpm build && node --test scripts/*.test.mjs && node scripts/test.mjs",
+    "verify": "pnpm check && pnpm lint && pnpm test",
+    "pack:smoke": "pnpm build && node scripts/test.mjs --pack-smoke",
+    "release:publish": "node scripts/publish.mjs",
+    "lint:pr": "node scripts/lint-pr-title.mjs",
     "start": "tsx src/cli.ts",
     "format": "biome format --write .",
     "format:check": "biome format .",
@@ -30,6 +53,7 @@
     "@github/copilot-sdk": "^1.0.14",
     "@octokit/rest": "^22.0.1",
     "@openai/codex-sdk": "^0.155.1",
+    "@types/pg": "^8.23.1",
     "commander": "^15.0.0",
     "drizzle-orm": "0.45.2",
     "ink": "^7.1.1",
@@ -40,11 +64,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
+    "@commitlint/cli": "21.2.2",
+    "@commitlint/config-conventional": "21.2.2",
     "@types/node": "^26.6.2",
-    "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "drizzle-kit": "0.31.10",
     "ink-testing-library": "^4.0.0",
+    "npm": "12.0.2",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },

@@ -4,6 +4,9 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const mode = process.argv[2];
+if (process.argv.length > 3 || (mode && mode !== "--pack-smoke"))
+  throw new Error("Usage: node scripts/test.mjs [--pack-smoke]");
 let directory;
 const testDirectory = await mkdtemp(join(tmpdir(), "agent-workflows-tests-"));
 function run(executable, args) {
@@ -56,7 +59,9 @@ try {
     .map((file) => join("tests", file));
   const child = spawn(
     process.execPath,
-    ["--import", "tsx", "--test", "--test-concurrency=1", ...files],
+    mode === "--pack-smoke"
+      ? ["scripts/pack-smoke.mjs"]
+      : ["--import", "tsx", "--test", "--test-concurrency=1", ...files],
     { stdio: "inherit", env: { ...process.env, TEST_DATABASE_URL: url } },
   );
   process.exitCode = await new Promise((resolve, reject) => {

@@ -1,4 +1,4 @@
-import { configSchema } from "../src/index.js";
+import { configSchema } from "@mingchuno/agent-workflows";
 
 /** Replace paths, repository, identity and model IDs with locally available values. */
 export const configuration = configSchema.parse({

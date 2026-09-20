@@ -1,6 +1,6 @@
 # Phase 1 review guide
 
-Implementation scope is the unchanged [SPEC](../SPEC.md) / [issue #1](https://github.com/mingchuno/agent-workflows/issues/1). Review the public contracts first, then the workspace/recovery boundaries. No task-specific worktrees, clones, merges or automatic review/fix loops are implemented.
+Implementation scope is the unchanged [specification in issue #1](https://github.com/mingchuno/agent-workflows/issues/1). Review the public contracts first, then the workspace/recovery boundaries. No task-specific worktrees, clones, merges or automatic review/fix loops are implemented.
 
 | Acceptance area                                                     | Implementation / behavioral evidence                                                                                                                                  |
 | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
