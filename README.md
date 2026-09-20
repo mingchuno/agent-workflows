@@ -4,7 +4,7 @@
 
 A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues into draft change requests with independent agent reviews. DBOS persists execution; each project uses its existing checkout, with one task at a time. Separate projects progress concurrently.
 
-Phase 1 includes Codex and Copilot SDK adapters, GitHub and GitLab.com/self-hosted GitLab adapters, durable publication reconciliation, session observability and explicit operator controls. Human review and merging remain separate.
+Supports Codex and Copilot SDKs, GitHub, and GitLab.com/self-hosted GitLab. Human review and merging remain separate.
 
 ## Why use this SDK over DBOS directly?
 
@@ -91,7 +91,5 @@ Schema changes and database upgrades: [database maintenance](docs/database.md). 
 - [Authentication and provider capabilities](docs/providers.md)
 - [CLI, TUI, observability and recovery](docs/operations.md)
 - [Observability Landscape](docs/operations.md#observability-landscape)
-- [Architecture and review evidence](docs/architecture.md)
-- [Phase 1 acceptance](docs/acceptance.md)
-- [Release setup, first publication and recovery](docs/releases.md)
-- [Specification](https://github.com/mingchuno/agent-workflows/issues/1)
+- [Architecture](docs/architecture.md)
+- [Releases](docs/releases.md)

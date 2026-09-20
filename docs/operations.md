@@ -82,6 +82,8 @@ A failed review after publication remains a failed automation attempt, even if i
 
 ## Evidence and limits
 
+Git hooks are disabled for application-authored task commits; configure required checks as validation commands. Changed symlinks and submodules require manual handling. Checkout checks detect boundary changes but do not sandbox custom adapters or prevent unrelated local tools from writing.
+
 Validation records say exactly which command ran, when, its exit code and artifact path. No-change work skips publication. Generated commit/request text is validated and saved before Git/API writes. Logs, prompts and errors redact configured credentials and recognized secret environment values; this does not sanitize arbitrary repository content or secrets unknown to the runner.
 
 Back up both PostgreSQL and the state directory if history/artifacts matter. The checkout and runtime session stores are separate local state. Losing them cannot be repaired from DBOS checkpoints alone. Do not change a custom workflow's step order or rename projects while its runs are pending; use a new workflow version and finish or explicitly resolve existing runs first.

@@ -17,7 +17,7 @@ Node/PostgreSQL/Git are the only runtime infrastructure; providers require their
 
 The test boundary is the public runner/workflow API using real PostgreSQL, real temporary Git repositories and controlled adapters. Separate adapter contracts exercise SDK argument/event mapping and HTTP behavior. Process-level recovery tests terminate a runner after external effects and restart it against the same state. Runtime/provider smoke calls are intentionally separate from deterministic acceptance tests.
 
-Phase 1 supports existing checkouts only. Higher per-project concurrency requires isolated workspaces and lifecycle design; changing the DBOS queue limit alone is unsafe.
+The runner supports existing checkouts only. Higher per-project concurrency requires isolated workspaces and lifecycle design; changing the DBOS queue limit alone is unsafe.
 
 ## Package boundary
 
