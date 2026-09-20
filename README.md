@@ -1,5 +1,7 @@
 # Agent Workflows
 
+![Print-shop workbench with a job sheet, a worked proof, and an inspected copy awaiting human approval.](docs/assets/hero.png)
+
 A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues into draft change requests with independent agent reviews. DBOS persists execution; each project uses its existing checkout, with one task at a time. Separate projects progress concurrently.
 
 Phase 1 includes Codex and Copilot SDK adapters, GitHub and GitLab.com/self-hosted GitLab adapters, durable publication reconciliation, session observability and explicit operator controls. Human review and merging remain separate.
