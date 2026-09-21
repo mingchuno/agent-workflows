@@ -18,6 +18,8 @@ import {
   wrapDetailLines,
 } from "./views.js";
 
+const notificationNoticeDurationMs = 2000;
+
 type Focus = "runs" | "summary" | "sessions";
 type Screen = "dashboard" | "details";
 type Confirmation = {
@@ -98,7 +100,16 @@ export function Monitor({
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [logs, setLogs] = useState<{ sources: LogSource[]; initial: number }>();
   const [now, setNow] = useState(Date.now());
-  const layout = monitorLayout(columns, rows, screen === "details");
+  const [notificationNoticeUntil] = useState(
+    () => Date.now() + notificationNoticeDurationMs,
+  );
+  const showNotificationNotice =
+    Boolean(notificationWriter) && now < notificationNoticeUntil;
+  const layout = monitorLayout(
+    columns,
+    rows - (showNotificationNotice ? 1 : 0),
+    screen === "details",
+  );
   const { wide, height, paneWidth, summaryWidth } = layout;
   const session = sessions.find((item) => item.id === sessionId) ?? sessions[0];
   const executionSessions = currentExecutionSessions(run, sessions, events);
@@ -347,11 +358,6 @@ export function Monitor({
     ? `refreshed ${Math.max(0, Math.floor((now - data.lastUpdated) / statusRefreshIntervalMs))}s ago`
     : "freshness unavailable";
   const status = `${data.connection} · ${freshness}`;
-  const monitorMessage =
-    data.message ||
-    (notificationWriter
-      ? "Notifications enabled; delivery is best-effort and depends on terminal settings"
-      : "");
   const sessionIndex = Math.max(
     0,
     sessions.findIndex((item) => item.id === session?.id),
@@ -505,6 +511,14 @@ export function Monitor({
           </>
         )}
       </Box>
+      {showNotificationNotice && (
+        <Text color={colorFor("running")} wrap="truncate">
+          {cells(
+            "Notifications enabled; delivery is best-effort and depends on terminal settings",
+            columns,
+          )}
+        </Text>
+      )}
       <Text
         wrap="truncate"
         color={
@@ -514,7 +528,7 @@ export function Monitor({
         }
       >
         {cells(
-          `${monitorMessage ? `${monitorMessage} · ` : ""}${columns < 120 ? status.replace("Database ", "DB ") : status} · runner liveness unverified · closing leaves workflows running`,
+          `${data.message ? `${data.message} · ` : ""}${columns < 120 ? status.replace("Database ", "DB ") : status} · runner liveness unverified · closing leaves workflows running`,
           columns,
         )}
       </Text>

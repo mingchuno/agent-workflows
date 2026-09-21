@@ -50,17 +50,28 @@ test("notifications are opt-in and the first successful snapshot is silent", asy
   const enabled = render(
     React.createElement(Monitor, {
       source: enabledFixture.source,
-      size,
+      size: { columns: 80, rows: 24 },
       notificationWriter: recorder(notifications),
     }),
   );
   try {
-    await until(() => enabled.lastFrame()!.includes("Database connected"));
+    await until(() => enabled.lastFrame()!.includes("DB connected"));
     assert.match(
       enabled.lastFrame()!,
       /Notifications enabled; delivery is best-effort and depends on terminal settings/,
     );
+    const initialLines = enabled.lastFrame()!.split("\n");
+    assert.ok(initialLines.length <= 24);
+    assert.ok(
+      initialLines.some(
+        (line) =>
+          line.includes("DB connected") &&
+          line.includes("runner liveness unverified"),
+      ),
+    );
     assert.deepEqual(notifications, []);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.doesNotMatch(enabled.lastFrame()!, /Notifications enabled/);
   } finally {
     enabled.unmount();
   }
@@ -194,26 +205,69 @@ test("notification writer failures remain advisory", async () => {
   }
 });
 
+test("terminal transitions notify even when selected Run details fail", async () => {
+  const { source, run } = monitorFixture();
+  const notifications: ExecutionNotification[] = [];
+  const view = render(
+    React.createElement(Monitor, {
+      source,
+      size,
+      notificationWriter: recorder(notifications),
+    }),
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("Database connected"));
+    source.invocations = async () => {
+      throw new Error("detail unavailable");
+    };
+    run.executions![0]!.outcome = "failed";
+    run.outcome = "failed";
+    await until(() => notifications.length === 1);
+    assert.deepEqual(notifications, [
+      { project: "demo", issue: "#1", outcome: "failed" },
+    ]);
+    await until(() => view.lastFrame()!.includes("Connection error"));
+  } finally {
+    view.unmount();
+  }
+});
+
 test("terminal writer sanitizes and encodes plain OSC 9", () => {
   const writes: string[] = [];
   const writer = createTerminalNotificationWriter({
-    write: (value) => writes.push(value),
+    write: (value) => {
+      writes.push(value);
+    },
     tmux: false,
   });
   writer.notify({
-    project: "demo\u001b]9;injected\n project",
+    project: "demo\u001b]9;injected\tproject",
     issue: "#1\u0085private",
     outcome: "completed",
   });
   assert.deepEqual(writes, [
-    "\u001b]9;agent-workflows: demo]9;injected project · #1private · completed\u001b\\",
+    "\u001b]9;agent-workflows: demo]9;injectedproject · #1private · completed\u001b\\",
   ]);
+});
+
+test("terminal writer contains asynchronous output failures", async () => {
+  const writer = createTerminalNotificationWriter({
+    write: () =>
+      new Promise<void>((_resolve, reject) => {
+        setImmediate(() => reject(new Error("asynchronous output failure")));
+      }),
+    tmux: false,
+  });
+  writer.notify({ project: "demo", issue: "#1", outcome: "failed" });
+  await new Promise((resolve) => setImmediate(resolve));
 });
 
 test("terminal writer wraps tmux passthrough and truncates valid UTF-8", () => {
   const writes: string[] = [];
   const writer = createTerminalNotificationWriter({
-    write: (value) => writes.push(value),
+    write: (value) => {
+      writes.push(value);
+    },
     tmux: true,
   });
   writer.notify({
@@ -233,5 +287,5 @@ test("terminal writer wraps tmux passthrough and truncates valid UTF-8", () => {
   assert.ok(Buffer.byteLength(payload, "utf8") <= 256);
   assert.equal(Buffer.from(payload, "utf8").toString("utf8"), payload);
   assert.match(payload, /^agent-workflows: private-/);
-  assert.doesNotMatch(payload, /#9|blocked/);
+  assert.match(payload, / · #9 · blocked$/);
 });

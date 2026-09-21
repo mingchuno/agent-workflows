@@ -73,6 +73,7 @@ export function useMonitorData(
         if (closed) return;
         setProjects(nextProjects);
         setRuns(nextRuns);
+        notificationObserver?.observe(nextRuns);
         if (selectedRunId) {
           const [sessions, nextEvents] = await Promise.all([
             source.invocations(selectedRunId),
@@ -90,7 +91,6 @@ export function useMonitorData(
           ];
           setDetail({ runId: selectedRunId, sessions, events: history });
         }
-        notificationObserver?.observe(nextRuns);
         setConnection("Database connected");
         setLastUpdated(Date.now());
       } catch (error) {

@@ -791,6 +791,7 @@ test("confirmation defaults to Cancel and traps focus while Tab changes options"
   );
   try {
     await until(() => view.lastFrame()!.includes("Implement feature"));
+    await settle();
     view.stdin.write("s");
     await settle();
     assert.match(view.lastFrame()!, /> Cancel/);
