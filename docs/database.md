@@ -15,21 +15,5 @@ Do not edit applied migration files or use schema push against existing data. Ad
 
 The initial migration adopts the original application's identical tables using `IF NOT EXISTS`, preserving records and constraints. This supports the original schema, not arbitrary manually altered schemas; inspect and reconcile any local schema changes first.
 
-## Query boundary
-
-`Store` uses typed Drizzle inserts, updates and selects. Concurrent JSON record patches use a transaction and row lock to preserve unrelated fields. Full-scope run and invocation queries sort their JSON fields in memory; introduce typed indexed columns if history size requires database pagination.
-
-Retry admission locks the project row before checking task history, then commits
-the new run, project unblocking and admission events in one transaction. The
-project lock serializes requests even when they target different historical
-attempts. Runner's checkout/process safety check runs while that lock is held;
-command replay skips it and does not write new events.
-
-`src/db/locks.ts` contains the only application driver SQL: fixed, parameterized PostgreSQL session-lock calls, which have no Drizzle query-builder equivalent. Generated migration SQL and the frozen legacy-schema test fixture are intentional SQL artifacts. No interpolated SQL template strings are used for record access.
-
-Execution history is stored in the existing run JSON record. Publication recovery
-adds optional fields without changing SQL tables; no migration or backfill is
-required. Legacy records remain readable, but lack the evidence needed for
-recovery. Recovery admission atomically appends an execution, queues the same
-run and writes an event under the project/task locks used by retry admission.
-The persisted execution ID lets dispatch reconcile a DBOS fork across crashes.
+The persistence and locking rationale is recorded in
+[ADR 0005](adr/0005-postgresql-persistence-boundary.md).

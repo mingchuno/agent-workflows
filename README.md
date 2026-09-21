@@ -77,6 +77,24 @@ await runner.shutdown();
 
 [Custom workflow](examples/custom-workflow.ts), [complete runner](examples/run.ts), [configuration](examples/config.ts), and [inspection](examples/observe.ts) examples are type-checked with the library. The custom workflow is also exercised using controlled providers.
 
+## Documentation
+
+### Using the package
+
+- [Configuration and profiles](docs/configuration.md)
+- [Default stage prompts](docs/configuration.md#default-stage-prompts)
+- [Public SDK API and composition](docs/api.md)
+- [DBOS SDK direct usage](docs/api.md#dbos-sdk-direct-usage)
+- [Authentication and provider capabilities](docs/providers.md)
+- [CLI, TUI, observability, and recovery](docs/operations.md)
+- [Observability landscape](docs/operations.md#observability-landscape)
+
+### Maintaining the project
+
+- [Architecture decisions](docs/adr/README.md)
+- [Database maintenance](docs/database.md)
+- [Release process](docs/releases.md)
+
 ## Development and review
 
 [mise](https://mise.jdx.dev/getting-started.html) pins the development Node and pnpm versions. Activate it in your shell or prefix commands with `mise exec --`.
@@ -93,14 +111,6 @@ Use `pnpm start --help` to run the CLI from source. `pnpm build` emits the runti
 
 `pnpm test` builds the application, then starts and removes a disposable real PostgreSQL database using `initdb`, `pg_ctl`, and `createdb` on PATH. Alternatively, set `TEST_DATABASE_URL` to a disposable database whose role can create test databases. Tests use real temporary Git repositories and controlled adapters/HTTP servers; they make no paid agent calls or writes to real hosting providers.
 
-Schema changes and database upgrades: [database maintenance](docs/database.md). Biome formats and lints supported source/configuration files; Markdown and YAML are maintained manually.
-
-- [Configuration and profiles](docs/configuration.md)
-- [Default stage prompts](docs/configuration.md#default-stage-prompts)
-- [Public SDK API and composition](docs/api.md)
-- [DBOS SDK direct usage](docs/api.md#dbos-sdk-direct-usage)
-- [Authentication and provider capabilities](docs/providers.md)
-- [CLI, TUI, observability and recovery](docs/operations.md)
-- [Observability Landscape](docs/operations.md#observability-landscape)
-- [Architecture](docs/architecture.md)
-- [Releases](docs/releases.md)
+Schema changes and database upgrades: [database maintenance](docs/database.md).
+Biome formats and lints supported source/configuration files; Markdown and YAML
+are maintained manually.

@@ -23,7 +23,9 @@ the next attempt; another request for the same task fails while that retry is
 queued or running. Replaying the same command ID returns its existing retry,
 without rechecking the checkout or emitting events. A command ID cannot identify
 retries of different runs. Retry creation, project unblocking and their events
-commit together; failure preserves the blocked state.
+commit together; failure preserves the blocked state. The rationale for separate
+run and execution identities is in
+[ADR 0003](adr/0003-run-and-execution-identity.md).
 
 ## Durable operations
 
@@ -156,7 +158,8 @@ Caveats:
 `Store.admitRetry` owns persisted retry admission. Runner supplies its checkout
 and process safety check, which runs under the project lock for new admissions
 only. This callback must not mutate Store records. Operator tools should use
-`retry` commands or `Runner.retry`, preserving those safety checks.
+`retry` commands or `Runner.retry`, preserving those safety checks. The locking
+boundary is recorded in [ADR 0005](adr/0005-postgresql-persistence-boundary.md).
 
 Invocation records include project/run IDs, stable DBOS step ID and name, invocation ID, attempt, timestamps, requested/effective profile, provider, effective task prompt/source/hash, output-contract and evidence identities, artifact path and session state (`pending`, `available`, `unavailable`). Repeated custom steps retain separate invocations. A retry has a separate run record linked to its predecessor.
 
@@ -182,7 +185,8 @@ markers. `Store.recoveryPlan(runId)` reports persisted eligibility and its reaso
 live safety checks happen at admission and execution. Runs without execution
 metadata remain readable and retryable, but cannot be recovered.
 
-Recovery uses DBOS forks, retaining the original workflow input and checkpoint
-prefix. The accepted command ID is the fork ID: dispatch adopts an existing fork
-after an uncertain response or crash. Copied start gates do not replace live
-checks in the first non-replayed operation. Successful prefixes cannot rerun.
+Recovery preserves the original workflow input and completed checkpoint prefix.
+The accepted command ID identifies the new execution so uncertain dispatch can
+be reconciled after a crash. Live checks still run in the first non-replayed
+operation. See [ADR 0003](adr/0003-run-and-execution-identity.md) for the complete
+identity and recovery decision.

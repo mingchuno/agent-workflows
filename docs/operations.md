@@ -93,7 +93,7 @@ or `unavailable`. Noninteractive tools use `status --json` and `inspect`. Run
 details keeps complete errors under Diagnostics and exact identifiers, paths,
 profiles and ISO timestamps under Technical details.
 
-## Observability Landscape
+## Observability landscape
 
 This section includes only options that run locally without a license key.
 Cloud services and tools requiring a license key are excluded. These boundaries
@@ -121,38 +121,30 @@ Conductor service or cloud login. See the [DBOS CLI reference](https://docs.dbos
 The initial DBOS workflow ID equals the run ID. Publication recovery keeps the
 run ID and adds a new DBOS execution ID; `inspect RUN` includes execution history
 and a persisted recovery eligibility assessment. Admission performs live checks.
-Inspect both layers: the
-runner catches execution errors and persists application outcomes, so a DBOS
-`SUCCESS` can accompany an application `failed` or `blocked` outcome. DBOS step
-history does not replace the local agent/validation artifacts.
-
-A browser dashboard is an extension path, not a bundled feature. A local server
-could combine the [Store query/event API](api.md#query-and-event-interface) with
-`DBOSClient.create({ systemDatabaseUrl: databaseUrl })`, joining records by run ID.
-Neither inspector needs to launch another DBOS runtime. Keep database access on
-the server and bind a local-only dashboard to loopback. See the
-[inspection example](../examples/observe.ts) for Store lifecycle handling.
-
-Route dashboard controls through `Store.request` or the runner's public controls.
-Direct DBOS cancellation, resumption or forking bypasses application coordination
-for process termination, checkout safety and retry admission.
+Inspect both layers: the runner catches execution errors and persists application
+outcomes, so DBOS `SUCCESS` can accompany an application `failed` or `blocked`
+outcome. DBOS step history does not replace local agent or validation artifacts.
+See [ADR 0003](adr/0003-run-and-execution-identity.md) for the identity model.
 
 ## Ownership and recovery
 
-Only the runner may edit or switch managed checkouts while it is active. PostgreSQL advisory locks protect runner/configuration and checkout identities. A local Git-directory lease also prevents runners using different databases from owning the same checkout. Worker/validation process-group journals prevent reuse while old work may still run.
+Only the runner may edit or switch managed checkouts while it is active.
+PostgreSQL advisory locks, a local Git-directory lease, and worker/validation
+process journals prevent concurrent ownership and reuse while old work may still
+run. See [ADR 0002](adr/0002-existing-checkouts-and-exclusive-ownership.md) for
+the checkout and concurrency tradeoff.
 
 Git process journals live in `<git-directory>/agent-workflows-processes/`, independently of the configured state directory. A surviving Git process blocks ownership acquisition after a crash. Stop requests propagate to active fetch, staging, commit and push commands; interrupted effects still require reconciliation.
 
 Startup and phase boundaries check ownership assumptions, branch/head and actual changes. Unfinished files are never reset, cleaned, stashed or discarded automatically. Dirty files, unresolved Git operations, branch collisions, unexpected mutations and ambiguous agent recovery become inspectable blocked states. Other eligible projects continue.
 
-Publication effects have independent DBOS checkpoints. A task commit preserves
-publication trailers, carries exactly one `Agent-Workflows-Run`, and by default
-adds co-author trailers for providers with retained writable contributions.
-Commit reconciliation checks the expected parent, change set, finalized message,
-and clean checkout. Push recovery checks the remote ref, request creation checks
-the source branch, and review publication checks stable markers. Transient
-publication failures use bounded retries and reconciliation. Interrupted agent
-stages block rather than starting another writer.
+Publication effects have independent DBOS checkpoints. A task commit carries
+exactly one `Agent-Workflows-Run` marker and, by default, co-author trailers for
+providers with retained writable contributions. Commit, push, request creation,
+and review publication reconcile their durable identities before retrying an
+ambiguous effect. Interrupted agent stages block rather than starting another
+writer. See [ADR 0003](adr/0003-run-and-execution-identity.md) for the recovery
+boundary.
 
 ## Publication recovery
 
