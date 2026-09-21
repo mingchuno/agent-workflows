@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/mingchuno/agent-workflows/compare/v0.3.0...v0.4.0) (2026-09-21)
+
+
+### Features
+
+* **cli:** load environment file from config ([ea4b5e7](https://github.com/mingchuno/agent-workflows/commit/ea4b5e7375aeb1a16762ee1c43d8c3e3a9c9c68a))
+
 ## [0.3.0](https://github.com/mingchuno/agent-workflows/compare/v0.2.0...v0.3.0) (2026-09-21)
 
 
