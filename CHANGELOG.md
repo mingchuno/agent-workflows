@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/mingchuno/agent-workflows/compare/v0.2.0...v0.3.0) (2026-09-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* relative CLI configuration paths now resolve from the configuration file directory, and the gitIdentity setting has been removed.
+
+### Features
+
+* make config paths portable and attribute agent contributions ([#6](https://github.com/mingchuno/agent-workflows/issues/6)) ([ba8eff1](https://github.com/mingchuno/agent-workflows/commit/ba8eff1f32738e4428f0f4c64561711e3dee7dbb))
+* **tui:** notify on execution outcomes ([#11](https://github.com/mingchuno/agent-workflows/issues/11)) ([e5eeb1e](https://github.com/mingchuno/agent-workflows/commit/e5eeb1ef43ca2ef62a2574ad14f56e9c17d2a4d4))
+* **tui:** redesign Run details around operator needs ([#10](https://github.com/mingchuno/agent-workflows/issues/10)) ([c66c6c8](https://github.com/mingchuno/agent-workflows/commit/c66c6c886e25fc58fe1ae007f11b28418897c311))
+
 ## [0.2.0](https://github.com/mingchuno/agent-workflows/compare/v0.1.0...v0.2.0) (2026-09-20)
 
 
