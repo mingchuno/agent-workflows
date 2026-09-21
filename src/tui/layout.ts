@@ -4,9 +4,13 @@ const panelHorizontalChrome = 4;
 const panelVerticalChrome = 3;
 
 /** Pane content sizes shared by rendering and keyboard scrolling. */
-export function monitorLayout(columns: number, rows: number) {
+export function monitorLayout(
+  columns: number,
+  rows: number,
+  compactChrome = false,
+) {
   const wide = columns >= 110;
-  const height = Math.max(1, rows - screenChromeRows);
+  const height = Math.max(1, rows - (compactChrome ? 4 : screenChromeRows));
   const paneWidth = wide ? Math.floor(columns * 0.43) : columns;
   const summaryWidth = wide ? columns - paneWidth : columns;
   const summaryPanelHeight = wide ? height - 6 : height;

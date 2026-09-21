@@ -27,10 +27,18 @@ prove that a runner is alive. Requires an interactive terminal of at least
 compact terminals show the focused pane. Titles and identifiers are available
 in full in scrollable details. `NO_COLOR=1` disables semantic colors.
 
+Run details is one responsive, vertically scrollable document. It leads with
+the issue, outcome, phase, attempt, total elapsed time and branch, and adds an
+attention summary only when operator action may be required. At 140 columns
+and above, execution history appears beside validation and agent-session
+evidence; narrower terminals stack those sections in the same reading order.
+The primary design target is 160×48, with 80×24 retained as the functional
+fallback. An overflowing document shows its visible line range in the heading.
+
 | Context | Keys |
 | --- | --- |
 | Dashboard | Left/Right project; Tab/Shift+Tab pane; Up/Down selection or scroll |
-| Details | Enter opens; Up/Down or PgUp/PgDn scroll; Esc returns |
+| Details | Enter opens; Up/Down or PgUp/PgDn scroll; Esc returns; `l` opens the latest current-execution session, preferring a running session |
 | Progress | `[`/`]` inspect step history; End follows latest event |
 | Sessions | `a` focuses session list; Up/Down selects invocation; `l` opens log |
 | Validation | `v` opens validation logs |
@@ -61,8 +69,10 @@ Execution duration includes eligibility, preparation and waits within one
 execution. It excludes queue waiting and gaps before publication recovery.
 Details show each execution, its queue wait and the run's total elapsed time.
 Completed execution durations freeze at their first terminal outcome. Records
-without timing evidence show an em dash. Noninteractive tools use `status --json`
-and `inspect`. See [TUI design](tui-redesign.md) for implementation boundaries.
+without timing evidence use factual labels such as `not started`, `not recorded`
+or `unavailable`. Noninteractive tools use `status --json` and `inspect`. Run
+details keeps complete errors under Diagnostics and exact identifiers, paths,
+profiles and ISO timestamps under Technical details.
 
 ## Observability Landscape
 
