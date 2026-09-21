@@ -240,20 +240,26 @@ export function Monitor({
             : summaryLines(run, now, event)
           : [];
         const viewport = screen === "details" ? layout.details : layout.summary;
-        setOffset((value) =>
-          Math.max(
+        setOffset((value) => {
+          const maximum = Math.max(
+            0,
+            (screen === "details"
+              ? wrapDetailLines(lines, viewport.width)
+              : wrapLines(lines, viewport.width)
+            ).length - viewport.height,
+          );
+          const current =
+            screen === "details" ? Math.min(value, maximum) : value;
+          return Math.max(
             0,
             Math.min(
-              (screen === "details"
-                ? wrapDetailLines(lines, viewport.width)
-                : wrapLines(lines, viewport.width)
-              ).length - viewport.height,
-              value +
+              maximum,
+              current +
                 delta *
                   (key.pageUp || key.pageDown ? layout.details.height : 1),
             ),
-          ),
-        );
+          );
+        });
       } else if (focus === "sessions") {
         const index = sessions.findIndex((item) => item.id === session?.id);
         setSessionId(
@@ -352,7 +358,7 @@ export function Monitor({
     : ["No agent sessions recorded"];
   const detailsLogControl = detailLogSession
     ? columns < 120
-      ? `l ${cells(detailLogSession.step, 10)}#${detailLogSession.attempt} ${detailLogSession.outcome}`
+      ? "l current log"
       : `l log: ${detailLogSession.step} invocation ${detailLogSession.attempt} (${detailLogSession.outcome})`
     : "";
   const controls = [
@@ -409,7 +415,7 @@ export function Monitor({
               lines={detailDocument}
               width={layout.details.width}
               height={layout.details.height}
-              offset={offset}
+              offset={detailOffset}
               outcome={run?.outcome}
             />
           </Box>
@@ -510,7 +516,7 @@ export function Monitor({
             screen === "dashboard"
               ? "Tab pane · ↑↓ select/scroll · ←→ project · Enter details"
               : columns < 120
-                ? "↑↓ Pg scroll · Esc"
+                ? "↑↓/Pg · Esc"
                 : "↑↓ scroll · PgUp/PgDn page · Esc back",
             controls,
           ]

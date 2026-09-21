@@ -341,7 +341,7 @@ test("run details lead with operator facts and use the responsive evidence hiera
     assert.match(frame, /Total elapsed/i);
     assert.match(frame, /Branch\s+agent\/1/i);
     assert.match(frame, /Error\s+none/i);
-    assert.match(frame, /Validation\s+1 recorded/i);
+    assert.match(frame, /Validation\s+1 recorded · 1 exit 0/i);
     assert.doesNotMatch(frame, /ATTENTION/);
     assert.ok(frame.indexOf("CURRENT EXECUTION") < frame.indexOf("VALIDATION"));
     assert.ok(frame.indexOf("VALIDATION") < frame.indexOf("AGENT SESSIONS"));
@@ -481,6 +481,65 @@ test("attention, diagnostics and technical evidence preserve action and exact va
   }
 });
 
+test("attention bounds single-line errors while Diagnostics preserves them", async () => {
+  const { source, run } = monitorFixture();
+  const exactError = `Error: ${"provider failure payload ".repeat(80)}tail marker`;
+  run.outcome = run.executions![0]!.outcome = "failed";
+  run.executions![0]!.finishedAt = "2026-09-20T10:02:01Z";
+  run.error = exactError;
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    const firstFrame = view.lastFrame()!;
+    assert.match(firstFrame, /Problem\s+provider failure payload/);
+    assert.match(firstFrame, /…/);
+    assert.match(firstFrame, /CURRENT EXECUTION/);
+    const problem = firstFrame
+      .split("\n")
+      .find((line) => line.includes("Problem"))!;
+    assert.doesNotMatch(problem, /tail marker/);
+    assert.match(firstFrame, /tail marker/);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("health summary distinguishes successful and failed validation", async () => {
+  const { source, run } = monitorFixture();
+  run.validation = [
+    {
+      command: "pnpm",
+      args: ["check"],
+      exitCode: 0,
+      log: "/tmp/check.log",
+      startedAt: "2026-09-20T10:00:10Z",
+      finishedAt: "2026-09-20T10:00:20Z",
+    },
+    {
+      command: "pnpm",
+      args: ["test"],
+      exitCode: 1,
+      log: "/tmp/test.log",
+      startedAt: "2026-09-20T10:00:20Z",
+      finishedAt: "2026-09-20T10:00:30Z",
+    },
+  ];
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    assert.match(
+      view.lastFrame()!,
+      /Validation\s+2 recorded · 1 exit 0 · 1 nonzero/,
+    );
+  } finally {
+    view.unmount();
+  }
+});
+
 test("details show latest execution first and l selects the current running session", async () => {
   const directory = await mkdtemp(join(tmpdir(), "aw-tui-current-"));
   const { source, run, sessions } = monitorFixture();
@@ -548,6 +607,7 @@ test("details show latest execution first and l selects the current running sess
     assert.ok(
       frame.indexOf("CURRENT EXECUTION") < frame.indexOf("PRIOR EXECUTION 1"),
     );
+    assert.match(frame, /failed · push · duration 0m 59s · queue 0m 1s/);
     assert.match(frame, /l log: implementation invocation 1 \(running\)/);
     view.stdin.write("l");
     await until(() => view.lastFrame()!.includes("RUNNING CURRENT LOG"));
@@ -581,6 +641,116 @@ test("details expose overflow range and ignore dashboard-only navigation keys", 
     await settle();
     assert.match(view.lastFrame()!, /lines \d+–\d+ of \d+/);
   } finally {
+    view.unmount();
+  }
+});
+
+test("80-column details keep every active control visible", async () => {
+  const { source, run } = monitorFixture();
+  run.outcome = run.executions![0]!.outcome = "failed";
+  run.phase = run.executions![0]!.phase = "push";
+  run.executions![0]!.finishedAt = "2026-09-20T10:02:01Z";
+  Object.assign(run.executions![0]!, {
+    fingerprint: "fingerprint",
+    failedStep: 3,
+  });
+  run.base = "base";
+  run.head = "head";
+  run.snapshot = {
+    branch: run.branch,
+    head: "head",
+    fingerprint: "fingerprint",
+    diff: "diff",
+    paths: [],
+    files: {},
+  };
+  run.publication = {
+    commitMessage: "commit",
+    title: "title",
+    description: "description",
+  };
+  run.validation = [
+    {
+      command: "pnpm",
+      args: ["test"],
+      exitCode: 0,
+      log: "/tmp/test.log",
+      startedAt: "2026-09-20T10:00:10Z",
+      finishedAt: "2026-09-20T10:00:20Z",
+    },
+  ];
+  const view = render(
+    <Monitor source={source} size={{ columns: 80, rows: 24 }} />,
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    const footer = view.lastFrame()!.split("\n").at(-1)!;
+    for (const control of [
+      "↑↓/Pg",
+      "Esc",
+      "l current log",
+      "v checks",
+      "r retry",
+      "c recover",
+      "? help",
+      "q close",
+    ]) {
+      assert.match(footer, new RegExp(control.replace("?", "\\?")));
+    }
+    assert.ok(stringWidth(footer) <= 80);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("details scroll from the clamped position after a live resize", async () => {
+  const { source, run } = monitorFixture();
+  run.error = Array.from(
+    { length: 100 },
+    (_, index) => `diagnostic line ${index}`,
+  ).join("\n");
+  const view = render(
+    <Monitor source={source} size={{ columns: 80, rows: 24 }} />,
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    for (let index = 0; index < 10; index++) {
+      view.stdin.write("\u001b[6~");
+      await settle();
+    }
+    view.rerender(<Monitor source={source} size={designTarget} />);
+    await settle();
+    const before = view.lastFrame()!.match(/lines (\d+)–/)?.[1];
+    assert.ok(before);
+    view.stdin.write("\u001b[A");
+    await settle();
+    const after = view.lastFrame()!.match(/lines (\d+)–/)?.[1];
+    assert.equal(Number(after), Number(before) - 1);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("NO_COLOR details retain textual hierarchy and status", async () => {
+  const previous = process.env.NO_COLOR;
+  process.env.NO_COLOR = "1";
+  const { source } = monitorFixture();
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    assert.match(view.lastFrame()!, /Outcome\s+running/);
+    assert.match(view.lastFrame()!, /CURRENT EXECUTION/);
+    assert.match(view.lastFrame()!, /VALIDATION/);
+    assert.match(view.lastFrame()!, /AGENT SESSIONS/);
+  } finally {
+    if (previous === undefined) delete process.env.NO_COLOR;
+    else process.env.NO_COLOR = previous;
     view.unmount();
   }
 });

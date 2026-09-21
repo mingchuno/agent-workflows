@@ -22,6 +22,8 @@ type AvailableActions = {
 const detailWideBreakpoint = 136;
 const detailLabelWidth = 19;
 const hangingLabelMarker = "\u{e000}";
+const conciseErrorWidth = 120;
+const detailColumnGap = " │ ";
 
 function localTimestamp(value?: string): string {
   if (!value) return "not recorded";
@@ -72,7 +74,11 @@ function conciseError(run: RunRecord): string {
       : run.outcome === "blocked"
         ? "Run is blocked."
         : "Run requires operator attention.";
-  return error.split("\n", 1)[0]!.replace(/^Error:\s*/i, "");
+  const firstLine = error.split("\n", 1)[0]!.replace(/^Error:\s*/i, "");
+  const summary = cells(firstLine, conciseErrorWidth);
+  return cells(firstLine, conciseErrorWidth + 1) === summary
+    ? summary
+    : `${cells(firstLine, conciseErrorWidth - 1)}…`;
 }
 
 function label(label: string, value: string): string {
@@ -108,6 +114,20 @@ function validationLines(run: RunRecord, now: number): string[] {
   ];
 }
 
+function validationSummary(run: RunRecord): string {
+  const checks = run.validation ?? [];
+  if (!checks.length) return "not recorded";
+  const successful = checks.filter((check) => check.exitCode === 0).length;
+  const failed = checks.length - successful;
+  return [
+    `${checks.length} recorded`,
+    successful ? `${successful} exit 0` : "",
+    failed ? `${failed} nonzero` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function sessionLines(sessions: InvocationRecord[], now: number): string[] {
   return [
     "AGENT SESSIONS",
@@ -136,30 +156,16 @@ function sessionLines(sessions: InvocationRecord[], now: number): string[] {
 function executionLines(run: RunRecord, now: number): string[] {
   const executions = [...(run.executions ?? [])].reverse();
   if (!executions.length) return ["CURRENT EXECUTION", "not started"];
-  return executions.flatMap((execution, index) => [
-    index === 0
-      ? "CURRENT EXECUTION"
-      : `PRIOR EXECUTION ${executions.length - index}`,
-    label("Outcome", execution.outcome),
-    label("Phase", execution.phase),
-    label(
-      "Execution duration",
-      execution.startedAt
-        ? executionDuration(execution, now).replace("—", "unavailable")
-        : "not started",
-    ),
-    label(
-      "Queue wait",
-      duration(
-        execution.createdAt,
-        execution.startedAt ?? execution.finishedAt,
-        now,
-      ),
-    ),
-    label("Created", localTimestamp(execution.createdAt)),
-    label("Started", localTimestamp(execution.startedAt)),
-    label("Finished", localTimestamp(execution.finishedAt)),
-    ...(execution.recoveryOf
+  return executions.flatMap((execution, index) => {
+    const executionTime = execution.startedAt
+      ? executionDuration(execution, now).replace("—", "unavailable")
+      : "not started";
+    const queueWait = duration(
+      execution.createdAt,
+      execution.startedAt ?? execution.finishedAt,
+      now,
+    );
+    const recovery = execution.recoveryOf
       ? [
           label("Recovery", "continued from prior execution"),
           label(
@@ -179,25 +185,47 @@ function executionLines(run: RunRecord, now: number): string[] {
               : "none recorded",
           ),
         ]
-      : []),
-    ...(index < executions.length - 1 ? [""] : []),
-  ]);
+      : [];
+    const lines =
+      index === 0
+        ? [
+            "CURRENT EXECUTION",
+            label("Outcome", execution.outcome),
+            label("Phase", execution.phase),
+            label("Execution duration", executionTime),
+            label("Queue wait", queueWait),
+            label("Created", localTimestamp(execution.createdAt)),
+            label("Started", localTimestamp(execution.startedAt)),
+            label("Finished", localTimestamp(execution.finishedAt)),
+            ...recovery,
+          ]
+        : [
+            `PRIOR EXECUTION ${executions.length - index}`,
+            `${execution.outcome} · ${execution.phase} · duration ${executionTime} · queue ${queueWait}`,
+            `${localTimestamp(execution.startedAt)} → ${localTimestamp(execution.finishedAt)}`,
+            ...recovery,
+          ];
+    return index < executions.length - 1 ? [...lines, ""] : lines;
+  });
 }
 
 function padToWidth(value: string, width: number): string {
   return `${value}${" ".repeat(Math.max(0, width - stringWidth(value)))}`;
 }
 
-function columns(left: string[], right: string[], width: number): string[] {
-  const gap = " │ ";
-  const leftWidth = Math.floor((width - gap.length) * 0.58);
-  const rightWidth = width - leftWidth - gap.length;
+function composeDetailColumns(
+  left: string[],
+  right: string[],
+  width: number,
+): string[] {
+  const leftWidth = Math.floor((width - detailColumnGap.length) * 0.58);
+  const rightWidth = width - leftWidth - detailColumnGap.length;
   const leftLines = wrapDetailLines(left, leftWidth);
   const rightLines = wrapDetailLines(right, rightWidth);
   return Array.from(
     { length: Math.max(leftLines.length, rightLines.length) },
     (_, index) =>
-      `${padToWidth(leftLines[index] ?? "", leftWidth)}${gap}${rightLines[index] ?? ""}`,
+      `${padToWidth(leftLines[index] ?? "", leftWidth)}${detailColumnGap}${rightLines[index] ?? ""}`,
   );
 }
 
@@ -259,9 +287,7 @@ export function detailLines(
     recover: false,
   },
 ): string[] {
-  const validation = run.validation?.length
-    ? `${run.validation.length} recorded`
-    : "not recorded";
+  const validation = validationSummary(run);
   const recovery =
     run.outcome === "failed"
       ? recoveryReason
@@ -297,14 +323,8 @@ export function detailLines(
   ];
   const evidenceArea =
     width >= detailWideBreakpoint
-      ? columns(executions, evidence, width)
-      : [
-          ...executions,
-          "",
-          ...validationLines(run, now),
-          "",
-          ...sessionLines(sessions, now),
-        ];
+      ? composeDetailColumns(executions, evidence, width)
+      : [...executions, "", ...evidence];
   const executionsByRecency = [...(run.executions ?? [])].reverse();
   const executionErrors = executionsByRecency.filter(
     (execution) => execution.error,
@@ -400,22 +420,42 @@ export function Lines({
 }) {
   const wrapped = wrapDetailLines(lines, width);
   const start = Math.min(offset, Math.max(0, wrapped.length - height));
+  const summaryOutcomeIndex = wrapped.findIndex((line) =>
+    line.startsWith("Outcome"),
+  );
   return (
     <Box flexDirection="column" width={width} height={height} overflow="hidden">
-      {wrapped.slice(start, start + height).map((line, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: stateless text rows are identified by their document line.
-        <Box key={`${start + index}`} height={1} flexShrink={0}>
-          <Text
-            wrap="truncate"
-            bold={/^[A-Z][A-Z ]+$/.test(line)}
-            color={
-              line.startsWith("Outcome") ? colorFor(outcome ?? "") : undefined
-            }
-          >
-            {line || " "}
-          </Text>
-        </Box>
-      ))}
+      {wrapped.slice(start, start + height).map((line, index) => {
+        const absoluteIndex = start + index;
+        const divider = line.indexOf(detailColumnGap);
+        const left = divider >= 0 ? line.slice(0, divider) : line;
+        const right =
+          divider >= 0
+            ? line.slice(divider + detailColumnGap.length)
+            : undefined;
+        const isHeading = (value: string) =>
+          /^[A-Z][A-Z0-9 ]+$/.test(value.trim());
+        return (
+          <Box key={`${absoluteIndex}`} height={1} flexShrink={0}>
+            <Text
+              wrap="truncate"
+              color={
+                absoluteIndex === summaryOutcomeIndex
+                  ? colorFor(outcome ?? "")
+                  : undefined
+              }
+            >
+              <Text bold={isHeading(left)}>{left || " "}</Text>
+              {right !== undefined ? (
+                <>
+                  <Text>{detailColumnGap}</Text>
+                  <Text bold={isHeading(right)}>{right}</Text>
+                </>
+              ) : null}
+            </Text>
+          </Box>
+        );
+      })}
     </Box>
   );
 }
