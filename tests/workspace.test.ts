@@ -28,7 +28,7 @@ test("verified commit uses generated text and next branch starts at configured b
     project,
     snapshot,
     {
-      commitMessage: "feat: generated",
+      commitMessage: "feat: generated\n\nAgent-Workflows-Run: run-1",
       title: "Title",
       description: "Description",
     },
@@ -41,6 +41,105 @@ test("verified commit uses generated text and next branch starts at configured b
     /feat: generated/,
   );
   assert.equal((await workspace.prepare(project, "agent/2")).head, base.head);
+});
+test("commit uses native distinct Git author and committer identities", async () => {
+  const { root, project, git } = await repository();
+  await git("config", "author.name", "Native Author");
+  await git("config", "author.email", "author@example.com");
+  await git("config", "committer.name", "Native Committer");
+  await git("config", "committer.email", "committer@example.com");
+  const workspace = new ExistingCheckout();
+  await workspace.prepare(project, "agent/native-identity");
+  await writeFile(join(root, "native.txt"), "native identity\n");
+  const snapshot = await workspace.inspect(project);
+  await workspace.commit(
+    project,
+    snapshot,
+    {
+      commitMessage: "feat: native identity\n\nAgent-Workflows-Run: native",
+      title: "Native identity",
+      description: "Uses Git identity selection.",
+    },
+    "native",
+  );
+  assert.equal(
+    (await git("log", "-1", "--format=%an|%ae|%cn|%ce")).stdout.trim(),
+    "Native Author|author@example.com|Native Committer|committer@example.com",
+  );
+});
+test("commit reconciliation requires the finalized message", async () => {
+  const { root, project } = await repository();
+  const workspace = new ExistingCheckout();
+  await workspace.prepare(project, "agent/reconcile");
+  await writeFile(join(root, "reconcile.txt"), "reconcile\n");
+  const snapshot = await workspace.inspect(project);
+  const publication = {
+    commitMessage:
+      "feat: reconcile\n\nCo-authored-by: Codex <noreply@openai.com>\nAgent-Workflows-Run: reconcile",
+    title: "Reconcile",
+    description: "Reconcile the commit effect.",
+  };
+  const head = await workspace.commit(
+    project,
+    snapshot,
+    publication,
+    "reconcile",
+  );
+  assert.equal(
+    await workspace.commit(project, snapshot, publication, "reconcile"),
+    head,
+  );
+  await assert.rejects(
+    workspace.commit(
+      project,
+      snapshot,
+      { ...publication, commitMessage: "feat: different" },
+      "reconcile",
+    ),
+    /workflow run marker/,
+  );
+});
+test("commit reports Git's error when native identity is unavailable", async () => {
+  const { root, project, git } = await repository();
+  await git("config", "--unset", "user.name");
+  await git("config", "--unset", "user.email");
+  const workspace = new ExistingCheckout();
+  await workspace.prepare(project, "agent/missing-identity");
+  await writeFile(join(root, "identity.txt"), "identity\n");
+  const snapshot = await workspace.inspect(project);
+  const names = [
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "EMAIL",
+  ] as const;
+  const prior = Object.fromEntries(
+    names.map((name) => [name, process.env[name]]),
+  );
+  for (const name of names) process.env[name] = "";
+  try {
+    await assert.rejects(
+      workspace.commit(
+        project,
+        snapshot,
+        {
+          commitMessage:
+            "feat: require identity\n\nAgent-Workflows-Run: missing-identity",
+          title: "Require identity",
+          description: "Let Git select or reject identity.",
+        },
+        "missing-identity",
+      ),
+      /Author identity unknown|empty ident name/,
+    );
+  } finally {
+    for (const name of names) {
+      const value = prior[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });
 test("cancellation waits for a stubborn process to terminate", async () => {
   const abort = new AbortController();

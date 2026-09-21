@@ -1,28 +1,45 @@
 # Configuration
 
-The CLI reads `agent-workflows.json`, or `--config PATH`. Unknown properties are rejected by Zod. Paths are local filesystem paths; checkout paths are canonicalized before ownership is acquired. Use absolute paths when launching from different working directories.
+The CLI reads `agent-workflows.json`, or `--config PATH`. Both paths resolve from
+the launch directory. Unknown properties are rejected by Zod. Relative
+configuration-owned paths resolve from the directory containing the resolved
+configuration file, independently of where the CLI is launched. Use
+`--config-base-directory DIRECTORY` to select another base; a relative option
+value resolves from the launch directory. The base must be an existing directory
+and is canonicalized before startup.
 
 | Runner field     | Default / meaning                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------------------- |
 | `id`             | Required stable letters/digits/underscore/hyphen identity; scopes records and queues                      |
 | `databaseUrlEnv` | `AGENT_WORKFLOWS_DATABASE_URL`; environment variable containing a PostgreSQL connection URL with username |
-| `stateDirectory` | `.agent-workflows`; must resolve outside every managed checkout                                                   |
+| `stateDirectory` | `.agent-workflows`; relative to the configuration base and outside every managed checkout                    |
 | `projects`       | Nonempty array; duplicate IDs or canonical checkout roots are rejected                                    |
 
 | Project field          | Default / meaning                                                                                   |
 | ---------------------- | --------------------------------------------------------------------------------------------------- |
-| `id`, `checkout`       | Required stable identity and existing Git repository root                                           |
+| `id`, `checkout`       | Required stable identity and existing Git repository root; relative to the configuration base       |
 | `hosting`              | `provider` (`github`/`gitlab`), web `origin`, `repository`, and `tokenEnv`; no serialized tokens    |
 | `labels`               | `['ready-for-agent']`; all labels must match                                                        |
 | `baseBranch`, `remote` | `main`, `origin`; Git remote is independent of hosting API origin                                   |
 | `branchTemplate`       | `agent/{issue}-{attempt}`; `{issue}` required; `{attempt}` and `{run}` supported                    |
 | `pollIntervalMs`       | 30000; minimum 100                                                                                  |
-| `gitIdentity`          | Required `name` and `email`; used by application commits                                            |
+| `includeAgentCoAuthors` | `true`; append co-author trailers for providers whose writable invocations produced retained changes |
 | `validation`           | Array of `{command,args,timeoutMs}`; no shell expansion; timeout defaults to 300000 ms              |
 | `agent`                | Required default profile                                                                            |
 | `stages`               | `implementation`, `publication`, `review`; each has optional `profile`, `prompt`, `promptFile`, `timeoutMs` |
 
 Issues are selected in ascending issue-number order within each intake scan. Deduplication persists across restarts. An explicit retry is a new numbered attempt linked through `retryOf`.
+
+Absolute configuration paths remain absolute. Effective state and checkout
+paths are normalized once during startup before safety and ownership checks, so
+a later working-directory change cannot redirect a running process. Validation
+commands still execute in the canonical checkout; command names and arguments
+are passed unchanged and are not rebased to the configuration directory.
+
+`init` writes relative checkout and external sibling-state paths from the
+effective configuration base. It still refuses to overwrite an existing file.
+When the configuration is in the checkout root, the checkout is `.` and state
+is the relative sibling `<checkout-name>.agent-workflows`.
 
 ## CLI environment files
 
@@ -128,11 +145,12 @@ in inspection explicitly; do not present an incomplete review as a clean review.
 These exact defaults are checked against the runtime source.
 
 Use either nonblank literal `prompt` text or a `promptFile` path, never both.
-Files must contain nonblank UTF-8 text. Relative paths resolve from the CLI
-configuration file's directory, independently of the launch directory; absolute
-paths are allowed. Files load once when the runner is constructed. Restart to
-apply edits. No templating, interpolation, or includes are supported. SDK callers
-supply `promptBaseDirectory` for relative paths.
+Files must contain nonblank UTF-8 text. Relative paths use the same configuration
+base as state and checkout paths; absolute paths are allowed. Files load once
+when the runner is constructed. Restart to apply edits. No templating,
+interpolation, or includes are supported. SDK callers use `pathBaseDirectory` as
+the general base. `promptBaseDirectory`, when supplied, overrides it for prompt
+files only.
 
 ```json
 "stages": {
@@ -145,6 +163,29 @@ supply `promptBaseDirectory` for relative paths.
 `writing` is now `publication`; `skills` was removed. Both old keys are rejected
 without aliases. Configure skills in the selected agent runtime and request them
 in task text. Old invocation records and skill snapshots remain readable.
+
+## Git identity and agent attribution
+
+Commits use Git's native author and committer selection. The application does
+not configure, validate, snapshot, or override identity. Repository, worktree,
+global, system, and identity environment settings therefore behave as they do
+for `git commit`, including distinct author and committer identities. Missing or
+invalid identity fails at the commit operation with Git's error. The removed
+`gitIdentity` property is rejected as unknown input.
+
+Agent assistance is represented separately. With `includeAgentCoAuthors: true`,
+the finalized commit message includes each provider once, ordered by its first
+successful writable invocation that produced a retained change:
+
+- `Codex <noreply@openai.com>` (OpenAI's published implementation convention)
+- `Copilot <223556219+Copilot@users.noreply.github.com>` (GitHub's current
+  first-party convention, not a stable product API guarantee)
+
+Read-only publication/review invocations and writable invocations with no
+accepted retained change are not attributed. Existing trailers are preserved,
+matching agent trailers are deduplicated, and exactly one
+`Agent-Workflows-Run` trailer remains. Set `includeAgentCoAuthors: false` per
+project to disable injection; existing publication trailers are not removed.
 
 Stage timeout defaults to 30 minutes, including profile validation and at most
 one format-correction attempt. Correction uses a fresh inspection-only session

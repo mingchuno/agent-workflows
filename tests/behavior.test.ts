@@ -297,6 +297,109 @@ test("custom agent steps keep multiple invocations and query events survive rest
     await reader.close();
   }
 });
+test("custom writable stages attribute retained providers in first-contribution order", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project, git } = await repository();
+  const controlled: AgentAdapter = {
+    validate: agent.validate,
+    async invoke(input) {
+      if (input.step === "copilot-change") {
+        await writeFile(join(input.cwd, "copilot.txt"), "copilot\n");
+        return "copilot change";
+      }
+      if (input.step === "codex-change") {
+        await writeFile(join(input.cwd, "codex.txt"), "codex\n");
+        return "codex change";
+      }
+      if (input.step === "copilot-no-change") return "no change";
+      return agent.invoke(input);
+    },
+  };
+  const { runner } = await setup([project], {
+    codex: controlled,
+    copilot: controlled,
+  });
+  runner.options.workflow = async (operations) => {
+    await operations.prepare();
+    await operations.invoke(
+      "copilot-change",
+      { ...project.stages.implementation, profile: { provider: "copilot" } },
+      { defaultPrompt: "Make the Copilot change" },
+    );
+    await operations.invoke(
+      "codex-change",
+      { ...project.stages.implementation, profile: { provider: "codex" } },
+      { defaultPrompt: "Make the Codex change" },
+    );
+    await operations.invoke(
+      "copilot-no-change",
+      { ...project.stages.implementation, profile: { provider: "copilot" } },
+      { defaultPrompt: "Make no change" },
+    );
+    assert.equal(await operations.validate(), true);
+    await operations.writePublication();
+    await operations.commit();
+    await operations.complete();
+  };
+  try {
+    await runner.start();
+    await waitFor(() => terminal(runner, 1));
+    const run = (await runner.store.runs())[0]!;
+    assert.equal(run.outcome, "completed", run.error ?? "unexpected outcome");
+    assert.deepEqual(run.contributingProviders, ["copilot", "codex"]);
+    const message = (await git("log", "-1", "--format=%B")).stdout;
+    assert.ok(
+      message.indexOf("Co-authored-by: Copilot") <
+        message.indexOf("Co-authored-by: Codex"),
+    );
+    assert.equal(message.match(/Co-authored-by: Copilot/g)?.length, 1);
+    assert.equal(message.match(/Co-authored-by: Codex/g)?.length, 1);
+    assert.equal(message.match(/Agent-Workflows-Run:/g)?.length, 1);
+    assert.equal(
+      (await git("log", "-1", "--format=%an|%ae|%cn|%ce")).stdout.trim(),
+      "Fixture|fixture@example.com|Fixture|fixture@example.com",
+    );
+  } finally {
+    await runner.shutdown();
+  }
+});
+
+test("missing native Git identity fails at commit without publication effects", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project, git } = await repository();
+  await git("config", "--unset", "user.name");
+  await git("config", "--unset", "user.email");
+  const { runner, hosts } = await setup([project]);
+  const names = [
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "EMAIL",
+  ] as const;
+  const prior = Object.fromEntries(
+    names.map((name) => [name, process.env[name]]),
+  );
+  for (const name of names) process.env[name] = "";
+  try {
+    await runner.start();
+    await waitFor(() => terminal(runner, 1));
+    const run = (await runner.store.runs())[0]!;
+    assert.equal(run.outcome, "failed");
+    assert.equal(run.phase, "commit");
+    assert.match(run.error!, /Author identity unknown|empty ident name/);
+    assert.equal(hosts.get(project.id)!.changes.length, 0);
+  } finally {
+    for (const name of names) {
+      const value = prior[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    await runner.shutdown();
+  }
+});
 test("eligibility is rechecked and removed labels prevent agent execution", {
   skip: !databaseUrl,
 }, async () => {

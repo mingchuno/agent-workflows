@@ -46,7 +46,6 @@ test("GitLab routes and credentials stay on a configured relative-root instance"
       tokenEnv: "FIXTURE_TOKEN",
     },
     agent: { provider: "copilot" },
-    gitIdentity: { name: "Fixture", email: "fixture@example.com" },
   });
   try {
     const adapter = new GitLabHosting(project);
@@ -96,7 +95,6 @@ test("GitHub intake excludes pull requests", async () => {
       tokenEnv: "FIXTURE_TOKEN",
     },
     agent: { provider: "codex" },
-    gitIdentity: { name: "Fixture", email: "fixture@example.com" },
   });
   try {
     assert.equal(
@@ -228,7 +226,6 @@ for (const major of [17, 18, 19])
         tokenEnv: "FIXTURE_TOKEN",
       },
       agent: { provider: "codex" },
-      gitIdentity: { name: "Fixture", email: "fixture@example.com" },
     });
     try {
       const adapter = new GitLabHosting(project);
@@ -343,7 +340,6 @@ for (const provider of ["github", "gitlab"] as const)
         tokenEnv: "FIXTURE_TOKEN",
       },
       agent: { provider: "codex" },
-      gitIdentity: { name: "Fixture", email: "fixture@example.com" },
     });
     try {
       const adapter =

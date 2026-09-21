@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import {
   configSchema,
   createAgents,
@@ -7,13 +8,15 @@ import {
 } from "@mingchuno/agent-workflows";
 import { reportingWorkflow } from "./custom-workflow.js";
 
+const configPath = resolve(process.argv[2] ?? "agent-workflows.json");
 const config = configSchema.parse(
-  JSON.parse(await readFile(process.argv[2] ?? "agent-workflows.json", "utf8")),
+  JSON.parse(await readFile(configPath, "utf8")),
 );
 const databaseUrl = process.env[config.databaseUrlEnv];
 if (!databaseUrl) throw new Error(`Set ${config.databaseUrlEnv}`);
 const runner = new Runner({
   config,
+  pathBaseDirectory: dirname(configPath),
   databaseUrl,
   hosting: createHosting,
   agents: createAgents(),

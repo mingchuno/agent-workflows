@@ -77,7 +77,7 @@ export const projectSchema = z.strictObject({
       }),
     )
     .default([]),
-  gitIdentity: z.strictObject({ name: z.string().min(1), email: z.email() }),
+  includeAgentCoAuthors: z.boolean().default(true),
   agent: profileSchema,
   stages: z
     .strictObject(

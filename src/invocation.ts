@@ -29,6 +29,7 @@ interface StageExecution {
   saveImplementationSnapshot: (
     runId: string,
     snapshot: Snapshot,
+    provider: string,
   ) => Promise<void>;
 }
 /** One logical stage; only returned format errors admit a second response attempt. */
@@ -151,7 +152,7 @@ export async function invokeStage({
       await appendFile(record.log, "", { mode: 0o600 });
       invocationSignal.throwIfAborted();
       if (readOnly) await workspace.verify(project, expected);
-      else await saveImplementationSnapshot(run.id, expected);
+      else await saveImplementationSnapshot(run.id, expected, profile.provider);
       if (task.evidence) await verifyEvidence(task.evidence);
       invocationSignal.throwIfAborted();
       // Only returned output validation failures qualify for correction.

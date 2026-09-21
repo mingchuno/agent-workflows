@@ -39,7 +39,6 @@ test("project stage defaults are independent between registrations", async () =>
       tokenEnv: "TOKEN",
     },
     agent: { provider: "codex" },
-    gitIdentity: { name: "Test", email: "test@example.com" },
   };
   const first = projectSchema.parse(input),
     second = projectSchema.parse({ ...input, id: "b" });
@@ -48,6 +47,13 @@ test("project stage defaults are independent between registrations", async () =>
   assert.throws(
     () => projectSchema.parse({ ...input, stages: { writing: {} } }),
     /renamed to publication/,
+  );
+  assert.equal(
+    projectSchema.safeParse({
+      ...input,
+      gitIdentity: { name: "Obsolete", email: "obsolete@example.com" },
+    }).success,
+    false,
   );
   const { projectPrompts, defaultStagePrompts } = await import(
     "../src/prompts.js"
@@ -140,7 +146,7 @@ test("documented default stage prompts match runtime", async () => {
     assert.ok(documentation.includes("```text\n" + prompt + "\n```"));
 });
 
-test("runner freezes file prompts at initialization and restart fingerprints changed contents", async () => {
+test("runner resolves configuration paths and freezes file prompts from the selected bases", async () => {
   const { writeFile, mkdtemp } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -160,8 +166,7 @@ test("runner freezes file prompts at initialization and restart fingerprints cha
     agents: {},
     hosting: () => new FixtureHosting(),
   };
-  assert.throws(() => new Runner(options), /base directory/);
-  const first = new Runner({ ...options, promptBaseDirectory: directory });
+  const first = new Runner({ ...options, pathBaseDirectory: directory });
   try {
     const before = await executionFingerprint(
       first.config.projects[0]!,
@@ -181,7 +186,7 @@ test("runner freezes file prompts at initialization and restart fingerprints cha
     );
     const restarted = new Runner({
       ...options,
-      promptBaseDirectory: directory,
+      pathBaseDirectory: directory,
     });
     try {
       assert.notEqual(
@@ -194,4 +199,68 @@ test("runner freezes file prompts at initialization and restart fingerprints cha
   } finally {
     await first.store.close();
   }
+});
+
+test("path base resolves state and checkout while prompt base only overrides prompts", async () => {
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { realpath } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { Runner } = await import("../src/runner.js");
+  const { configSchema } = await import("../src/config.js");
+  const { resolveStagePrompt } = await import("../src/prompts.js");
+  const { FixtureHosting } = await import("./runner-fixtures.js");
+  const base = await mkdtemp(join(tmpdir(), "runner-path-base-"));
+  const prompts = await mkdtemp(join(tmpdir(), "runner-prompt-base-"));
+  await writeFile(join(prompts, "prompt.md"), "Prompt override");
+  const runner = new Runner({
+    pathBaseDirectory: base,
+    promptBaseDirectory: prompts,
+    config: configSchema.parse({
+      id: "paths",
+      stateDirectory: "state",
+      projects: [
+        {
+          id: "project",
+          checkout: "checkout",
+          hosting: {
+            provider: "github",
+            origin: "https://github.com",
+            repository: "a/b",
+            tokenEnv: "TOKEN",
+          },
+          agent: { provider: "codex" },
+          stages: { publication: { promptFile: "prompt.md" } },
+        },
+      ],
+    }),
+    databaseUrl: "postgresql://localhost/unused",
+    agents: {},
+    hosting: () => new FixtureHosting(),
+  });
+  try {
+    const canonicalBase = await realpath(base);
+    assert.equal(runner.config.stateDirectory, join(canonicalBase, "state"));
+    assert.equal(
+      runner.config.projects[0]!.checkout,
+      join(canonicalBase, "checkout"),
+    );
+    assert.equal(
+      resolveStagePrompt(
+        runner.config.projects[0]!.stages.publication,
+        "default",
+      ).content,
+      "Prompt override",
+    );
+  } finally {
+    await runner.store.close();
+  }
+  assert.throws(
+    () =>
+      new Runner({
+        ...runner.options,
+        pathBaseDirectory: join(base, "missing"),
+      }),
+    /not an existing directory/,
+  );
 });

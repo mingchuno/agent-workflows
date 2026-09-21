@@ -4,7 +4,13 @@ Exports are in `src/index.ts`; the built package resolves to `dist/src/index.js`
 
 ## Runner and controls
 
-`new Runner({config,databaseUrl,hosting,agents,workspace?,workflow?,workflowVersion?,promptBaseDirectory?})` injects hosting/agent adapters and optionally a workspace strategy or workflow. `hosting(project)` returns a host-qualified adapter. `agents` maps provider names to adapters. The default workspace uses the existing checkout. One DBOS runtime runs per Node process; one runner owns each configuration and checkout.
+`new Runner({config,databaseUrl,hosting,agents,workspace?,workflow?,workflowVersion?,pathBaseDirectory?,promptBaseDirectory?})` injects hosting/agent adapters and optionally a workspace strategy or workflow. `hosting(project)` returns a host-qualified adapter. `agents` maps provider names to adapters. The default workspace uses the existing checkout. One DBOS runtime runs per Node process; one runner owns each configuration and checkout.
+
+`pathBaseDirectory` must identify an existing directory. It resolves relative
+state, checkout, and prompt-file paths once when the runner is constructed.
+Omitting it preserves current-working-directory behavior for SDK callers.
+`promptBaseDirectory` retains its narrower role and, when both are supplied,
+overrides only relative prompt files.
 
 `start()` validates registration, acquires ownership, launches DBOS, registers concurrency-one project queues, and starts polling. `poll(projectId?)` performs an immediate scan. `pause(projectId)` stops new starts while active work continues. `resume(projectId)` refuses blocked checkouts. `stop(runId)` waits for the active invocation/process to end, or cancels queued work. `retry(runId)` requires a terminal failed/blocked/cancelled run and a clean checkout, then returns a new linked run ID. `recover(runId)` returns a new execution ID for publication recovery of the same run. `shutdown()` stops intake, cancels and awaits active work, closes DBOS and releases ownership.
 
@@ -29,7 +35,7 @@ commit together; failure preserves the blocked state.
 | `prepare()`                              | Require clean Git state; fetch base and create unique branch                 |
 | `implement()`                            | Fresh implementation session; reject unexpected commits or branch changes    |
 | `validate()`                             | Run commands and verify unchanged diff; false means no change                |
-| `writePublication()`                     | Fresh writer session; schema-check and persist generated text                |
+| `writePublication()`                     | Validate text; finalize persisted run/co-author trailers from retained changes |
 | `commit()` / `push()`                    | Separate reconciled Git effects using the verified change set                |
 | `publish()`                              | Find existing request by branch before creating a draft                      |
 | `review()`                               | Fresh read-only reviewer; exact published diff, head and validation evidence |
@@ -44,7 +50,7 @@ checks. Stage overrides replace only `defaultPrompt`. Custom stages have no
 inferred built-in default; resolve file-based custom stages before invocation
 with `resolveStagePrompt(stage, defaultPrompt, baseDirectory)` if they must be
 frozen alongside startup configuration. The runner resolves built-in prompt files
-at construction using `promptBaseDirectory`.
+at construction using `promptBaseDirectory ?? pathBaseDirectory ?? process.cwd()`.
 
 ```ts
 await operations.invoke("report", stage, {
@@ -135,7 +141,7 @@ Caveats:
 
 ## Extension contracts
 
-`Workspace` separates `check`, `prepare`, `inspect`, `verify`, `commit`, `push` and `release`. `Snapshot` contains branch/head, changed paths, diff and a content fingerprint. Never implement release by discarding files. A future isolated workspace implementation can replace this interface without changing workflow composition.
+`Workspace` separates `check`, `prepare`, `inspect`, `verify`, `commit`, `push` and `release`. `Snapshot` contains branch/head, changed paths, diff and a content fingerprint. `commit` receives the already-finalized message, including attribution and run marker, and must preserve native Git identity selection. Never implement release by discarding files. A future isolated workspace implementation can replace this interface without changing workflow composition.
 
 `prepare`, `commit` and `push` receive an optional final `AbortSignal`. Custom workspaces must stop their subprocesses before settling a cancelled operation. The existing-checkout strategy journals Git processes under the Git directory; ownership acquisition rejects surviving process groups after a runner crash.
 
@@ -153,6 +159,11 @@ only. This callback must not mutate Store records. Operator tools should use
 `retry` commands or `Runner.retry`, preserving those safety checks.
 
 Invocation records include project/run IDs, stable DBOS step ID and name, invocation ID, attempt, timestamps, requested/effective profile, provider, effective task prompt/source/hash, output-contract and evidence identities, artifact path and session state (`pending`, `available`, `unavailable`). Repeated custom steps retain separate invocations. A retry has a separate run record linked to its predecessor.
+
+Writable invocation before/after evidence is retained on the run. Publication
+finalization persists contributing provider identities in first-contribution
+order, independent of custom stage names. Recovery reuses that provenance and
+the finalized publication message.
 
 `request(kind,target)` queues the same `pause`, `resume`, `stop`, `retry`, or `recover` commands used by the CLI/TUI; `commands()` reports pending/success/failure. A runner must be active to execute them. `finishCommand` and record-writing methods support adapters and custom workflows; operator tools should prefer commands over direct mutation.
 

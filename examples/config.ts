@@ -1,13 +1,13 @@
 import { configSchema } from "@mingchuno/agent-workflows";
 
-/** Replace paths, repository, identity and model IDs with locally available values. */
+/** Replace paths, repository and model IDs with locally available values. */
 export const configuration = configSchema.parse({
   id: "local",
-  stateDirectory: "/absolute/path/outside-the-checkout/agent-workflows-state",
+  stateDirectory: "../application.agent-workflows",
   projects: [
     {
       id: "application",
-      checkout: "/absolute/path/to/existing-checkout",
+      checkout: ".",
       hosting: {
         provider: "gitlab",
         origin: "https://git.example.com/gitlab",
@@ -17,7 +17,7 @@ export const configuration = configSchema.parse({
       labels: ["ready-for-agent"],
       baseBranch: "main",
       branchTemplate: "agent/{issue}-{attempt}",
-      gitIdentity: { name: "Workflow Agent", email: "agent@example.com" },
+      includeAgentCoAuthors: true,
       agent: { provider: "codex" },
       stages: {
         implementation: {

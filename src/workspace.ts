@@ -193,13 +193,24 @@ export class ExistingCheckout implements Workspace {
     signal?: AbortSignal,
   ): Promise<string> {
     signal?.throwIfAborted();
+    const runMarkers = publication.commitMessage
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("Agent-Workflows-Run:"));
+    if (
+      runMarkers.length !== 1 ||
+      runMarkers[0] !== `Agent-Workflows-Run: ${runId}`
+    )
+      throw new BlockedError(
+        "Commit message must contain exactly one matching workflow run marker",
+      );
     const current = await this.inspect(project);
     if (current.head !== expected.head) {
       const message = await this.git(project, "log", "-1", "--format=%B");
       const parent = await this.git(project, "rev-parse", "HEAD^");
       if (
         parent === expected.head &&
-        message.includes(`Agent-Workflows-Run: ${runId}`) &&
+        message.trimEnd() === publication.commitMessage.trimEnd() &&
         current.paths.length === 0
       ) {
         const changed = (
@@ -244,14 +255,10 @@ export class ExistingCheckout implements Workspace {
       project,
       [
         "-c",
-        `user.name=${project.gitIdentity.name}`,
-        "-c",
-        `user.email=${project.gitIdentity.email}`,
-        "-c",
         "core.hooksPath=/dev/null",
         "commit",
         "-m",
-        `${publication.commitMessage}\n\nAgent-Workflows-Run: ${runId}`,
+        publication.commitMessage,
       ],
       { signal },
     );

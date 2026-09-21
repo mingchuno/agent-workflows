@@ -116,7 +116,14 @@ Git process journals live in `<git-directory>/agent-workflows-processes/`, indep
 
 Startup and phase boundaries check ownership assumptions, branch/head and actual changes. Unfinished files are never reset, cleaned, stashed or discarded automatically. Dirty files, unresolved Git operations, branch collisions, unexpected mutations and ambiguous agent recovery become inspectable blocked states. Other eligible projects continue.
 
-Publication effects have independent DBOS checkpoints. A task commit carries `Agent-Workflows-Run`; commit recovery checks parent and marker, push recovery checks the remote ref, request creation checks the source branch, and review publication checks stable markers. Transient publication failures use bounded retries and reconciliation. Interrupted agent stages block rather than starting another writer.
+Publication effects have independent DBOS checkpoints. A task commit preserves
+publication trailers, carries exactly one `Agent-Workflows-Run`, and by default
+adds co-author trailers for providers with retained writable contributions.
+Commit reconciliation checks the expected parent, change set, finalized message,
+and clean checkout. Push recovery checks the remote ref, request creation checks
+the source branch, and review publication checks stable markers. Transient
+publication failures use bounded retries and reconciliation. Interrupted agent
+stages block rather than starting another writer.
 
 ## Publication recovery
 
@@ -155,6 +162,10 @@ A failed review after publication remains a failed automation attempt, even if i
 ## Evidence and limits
 
 Git hooks are disabled for application-authored task commits; configure required checks as validation commands. Changed symlinks and submodules require manual handling. Checkout checks detect boundary changes but do not sandbox custom adapters or prevent unrelated local tools from writing.
+
+Git chooses author and committer through its normal configuration and environment
+rules. Runner startup performs no identity preflight; missing identity fails at
+the commit step before push or hosting publication.
 
 Validation records say exactly which command ran, when, its exit code and artifact path. No-change work skips publication. Generated commit/request text is validated and saved before Git/API writes. Logs, prompts and errors redact configured credentials and recognized secret environment values; this does not sanitize arbitrary repository content or secrets unknown to the runner.
 
