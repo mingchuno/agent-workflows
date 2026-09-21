@@ -145,6 +145,23 @@ test("CLI reports missing configuration and supports noninteractive help", async
     ).stdout,
     /monitor/,
   );
+  assert.match(
+    (
+      await command(
+        process.execPath,
+        ["--import", "tsx", "src/cli.ts", "monitor", "--help"],
+        { cwd: process.cwd() },
+      )
+    ).stdout,
+    /--notify/,
+  );
+  const monitor = await command(
+    process.execPath,
+    ["--import", "tsx", "src/cli.ts", "monitor", "--notify"],
+    { cwd: process.cwd(), allowFailure: true },
+  );
+  assert.equal(monitor.exitCode, 1);
+  assert.match(monitor.stderr, /requires an interactive terminal/);
 });
 
 test("CLI prompt files resolve against the config directory from another launch directory", async () => {

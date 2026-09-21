@@ -9,6 +9,7 @@ import { ConfirmDialog, HelpDialog } from "./dialogs.js";
 import { cells, colorFor, wrapLines } from "./format.js";
 import { monitorLayout } from "./layout.js";
 import { type LogSource, LogViewer } from "./log.js";
+import type { ExecutionNotificationWriter } from "./notifications.js";
 import {
   detailLines,
   Lines,
@@ -73,9 +74,11 @@ function latestSession(sessions: InvocationRecord[]) {
 export function Monitor({
   source,
   size,
+  notificationWriter,
 }: {
   source: MonitorSource;
   size?: { columns: number; rows: number };
+  notificationWriter?: ExecutionNotificationWriter;
 }) {
   const window = useWindowSize();
   const { columns, rows } = size ?? window;
@@ -84,7 +87,7 @@ export function Monitor({
     projectId?: string;
     runId?: string;
   }>({});
-  const data = useMonitorData(source, selection);
+  const data = useMonitorData(source, selection, notificationWriter);
   const { projects, project, projectRuns, run, sessions, events } = data;
   const [focus, setFocus] = useState<Focus>("runs");
   const [screen, setScreen] = useState<Screen>("dashboard");
@@ -344,6 +347,11 @@ export function Monitor({
     ? `refreshed ${Math.max(0, Math.floor((now - data.lastUpdated) / statusRefreshIntervalMs))}s ago`
     : "freshness unavailable";
   const status = `${data.connection} · ${freshness}`;
+  const monitorMessage =
+    data.message ||
+    (notificationWriter
+      ? "Notifications enabled; delivery is best-effort and depends on terminal settings"
+      : "");
   const sessionIndex = Math.max(
     0,
     sessions.findIndex((item) => item.id === session?.id),
@@ -506,7 +514,7 @@ export function Monitor({
         }
       >
         {cells(
-          `${data.message ? `${data.message} · ` : ""}${columns < 120 ? status.replace("Database ", "DB ") : status} · runner liveness unverified · closing leaves workflows running`,
+          `${monitorMessage ? `${monitorMessage} · ` : ""}${columns < 120 ? status.replace("Database ", "DB ") : status} · runner liveness unverified · closing leaves workflows running`,
           columns,
         )}
       </Text>
