@@ -52,9 +52,10 @@ agent-workflows monitor
 agent-workflows status --json
 ```
 
-Alternatively, load database, hosting and application variables from one explicit
-file: `agent-workflows --env-file ./runner.env run`. Existing shell values win,
-including empty strings. See [environment file examples and boundaries](docs/configuration.md#cli-environment-files).
+Alternatively, set `"envFile": "./runner.env"` at the top level of
+`agent-workflows.json` to load database, hosting and application variables from
+one explicit file. Existing process values win, including empty strings. See
+[environment file examples and boundaries](docs/configuration.md#cli-environment-files).
 
 The runner fetches the configured base, creates a branch, implements an eligible issue, validates it, generates publication text, commits and pushes, creates a draft PR/MR, and publishes an independent review of its exact head. It never merges. Initial use should target a repository and issue you explicitly intend to automate; running the CLI authorizes these effects and agent usage.
 

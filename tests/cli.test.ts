@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
   basename,
@@ -27,6 +27,7 @@ test("CLI init creates valid configuration and refuses overwrites", async () => 
   await command(process.execPath, args, { cwd: process.cwd() });
   const original = await readFile(file, "utf8");
   assert.doesNotMatch(original, /"prompt"|"promptFile"|"skills"|"writing"/);
+  assert.doesNotMatch(original, /"envFile"/);
   const generated = configSchema.parse(JSON.parse(original));
   assert.equal(generated.projects.length, 1);
   assert.equal(isAbsolute(generated.stateDirectory), false);
@@ -57,11 +58,16 @@ test("CLI config-base override is launch-relative without changing config lookup
   await mkdir(configDirectory);
   await mkdir(join(base, "checkout"), { recursive: true });
   await writeFile(join(base, "prompt.md"), " ");
+  await writeFile(
+    join(base, "runner.env"),
+    "AGENT_WORKFLOWS_DATABASE_URL=postgresql://localhost/unused\n",
+  );
   const configFile = join(configDirectory, "config.json");
   await writeFile(
     configFile,
     JSON.stringify({
       id: "path_override",
+      envFile: "runner.env",
       stateDirectory: "state",
       projects: [
         {
@@ -96,7 +102,7 @@ test("CLI config-base override is launch-relative without changing config lookup
       allowFailure: true,
       env: {
         ...process.env,
-        AGENT_WORKFLOWS_DATABASE_URL: "postgresql://localhost/unused",
+        AGENT_WORKFLOWS_DATABASE_URL: undefined,
         PATH_OVERRIDE_TOKEN: "",
       },
     },
@@ -155,13 +161,44 @@ test("CLI reports missing configuration and supports noninteractive help", async
     ).stdout,
     /--notify/,
   );
+  const monitorDirectory = await mkdtemp(join(tmpdir(), "aw-monitor-"));
+  const monitorConfig = join(monitorDirectory, "config.json");
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(
+    monitorConfig,
+    JSON.stringify({
+      id: "monitor",
+      projects: [
+        {
+          id: "fixture",
+          checkout: monitorDirectory,
+          hosting: {
+            provider: "github",
+            origin: "https://github.com",
+            repository: "a/b",
+            tokenEnv: "MONITOR_TOKEN",
+          },
+          agent: { provider: "codex" },
+        },
+      ],
+    }),
+  );
   const monitor = await command(
     process.execPath,
-    ["--import", "tsx", "src/cli.ts", "monitor", "--notify"],
+    [
+      "--import",
+      "tsx",
+      "src/cli.ts",
+      "--config",
+      monitorConfig,
+      "monitor",
+      "--notify",
+    ],
     { cwd: process.cwd(), allowFailure: true },
   );
   assert.equal(monitor.exitCode, 1);
   assert.match(monitor.stderr, /requires an interactive terminal/);
+  await rm(monitorDirectory, { recursive: true, force: true });
 });
 
 test("CLI prompt files resolve against the config directory from another launch directory", async () => {

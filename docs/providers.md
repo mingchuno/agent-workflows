@@ -21,7 +21,7 @@ The runner deliberately does not automatically resume interrupted agent work. Ru
 
 ## Environment inheritance
 
-CLI `--env-file` values reach validation commands, Git subprocesses and agent
+CLI `envFile` values reach validation commands, Git subprocesses and agent
 workers through the runner's process environment. SDK callers get the same
 inheritance from their own process environment. The installed Codex SDK forwards
 that environment to its executable; Copilot uses it for its local runtime, with
@@ -58,7 +58,7 @@ In GitHub **Settings → Developer settings → Personal access tokens → Fine-
 
 Git push uses the checkout's configured remote and Git credentials independently of this API token. The API adapter does not require **Contents** permission. If you also use this PAT for HTTPS Git pushes, grant **Contents: Read and write**; pushing changes to `.github/workflows/` additionally requires **Workflows: Read and write**. Do not embed credentials in remote URLs.
 
-If access is denied, check the selected owner/repository, PR write permission, token expiration, organization approval, and the token owner's repository access. If you replace the token value, restart the runner with the updated environment; existing environment variables override `--env-file` values. An already failed run requires explicit [recovery](operations.md#ownership-and-recovery); updating permissions does not restart it.
+If access is denied, check the selected owner/repository, PR write permission, token expiration, organization approval, and the token owner's repository access. If you replace the token value, restart the runner with the updated environment; existing environment variables override configured `envFile` values. An already failed run requires explicit [recovery](operations.md#ownership-and-recovery); updating permissions does not restart it.
 
 References: GitHub's [PAT creation guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens), [issue permissions](https://docs.github.com/en/rest/issues/issues#list-repository-issues), [PR creation permissions](https://docs.github.com/en/rest/pulls/pulls#create-a-pull-request), and [review permissions](https://docs.github.com/en/rest/pulls/reviews#create-a-review-for-a-pull-request).
 

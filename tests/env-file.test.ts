@@ -52,15 +52,22 @@ async function fixture() {
   return { root, config, configPath };
 }
 
-test("CLI advertises the global environment option", async () => {
+test("CLI removes the environment option", async () => {
   const result = await cli(process.cwd(), ["--help"]);
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /--env-file <path>/);
+  assert.doesNotMatch(result.stdout, /--env-file/);
+  const legacy = await cli(process.cwd(), ["--env-file", ".env", "init"]);
+  assert.equal(legacy.exitCode, 1);
+  assert.match(legacy.stderr, /unknown option '--env-file'/);
 });
 
-test("explicit missing and unreadable environment files fail before init writes anything", async () => {
-  const root = await mkdtemp(join(tmpdir(), "aw-env-error-"));
+test("configured missing and unreadable environment files fail safely", async () => {
+  const { root, config, configPath } = await fixture();
   try {
+    assert.equal(
+      configSchema.safeParse({ ...config, envFile: "runner.env" }).success,
+      false,
+    );
     const denied = join(root, "denied.env");
     await writeFile(denied, "GITHUB_TOKEN=private-fixture-credential\n", {
       mode: 0o000,
@@ -70,13 +77,16 @@ test("explicit missing and unreadable environment files fail before init writes 
       root,
       ...(process.getuid?.() === 0 ? [] : [denied]),
     ]) {
-      const result = await cli(root, ["--env-file", path, "init"]);
+      await writeFile(configPath, JSON.stringify({ ...config, envFile: path }));
+      const result = await cli(root, [
+        "--config",
+        configPath,
+        "status",
+        "--json",
+      ]);
       assert.equal(result.exitCode, 1, result.stderr);
       assert.match(result.stderr, /Cannot read environment file/);
       assert.doesNotMatch(result.stderr, /private-fixture-credential/);
-      await assert.rejects(readFile(join(root, "agent-workflows.json")), {
-        code: "ENOENT",
-      });
     }
     await chmod(denied, 0o600);
   } finally {
@@ -84,20 +94,41 @@ test("explicit missing and unreadable environment files fail before init writes 
   }
 });
 
-test("without the option CLI does not discover .env; empty shell values still fail required validation", async () => {
-  const { root, configPath } = await fixture();
+test("envFile must be a nonblank path", async () => {
+  const { root, config, configPath } = await fixture();
+  try {
+    await writeFile(configPath, JSON.stringify({ ...config, envFile: " " }));
+    const result = await cli(root, [
+      "--config",
+      configPath,
+      "status",
+      "--json",
+    ]);
+    assert.equal(result.exitCode, 1);
+    assert.match(result.stderr, /Environment file path must be nonblank/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("omitted envFile disables discovery and existing empty values still win", async () => {
+  const { root, config, configPath } = await fixture();
   try {
     await writeFile(
       join(root, ".env"),
       "AGENT_WORKFLOWS_DATABASE_URL=postgresql://fixture:private-password@localhost/db\n",
     );
-    for (const args of [[], ["--env-file", ".env"]]) {
+    for (const configured of [false, true]) {
+      await writeFile(
+        configPath,
+        JSON.stringify({ ...config, ...(configured && { envFile: ".env" }) }),
+      );
       const result = await cli(
         root,
-        [...args, "--config", configPath, "status", "--json"],
+        ["--config", configPath, "status", "--json"],
         {
           ...environment,
-          ...(args.length ? { AGENT_WORKFLOWS_DATABASE_URL: "" } : {}),
+          ...(configured ? { AGENT_WORKFLOWS_DATABASE_URL: "" } : {}),
         },
       );
       assert.equal(result.exitCode, 1, result.stderr);
@@ -109,9 +140,13 @@ test("without the option CLI does not discover .env; empty shell values still fa
   }
 });
 
-test("the environment option is global and fails before every command action", async () => {
-  const root = await mkdtemp(join(tmpdir(), "aw-env-commands-"));
+test("configured envFile loads before every configuration-consuming command", async () => {
+  const { root, config, configPath } = await fixture();
   try {
+    await writeFile(
+      configPath,
+      JSON.stringify({ ...config, envFile: "missing.env" }),
+    );
     for (const args of [
       ["run"],
       ["status"],
@@ -121,9 +156,10 @@ test("the environment option is global and fails before every command action", a
       ["resume", "project"],
       ["stop", "run-id"],
       ["retry", "run-id"],
+      ["recover", "run-id"],
       ["monitor"],
     ]) {
-      const result = await cli(root, [...args, "--env-file", "missing.env"]);
+      const result = await cli(root, ["--config", configPath, ...args]);
       assert.equal(result.exitCode, 1, result.stderr);
       assert.match(result.stderr, /Cannot read environment file.*ENOENT/);
     }
@@ -132,21 +168,22 @@ test("the environment option is global and fails before every command action", a
   }
 });
 
-test("empty default and custom hosting credentials are not replaced by file values", async () => {
+test("relative and absolute files do not replace empty hosting credentials", async () => {
   const { root, config, configPath } = await fixture();
   try {
     for (const tokenEnv of ["GITHUB_TOKEN", "CUSTOM_CREDENTIAL"]) {
       config.projects[0]!.hosting.tokenEnv = tokenEnv;
-      await writeFile(configPath, JSON.stringify(config));
+      const envFile =
+        tokenEnv === "GITHUB_TOKEN" ? "runner.env" : join(root, "runner.env");
+      await writeFile(configPath, JSON.stringify({ ...config, envFile }));
       await writeFile(
         join(root, "runner.env"),
         `AGENT_WORKFLOWS_DATABASE_URL=postgresql://fixture:dummy-password@localhost/unused\n${tokenEnv}=dummy-file-token\n`,
       );
-      const result = await cli(
-        root,
-        ["--config", configPath, "--env-file", "runner.env", "run"],
-        { ...environment, [tokenEnv]: "" },
-      );
+      const result = await cli(root, ["--config", configPath, "run"], {
+        ...environment,
+        [tokenEnv]: "",
+      });
       assert.equal(result.exitCode, 1, result.stderr);
       assert.match(
         result.stderr,
@@ -159,7 +196,7 @@ test("empty default and custom hosting credentials are not replaced by file valu
   }
 });
 
-test("store commands load default and custom database variables from launch-relative and absolute files", {
+test("store commands load default and custom database variables from config-relative and absolute files", {
   skip: !databaseUrl,
 }, async () => {
   const { root, config, configPath } = await fixture();
@@ -167,20 +204,24 @@ test("store commands load default and custom database variables from launch-rela
   try {
     for (const name of ["AGENT_WORKFLOWS_DATABASE_URL", "CUSTOM_CONNECTION"]) {
       config.databaseUrlEnv = name;
-      await writeFile(configPath, JSON.stringify(config));
       await writeFile(
         join(launch, "settings.env"),
+        `${name}=wrong-launch-directory\n`,
+      );
+      await writeFile(
+        join(root, "settings.env"),
         `${name}='${databaseUrl}' # connection\n`,
       );
-      await writeFile(join(root, "settings.env"), `${name}=wrong-directory\n`);
-      for (const path of ["settings.env", join(launch, "settings.env")]) {
+      for (const path of ["settings.env", join(root, "settings.env")]) {
+        await writeFile(
+          configPath,
+          JSON.stringify({ ...config, envFile: path }),
+        );
         const result = await cli(launch, [
           "status",
           "--json",
           "--config",
           configPath,
-          "--env-file",
-          path,
         ]);
         assert.equal(result.exitCode, 0, result.stderr);
         assert.deepEqual(JSON.parse(result.stdout), {
@@ -190,19 +231,16 @@ test("store commands load default and custom database variables from launch-rela
         });
       }
       await writeFile(
-        join(launch, "settings.env"),
+        join(root, "settings.env"),
         `${name}=invalid-file-connection\n`,
+      );
+      await writeFile(
+        configPath,
+        JSON.stringify({ ...config, envFile: "settings.env" }),
       );
       const result = await cli(
         launch,
-        [
-          "--env-file",
-          "settings.env",
-          "--config",
-          configPath,
-          "status",
-          "--json",
-        ],
+        ["--config", configPath, "status", "--json"],
         { ...environment, [name]: databaseUrl },
       );
       assert.equal(result.exitCode, 0, result.stderr);
@@ -262,12 +300,15 @@ test("runner workers and validation inherit literal startup values and retain cr
     if (tokenEnv === "CUSTOM_CREDENTIAL")
       config.databaseUrlEnv = "CUSTOM_CONNECTION";
     const configPath = join(directory, "config.json");
-    await writeFile(configPath, JSON.stringify(config));
     const { envPath, marker, expected } = await workflowEnvironment(
       directory,
       databaseUrl!,
       config.databaseUrlEnv,
       tokenEnv,
+    );
+    await writeFile(
+      configPath,
+      JSON.stringify({ ...config, envFile: envPath }),
     );
     const child = spawn(
       process.execPath,
@@ -278,8 +319,6 @@ test("runner workers and validation inherit literal startup values and retain cr
         cliPath,
         "--config",
         configPath,
-        "--env-file",
-        envPath,
         "run",
       ],
       {
@@ -391,41 +430,3 @@ const workerEnvironment = {
   APP_EMPTY: "",
   NODE_OPTIONS: `--import=${resolve("tests/fixtures/env-agent-loader.mjs")}`,
 };
-
-test("CLI startup feeds literal values to SDK workers and later children without reloading", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "aw-env-children-"));
-  try {
-    const { expected, marker } = await workflowEnvironment(
-      directory,
-      "postgresql://fixture:dummy-password@localhost/unused",
-    );
-    const result = await command(
-      process.execPath,
-      [
-        "--import",
-        import.meta.resolve("tsx"),
-        "--",
-        resolve("tests/env-cli-worker.ts"),
-        "--env-file",
-        "runner.env",
-        "init",
-      ],
-      { cwd: directory, env: workerEnvironment, allowFailure: true },
-    );
-    assert.equal(result.exitCode, 0, result.stderr);
-    for (const stage of ["implementation", "validation", "publication"]) {
-      assert.deepEqual(
-        JSON.parse(await readFile(join(directory, `${stage}.json`), "utf8")),
-        expected,
-      );
-    }
-    await assert.rejects(readFile(marker), { code: "ENOENT" });
-    const scaffold = await readFile(
-      join(directory, "agent-workflows.json"),
-      "utf8",
-    );
-    assert.ok(!scaffold.includes(expected.GITHUB_TOKEN!));
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});

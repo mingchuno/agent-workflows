@@ -2,13 +2,13 @@
 import { realpathSync, statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
-import { parseEnv } from "node:util";
 import { Command } from "commander";
 import { render } from "ink";
 import React from "react";
 import { createAgents } from "./adapters/agents.js";
 import { createHosting } from "./adapters/hosting.js";
-import { type Configuration, configSchema } from "./config.js";
+import { readCliConfiguration } from "./cli-config.js";
+import type { Configuration } from "./config.js";
 import { defaultValidationTimeoutMs } from "./defaults.js";
 import { Runner } from "./runner.js";
 import { Store } from "./store.js";
@@ -22,29 +22,11 @@ const program = new Command()
   .option(
     "--config-base-directory <directory>",
     "base directory for paths contained in configuration",
-  )
-  .option(
-    "--env-file <path>",
-    "load literal dotenv values; existing environment wins",
-  )
-  .hook("preAction", async () => {
-    const path = program.opts().envFile as string | undefined;
-    if (path === undefined) return;
-    const file = resolve(launchDirectory, path);
-    let contents: string;
-    try {
-      contents = await readFile(file, "utf8");
-    } catch (error) {
-      throw new Error(
-        `Cannot read environment file ${file} (${(error as NodeJS.ErrnoException).code ?? "read failed"})`,
-      );
-    }
-    for (const [name, value] of Object.entries(parseEnv(contents))) {
-      if (process.env[name] === undefined) process.env[name] = value;
-    }
-  });
+  );
 async function configuration(): Promise<Configuration> {
-  return configSchema.parse(JSON.parse(await readFile(configPath(), "utf8")));
+  return readCliConfiguration(configPath(), (path) =>
+    resolve(configBaseDirectory(), path),
+  );
 }
 function configPath(): string {
   return resolve(launchDirectory, program.opts().config);
@@ -77,6 +59,12 @@ function databaseUrl(config: Configuration): string {
 }
 async function withStore(action: (store: Store) => Promise<void>) {
   const config = await configuration();
+  await withConfiguredStore(config, action);
+}
+async function withConfiguredStore(
+  config: Configuration,
+  action: (store: Store) => Promise<void>,
+) {
   const store = new Store(databaseUrl(config), config.id);
   try {
     await store.initialize();
@@ -252,11 +240,12 @@ program
   .command("monitor")
   .option("--notify", "notify when an observed execution reaches an outcome")
   .action(async (options: { notify?: boolean }) => {
+    const config = await configuration();
     if (!process.stdin.isTTY || !process.stdout.isTTY)
       throw new Error(
         "Monitor requires an interactive terminal; use status --json instead",
       );
-    await withStore(async (store) => {
+    await withConfiguredStore(config, async (store) => {
       await render(
         React.createElement(Monitor, {
           source: store,

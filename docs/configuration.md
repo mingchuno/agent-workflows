@@ -15,6 +15,9 @@ and is canonicalized before startup.
 | `stateDirectory` | `.agent-workflows`; relative to the configuration base and outside every managed checkout                    |
 | `projects`       | Nonempty array; duplicate IDs or canonical checkout roots are rejected                                    |
 
+The JSON file also accepts optional CLI-only `envFile`; it is intentionally not
+part of the public SDK `Configuration` type.
+
 | Project field          | Default / meaning                                                                                   |
 | ---------------------- | --------------------------------------------------------------------------------------------------- |
 | `id`, `checkout`       | Required stable identity and existing Git repository root; relative to the configuration base       |
@@ -43,13 +46,16 @@ is the relative sibling `<checkout-name>.agent-workflows`.
 
 ## CLI environment files
 
-Select one file explicitly for any CLI command:
+Set the optional top-level `envFile` property to load one file for every CLI
+command that reads the configuration:
 
-```sh
-agent-workflows --env-file ./runner.env run
-agent-workflows --env-file ./runner.env status --json
-agent-workflows --env-file /absolute/path/runner.env monitor
+```json
+"envFile": "./runner.env"
 ```
+
+Add this alongside the other top-level properties in `agent-workflows.json`.
+`envFile` is a CLI-file setting, not part of the public SDK `Configuration`.
+SDK callers continue to prepare their own process environment.
 
 Example `runner.env` (replace placeholders locally):
 
@@ -65,16 +71,19 @@ APP_REFERENCE='${APP_MODE}'
   or hosting values still fail existing validation. Missing keys are filled from
   the file; arbitrary application variable names are supported. `databaseUrlEnv`
   and `hosting.tokenEnv` still select which names the runner uses.
-- Relative paths resolve from the CLI launch directory, independently of
-  `--config` and project checkouts. Absolute paths work too. No `.env` discovery
-  or multiple-file layering is performed.
+- Relative paths resolve from the effective configuration base: the directory
+  containing the resolved configuration file, or `--config-base-directory`
+  when supplied. Absolute paths work too. Omitting `envFile` performs no `.env`
+  discovery. Multiple-file layering is not supported.
 - Parsing uses Node's literal dotenv syntax: quotes and comments are supported;
   `$NAME`, `${NAME}`, backticks and `$(command)` in values are not expanded or
   executed. This is not shell sourcing.
-- The file is read once before the command action, database access, hosting
-  adapters or runner creation. Missing or unreadable files stop the command with
-  a nonzero exit and a path/error code, without printing file contents. Restart
-  the runner to pick up edits. Help only displays usage and does not load files.
+- The configuration is validated before its environment file can be discovered.
+  The file is then read once before database access, hosting adapters or runner
+  creation. Missing, unreadable or invalid files stop the command with a nonzero
+  exit without printing file contents. Restart the runner to pick up edits.
+  `init` creates a configuration without `envFile`; help and `init` do not load
+  an environment file.
 - The merged environment is shared across all projects in the runner. Validation,
   Git and agent worker subprocesses inherit it. Provider runtimes may apply their
   own environment policies to tools they launch; see [providers](providers.md).
@@ -88,12 +97,13 @@ redaction remains in effect; arbitrary variable support does not classify every
 application value as a secret. A GitHub API token does not configure Git push
 credentials.
 
-The flag belongs to `agent-workflows`, not the separate `pnpm db:migrate` command.
-SDK callers load their own process environment before creating a runner and
-continue passing `databaseUrl` explicitly. Node startup-only settings, such as
-`NODE_EXTRA_CA_CERTS`, must be set before launching Node to affect the CLI process.
-When invoking the script directly through Node, separate Node arguments from
-application arguments: `node -- dist/src/cli.js --env-file ./runner.env status`.
+The setting belongs to the CLI configuration file, not the separate
+`pnpm db:migrate` command. SDK callers load their own process environment before
+creating a runner and continue passing `databaseUrl` explicitly. The setting's
+path and contents are not part of publication-recovery fingerprints, so
+credential rotation does not invalidate recovery. Node startup-only settings,
+such as `NODE_EXTRA_CA_CERTS`, must be set before launching Node to affect the
+CLI process.
 
 ## Profiles
 

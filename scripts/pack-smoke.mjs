@@ -151,7 +151,7 @@ try {
   assert.throws(
     () => run(cli, ["--env-file", "missing.env", "init"]),
     (error) =>
-      error.status === 1 && /Cannot read environment file/.test(error.stderr),
+      error.status === 1 && /unknown option '--env-file'/.test(error.stderr),
   );
   run(cli, ["init"]);
   const config = JSON.parse(
@@ -159,6 +159,17 @@ try {
   );
   assert.equal(config.id, "local");
   assert.equal(config.projects[0].checkout, ".");
+  assert.equal(config.envFile, undefined);
+  await writeFile(
+    join(consumer, "agent-workflows.json"),
+    JSON.stringify({ ...config, envFile: "missing.env" }),
+  );
+  assert.throws(
+    () => run(cli, ["status", "--json"]),
+    (error) =>
+      error.status === 1 &&
+      /Cannot read environment file.*ENOENT/.test(error.stderr),
+  );
   await checkDatabase();
   await recordArtifact(artifact);
   console.log(
