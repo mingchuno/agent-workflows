@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { z } from "zod";
 import { configSchema, type Project } from "../src/config.js";
 import type { AgentAdapter } from "../src/domain.js";
 import { defaultWorkflow } from "../src/operations.js";
@@ -305,12 +306,16 @@ test("custom writable stages attribute retained providers in first-contribution 
     validate: agent.validate,
     async invoke(input) {
       if (input.step === "copilot-change") {
-        await writeFile(join(input.cwd, "copilot.txt"), "copilot\n");
+        await writeFile(join(input.cwd, "shared.txt"), "copilot\n");
         return "copilot change";
       }
       if (input.step === "codex-change") {
-        await writeFile(join(input.cwd, "codex.txt"), "codex\n");
+        await writeFile(join(input.cwd, "shared.txt"), "copilot\ncodex\n");
         return "codex change";
+      }
+      if (input.step === "copilot-mode") {
+        await chmod(join(input.cwd, "shared.txt"), 0o755);
+        return "copilot mode change";
       }
       if (input.step === "copilot-no-change") return "no change";
       return agent.invoke(input);
@@ -333,6 +338,11 @@ test("custom writable stages attribute retained providers in first-contribution 
       { defaultPrompt: "Make the Codex change" },
     );
     await operations.invoke(
+      "copilot-mode",
+      { ...project.stages.implementation, profile: { provider: "copilot" } },
+      { defaultPrompt: "Make the Copilot mode change" },
+    );
+    await operations.invoke(
       "copilot-no-change",
       { ...project.stages.implementation, profile: { provider: "copilot" } },
       { defaultPrompt: "Make no change" },
@@ -347,6 +357,7 @@ test("custom writable stages attribute retained providers in first-contribution 
     await waitFor(() => terminal(runner, 1));
     const run = (await runner.store.runs())[0]!;
     assert.equal(run.outcome, "completed", run.error ?? "unexpected outcome");
+    assert.equal(run.contributionCandidates?.length, 3);
     assert.deepEqual(run.contributingProviders, ["copilot", "codex"]);
     const message = (await git("log", "-1", "--format=%B")).stdout;
     assert.ok(
@@ -359,6 +370,50 @@ test("custom writable stages attribute retained providers in first-contribution 
     assert.equal(
       (await git("log", "-1", "--format=%an|%ae|%cn|%ce")).stdout.trim(),
       "Fixture|fixture@example.com|Fixture|fixture@example.com",
+    );
+  } finally {
+    await runner.shutdown();
+  }
+});
+
+test("caught failed writable stages do not receive contribution credit", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project, git } = await repository();
+  const controlled: AgentAdapter = {
+    validate: agent.validate,
+    async invoke(input) {
+      if (input.step !== "failing-change") return agent.invoke(input);
+      if (!input.readOnly)
+        await writeFile(join(input.cwd, "failed.txt"), "retained change\n");
+      return "invalid output";
+    },
+  };
+  const { runner } = await setup([project], { codex: controlled });
+  runner.options.workflow = async (operations) => {
+    await operations.prepare();
+    await assert.rejects(
+      operations.invoke("failing-change", project.stages.implementation, {
+        defaultPrompt: "Make a change but return invalid output",
+        outputContract: z.strictObject({ result: z.string() }),
+      }),
+      /Invalid output/,
+    );
+    assert.equal(await operations.validate(), true);
+    await operations.writePublication();
+    await operations.commit();
+    await operations.complete();
+  };
+  try {
+    await runner.start();
+    await waitFor(() => terminal(runner, 1));
+    const run = (await runner.store.runs())[0]!;
+    assert.equal(run.outcome, "completed", run.error ?? "unexpected outcome");
+    assert.deepEqual(run.contributionCandidates, undefined);
+    assert.deepEqual(run.contributingProviders, []);
+    assert.doesNotMatch(
+      (await git("log", "-1", "--format=%B")).stdout,
+      /Co-authored-by:/,
     );
   } finally {
     await runner.shutdown();

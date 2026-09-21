@@ -28,19 +28,23 @@ const snapshot = (files: Snapshot["files"]): Snapshot => ({
 });
 
 test("contributors are retained once in first-contribution order", () => {
-  const final = snapshot({ "a.txt": "a", "b.txt": "b", "undone.txt": null });
+  const final = snapshot({
+    "a.txt": "a-v2",
+    "b.txt": "b-mode-755",
+    "undone.txt": null,
+  });
   assert.deepEqual(
     contributingProviders(
       [
         {
           provider: "copilot",
           beforeFiles: {},
-          afterFiles: { "a.txt": "a" },
+          afterFiles: { "a.txt": "a-v1" },
         },
         {
           provider: "codex",
-          beforeFiles: { "a.txt": "a" },
-          afterFiles: { "a.txt": "a", "b.txt": "b" },
+          beforeFiles: { "a.txt": "a-v1", "b.txt": "b-mode-644" },
+          afterFiles: { "a.txt": "a-v2", "b.txt": "b-mode-755" },
         },
         {
           provider: "copilot",
@@ -58,7 +62,7 @@ test("commit finalization preserves trailers and deduplicates agent attribution 
   const publication = finalizeCommitMessage(
     {
       commitMessage:
-        "feat: change\n\nSigned-off-by: Human <human@example.com>\nCo-authored-by: Codex <noreply@openai.com>\nCo-authored-by: Codex <noreply@openai.com>\nAgent-Workflows-Run: stale",
+        "feat: change\n\nFixes:#1\nSigned-off-by:Human <human@example.com>\nCo-authored-by:Codex <noreply@openai.com>\nCo-authored-by: Codex <noreply@openai.com>\nAgent-Workflows-Run: stale",
       title: "Change",
       description: "Description",
     },
@@ -68,7 +72,7 @@ test("commit finalization preserves trailers and deduplicates agent attribution 
   );
   assert.equal(
     publication.commitMessage,
-    "feat: change\n\nSigned-off-by: Human <human@example.com>\nCo-authored-by: Codex <noreply@openai.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nAgent-Workflows-Run: run-1",
+    "feat: change\n\nFixes:#1\nSigned-off-by:Human <human@example.com>\nCo-authored-by: Codex <noreply@openai.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nAgent-Workflows-Run: run-1",
   );
 });
 

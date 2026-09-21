@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { chmod, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -17,6 +17,15 @@ test("workspace preserves dirty files and refuses conflicting branches", async (
   await writeFile(join(root, "file.txt"), "base\n");
   await workspace.prepare(project, "agent/1");
   await assert.rejects(workspace.prepare(project, "agent/1"), /exists/);
+});
+test("workspace file states distinguish mode-only changes", async () => {
+  const { root, project } = await repository();
+  const workspace = new ExistingCheckout();
+  await chmod(join(root, "file.txt"), 0o755);
+  const firstMode = await workspace.inspect(project);
+  await chmod(join(root, "file.txt"), 0o700);
+  const secondMode = await workspace.inspect(project);
+  assert.notEqual(firstMode.files["file.txt"], secondMode.files["file.txt"]);
 });
 test("verified commit uses generated text and next branch starts at configured base", async () => {
   const { root, project, git } = await repository();

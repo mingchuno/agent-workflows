@@ -7,6 +7,7 @@ import type { Project, Stage } from "./config.js";
 import {
   type AgentAdapter,
   BlockedError,
+  type ContributionCandidate,
   type HostingAdapter,
   isBlockedError,
   publicationSchema,
@@ -161,6 +162,8 @@ export class Operations {
         dependencies: this.dependencies,
         saveImplementationSnapshot: (runId, expected, provider) =>
           this.saveImplementationSnapshot(runId, expected, provider),
+        acceptContribution: (runId, candidate) =>
+          this.acceptContribution(runId, candidate),
       }),
     );
   }
@@ -169,25 +172,31 @@ export class Operations {
     runId: string,
     expected: Snapshot,
     provider: string,
-  ): Promise<void> {
+  ): Promise<ContributionCandidate | undefined> {
     const { workspace, project, store } = this.dependencies;
     const snapshot = await workspace.inspect(project);
     if (snapshot.head !== expected.head || snapshot.branch !== expected.branch)
       throw new BlockedError("Agent changed branch or committed unexpectedly");
-    const run = await store.run(runId);
-    await store.patchRun(runId, {
-      snapshot,
-      contributionCandidates:
-        snapshot.fingerprint === expected.fingerprint
-          ? run.contributionCandidates
-          : [
-              ...(run.contributionCandidates ?? []),
-              {
-                provider,
-                beforeFiles: expected.files,
-                afterFiles: snapshot.files,
-              },
-            ],
+    await store.patchRun(runId, { snapshot });
+    return snapshot.fingerprint === expected.fingerprint
+      ? undefined
+      : {
+          provider,
+          beforeFiles: expected.files,
+          afterFiles: snapshot.files,
+        };
+  }
+
+  private async acceptContribution(
+    runId: string,
+    candidate: ContributionCandidate,
+  ): Promise<void> {
+    const run = await this.dependencies.store.run(runId);
+    await this.dependencies.store.patchRun(runId, {
+      contributionCandidates: [
+        ...(run.contributionCandidates ?? []),
+        candidate,
+      ],
     });
   }
   async implement(): Promise<void> {

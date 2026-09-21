@@ -10,6 +10,13 @@ import {
 } from "./domain.js";
 import { type CommandOptions, command } from "./runtime/process.js";
 
+function fileStateDigest(content: Buffer, mode: number): string {
+  return createHash("sha256")
+    .update(content)
+    .update(String(mode))
+    .digest("hex");
+}
+
 export class ExistingCheckout implements Workspace {
   private readonly processDirectories = new Map<string, Promise<string>>();
   private processDirectory(project: Project): Promise<string> {
@@ -161,7 +168,7 @@ export class ExistingCheckout implements Workspace {
             `Changed symlink requires manual handling: ${path}`,
           );
         const content = await readFile(absolute);
-        files[path] = createHash("sha256").update(content).digest("hex");
+        files[path] = fileStateDigest(content, stat.mode);
         hash.update(path).update(content).update(String(stat.mode));
         if (untracked.split("\0").includes(path))
           fullDiff += `\n--- /dev/null\n+++ b/${path}\n${content.toString()}`;
@@ -232,8 +239,12 @@ export class ExistingCheckout implements Workspace {
             "Reconciled commit has an unexpected change set",
           );
         for (const [path, digest] of Object.entries(expected.files)) {
-          const actual = await readFile(join(project.checkout, path)).then(
-            (content) => createHash("sha256").update(content).digest("hex"),
+          const absolute = join(project.checkout, path);
+          const actual = await Promise.all([
+            readFile(absolute),
+            lstat(absolute),
+          ]).then(
+            ([content, stat]) => fileStateDigest(content, stat.mode),
             (error) => {
               if (error.code === "ENOENT") return null;
               throw error;

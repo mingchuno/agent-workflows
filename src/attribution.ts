@@ -8,7 +8,12 @@ export const agentCoAuthors = {
 
 export type AttributedProvider = keyof typeof agentCoAuthors;
 
-const trailerLine = /^[A-Za-z0-9][A-Za-z0-9-]*:\s+\S/;
+const trailerLine = /^([A-Za-z0-9][A-Za-z0-9-]*):[ \t]*(\S.*)$/;
+
+function normalizedTrailer(line: string): string | undefined {
+  const match = trailerLine.exec(line);
+  return match ? `${match[1]}:${match[2]}`.toLowerCase() : undefined;
+}
 
 function retained(candidate: ContributionCandidate, final: Snapshot): boolean {
   const paths = new Set([
@@ -18,7 +23,7 @@ function retained(candidate: ContributionCandidate, final: Snapshot): boolean {
   return [...paths].some(
     (path) =>
       candidate.beforeFiles[path] !== candidate.afterFiles[path] &&
-      candidate.afterFiles[path] === final.files[path],
+      candidate.beforeFiles[path] !== final.files[path],
   );
 }
 
@@ -45,7 +50,7 @@ export function finalizeCommitMessage(
     ? providers.map((provider) => agentCoAuthors[provider])
     : [];
   const matching = new Set(
-    identities.map((identity) => `co-authored-by: ${identity}`.toLowerCase()),
+    identities.map((identity) => `co-authored-by:${identity}`.toLowerCase()),
   );
   const lines = publication.commitMessage
     .split(/\r?\n/)
@@ -65,7 +70,7 @@ export function finalizeCommitMessage(
   while (body.at(-1)?.trim() === "") body.pop();
   const existingTrailers = hasTrailerBlock
     ? possibleTrailers.filter(
-        (line) => !matching.has(line.trim().toLowerCase()),
+        (line) => !matching.has(normalizedTrailer(line.trim()) ?? ""),
       )
     : [];
   const finalizedTrailers = [
