@@ -7,6 +7,10 @@ import type {
   Store,
 } from "../store.js";
 import { tuiRefreshIntervalMs } from "./constants.js";
+import {
+  ExecutionNotificationObserver,
+  type ExecutionNotificationWriter,
+} from "./notifications.js";
 
 export interface MonitorSource {
   projects: Store["projects"];
@@ -21,6 +25,7 @@ export type MonitorAction = "pause" | "resume" | "stop" | "retry" | "recover";
 export function useMonitorData(
   source: MonitorSource,
   selection: { projectId?: string; runId?: string },
+  notificationWriter?: ExecutionNotificationWriter,
 ) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
@@ -35,6 +40,11 @@ export function useMonitorData(
   const [pending, setPending] = useState<string>();
   const pendingRef = useRef<string | undefined>(undefined);
   const mounted = useRef(true);
+  const notificationObserver = useRef(
+    notificationWriter
+      ? new ExecutionNotificationObserver(notificationWriter)
+      : undefined,
+  ).current;
   const project =
     projects.find((item) => item.id === selection.projectId) ?? projects[0];
   const projectRuns = runs.filter((item) => item.projectId === project?.id);
@@ -63,6 +73,7 @@ export function useMonitorData(
         if (closed) return;
         setProjects(nextProjects);
         setRuns(nextRuns);
+        notificationObserver?.observe(nextRuns);
         if (selectedRunId) {
           const [sessions, nextEvents] = await Promise.all([
             source.invocations(selectedRunId),
@@ -94,7 +105,7 @@ export function useMonitorData(
       closed = true;
       clearInterval(timer);
     };
-  }, [source, selectedRunId]);
+  }, [source, selectedRunId, notificationObserver]);
 
   useEffect(() => {
     if (!pending || pending === "submitting") return;

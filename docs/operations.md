@@ -15,7 +15,7 @@ All commands accept `--config PATH` before the subcommand.
 | `stop RUN`                         | Queue cancellation; success means active local work has stopped |
 | `recover RUN`                      | Continue a failed publication step using completed checkpoints |
 | `retry RUN`                        | Queue an explicit new attempt after checkout validation         |
-| `monitor`                          | Attach an interactive terminal view                             |
+| `monitor [--notify]`               | Attach an interactive terminal view; optionally alert on outcomes |
 
 Control commands return a command ID and `pending`; inspect `status --json` or the monitor for success/failure. With no runner, commands stay pending. Run and monitor are separate processes. Closing the monitor never cancels work. Ctrl-C on the runner stops intake, cancels active work, waits for process termination and releases ownership. Queued issues remain durable for the next start.
 
@@ -26,6 +26,25 @@ prove that a runner is alive. Requires an interactive terminal of at least
 80 columns by 24 rows. Wide terminals show run list, summary and sessions;
 compact terminals show the focused pane. Titles and identifiers are available
 in full in scrollable details. `NO_COLOR=1` disables semantic colors.
+
+`monitor --notify` emits one desktop notification when an Execution first
+reaches `completed`, `failed`, `blocked`, `cancelled`, `no-change` or
+`ineligible` during that monitor session. The initial snapshot is silent;
+later terminal Executions are detected across every visible project, including
+Executions first seen after a database reconnection. Delivery uses OSC 9 and is
+best-effort: notifications are not persisted, retried or acknowledged, and a
+terminal write failure does not affect monitoring or workflow state. Current
+iTerm2, Kitty, WezTerm and Ghostty releases are supported; other OSC 9
+implementations may work, while Windows Terminal is not supported in this
+version. Terminal permissions and settings determine whether an alert appears,
+including whether foreground alerts are suppressed.
+
+The notification payload is display-only and contains only
+`agent-workflows: <project> · <issue reference> · <outcome>`. It excludes issue
+titles, diagnostics, paths and internal Run, Execution and session identifiers.
+Under tmux, the monitor emits one layer of DCS passthrough wrapping. tmux 3.3
+and later requires `set -g allow-passthrough on`; the CLI does not change tmux
+configuration.
 
 Run details is one responsive, vertically scrollable document. It leads with
 the issue, outcome, phase, attempt, total elapsed time and branch, and adds an

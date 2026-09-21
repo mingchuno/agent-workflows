@@ -9,6 +9,7 @@ import { ConfirmDialog, HelpDialog } from "./dialogs.js";
 import { cells, colorFor, wrapLines } from "./format.js";
 import { monitorLayout } from "./layout.js";
 import { type LogSource, LogViewer } from "./log.js";
+import type { ExecutionNotificationWriter } from "./notifications.js";
 import {
   detailLines,
   Lines,
@@ -16,6 +17,8 @@ import {
   summaryLines,
   wrapDetailLines,
 } from "./views.js";
+
+const notificationNoticeDurationMs = 2000;
 
 type Focus = "runs" | "summary" | "sessions";
 type Screen = "dashboard" | "details";
@@ -73,9 +76,11 @@ function latestSession(sessions: InvocationRecord[]) {
 export function Monitor({
   source,
   size,
+  notificationWriter,
 }: {
   source: MonitorSource;
   size?: { columns: number; rows: number };
+  notificationWriter?: ExecutionNotificationWriter;
 }) {
   const window = useWindowSize();
   const { columns, rows } = size ?? window;
@@ -84,7 +89,7 @@ export function Monitor({
     projectId?: string;
     runId?: string;
   }>({});
-  const data = useMonitorData(source, selection);
+  const data = useMonitorData(source, selection, notificationWriter);
   const { projects, project, projectRuns, run, sessions, events } = data;
   const [focus, setFocus] = useState<Focus>("runs");
   const [screen, setScreen] = useState<Screen>("dashboard");
@@ -95,7 +100,16 @@ export function Monitor({
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [logs, setLogs] = useState<{ sources: LogSource[]; initial: number }>();
   const [now, setNow] = useState(Date.now());
-  const layout = monitorLayout(columns, rows, screen === "details");
+  const [notificationNoticeUntil] = useState(
+    () => Date.now() + notificationNoticeDurationMs,
+  );
+  const showNotificationNotice =
+    Boolean(notificationWriter) && now < notificationNoticeUntil;
+  const layout = monitorLayout(
+    columns,
+    rows - (showNotificationNotice ? 1 : 0),
+    screen === "details",
+  );
   const { wide, height, paneWidth, summaryWidth } = layout;
   const session = sessions.find((item) => item.id === sessionId) ?? sessions[0];
   const executionSessions = currentExecutionSessions(run, sessions, events);
@@ -497,6 +511,14 @@ export function Monitor({
           </>
         )}
       </Box>
+      {showNotificationNotice && (
+        <Text color={colorFor("running")} wrap="truncate">
+          {cells(
+            "Notifications enabled; delivery is best-effort and depends on terminal settings",
+            columns,
+          )}
+        </Text>
+      )}
       <Text
         wrap="truncate"
         color={
