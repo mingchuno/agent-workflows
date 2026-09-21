@@ -27,6 +27,10 @@ replaying an accepted command identifies its existing retry.
 One execution of a run, with its own outcome and failure evidence. Recovery
 adds an execution to the same run; retry creates a new run.
 
+**Execution notification**:
+An operator-facing alert that reports a terminal outcome for one execution.
+_Avoid_: Workflow notification, run notification
+
 **Execution duration**:
 Wall-clock time spent in one execution, excluding queue waiting before it
 starts and gaps between executions awaiting publication recovery.
