@@ -61,8 +61,6 @@ async function fixture(invoke: AgentAdapter["invoke"], timeoutMs = 5000) {
       signal: controller.signal,
       redact: (text) => text,
     },
-    saveImplementationSnapshot: async () => undefined,
-    acceptContribution: async () => {},
   };
   return { input, records, controller };
 }

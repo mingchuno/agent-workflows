@@ -14,11 +14,59 @@ import { assertProcessesStopped } from "./runtime/ownership.js";
 import { command } from "./runtime/process.js";
 import type { Store } from "./store.js";
 
+const recoveryGatePollIntervalMs = 100;
+
 export const publicationSteps: readonly string[] = [
   "push",
   "change-request",
   "review-publication",
 ];
+
+interface WorkflowStep {
+  functionID: number;
+  name?: string;
+  error?: unknown;
+}
+
+/** Prove that a fork will replay only completed publication checkpoints. */
+function completedPublicationCheckpoints(
+  run: RunRecord,
+  status: { status: string; applicationVersion?: string } | null | undefined,
+  steps: readonly WorkflowStep[] | undefined,
+  applicationVersion: string,
+): string[] {
+  if (!status || !["SUCCESS", "ERROR"].includes(status.status))
+    throw new Error("Source execution has not finished");
+  if (status.applicationVersion !== applicationVersion)
+    throw new Error("Workflow version changed; use retry");
+  const failed = steps?.find(
+    (step) => step.functionID === run.executions?.at(-1)?.failedStep,
+  );
+  if (!failed?.error || failed.name !== run.phase)
+    throw new Error("Failed publication checkpoint is unavailable");
+  const prefix = steps!.filter((step) => step.functionID < failed.functionID);
+  if (
+    prefix.length !== failed.functionID ||
+    prefix.some((step, index) => step.error || step.functionID !== index) ||
+    !prefix.some((step) => step.name === "commit")
+  )
+    throw new Error("Completed publication checkpoints are unavailable");
+  return prefix.map((step) => step.name!);
+}
+
+/** Check the identity of the first step that DBOS did not replay. */
+function verifyPublicationExecutionStart(
+  run: RunRecord,
+  workflowId: string,
+  stepId: number,
+): void {
+  const execution = run.executions?.at(-1);
+  if (!execution?.recoveryOf) return;
+  if (execution.id !== workflowId)
+    throw new BlockedError("Execution has been superseded");
+  if (stepId < execution.startStep!)
+    throw new BlockedError("A reused checkpoint is missing; recovery refused");
+}
 
 export function recoveryUnavailable(run: RunRecord): string | undefined {
   if (run.outcome !== "failed")
@@ -90,8 +138,54 @@ interface RecoveryDependencies {
   signal?: AbortSignal;
 }
 
+/** Verify checkpoint history and live state before persisting recovery intent. */
+export async function verifyPublicationRecoveryAdmission(
+  run: RunRecord,
+  checkpoints: {
+    status: { status: string; applicationVersion?: string } | null | undefined;
+    steps: readonly WorkflowStep[] | undefined;
+    applicationVersion: string;
+  },
+  dependencies: RecoveryDependencies,
+): Promise<string[]> {
+  const completedSteps = completedPublicationCheckpoints(
+    run,
+    checkpoints.status,
+    checkpoints.steps,
+    checkpoints.applicationVersion,
+  );
+  await verifyPublicationRecovery(run, dependencies);
+  return completedSteps;
+}
+
+interface RecoveryStartDependencies extends RecoveryDependencies {
+  store: Pick<Store, "invocations" | "project" | "patchRun">;
+  signal: AbortSignal;
+}
+
+/** Revalidate a recovered Execution at its first non-replayed step. */
+export async function resumePublicationExecution(
+  run: RunRecord,
+  workflowId: string,
+  stepId: number,
+  dependencies: RecoveryStartDependencies,
+): Promise<void> {
+  verifyPublicationExecutionStart(run, workflowId, stepId);
+  while (true) {
+    dependencies.signal.throwIfAborted();
+    const state = await dependencies.store.project(dependencies.project.id);
+    if (state.blocked) throw new BlockedError(state.blocked);
+    if (!state.paused) break;
+    await new Promise((resolve) =>
+      setTimeout(resolve, recoveryGatePollIntervalMs),
+    );
+  }
+  await dependencies.store.patchRun(run.id, { outcome: "running" });
+  await verifyPublicationRecovery(run, dependencies);
+}
+
 /** Read-only checks shared by admission and the first non-replayed operation. */
-export async function verifyPublicationRecovery(
+async function verifyPublicationRecovery(
   run: RunRecord,
   dependencies: RecoveryDependencies,
 ): Promise<void> {

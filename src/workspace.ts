@@ -147,10 +147,9 @@ export class ExistingCheckout implements Workspace {
       "--exclude-standard",
       "-z",
     );
+    const untrackedPaths = new Set(untracked.split("\0").filter(Boolean));
     const paths = [
-      ...new Set(
-        [...tracked.split("\0"), ...untracked.split("\0")].filter(Boolean),
-      ),
+      ...new Set([...tracked.split("\0"), ...untrackedPaths].filter(Boolean)),
     ].sort();
     const hash = createHash("sha256")
       .update(head)
@@ -170,7 +169,7 @@ export class ExistingCheckout implements Workspace {
         const content = await readFile(absolute);
         files[path] = fileStateDigest(content, stat.mode);
         hash.update(path).update(content).update(String(stat.mode));
-        if (untracked.split("\0").includes(path))
+        if (untrackedPaths.has(path))
           fullDiff += `\n--- /dev/null\n+++ b/${path}\n${content.toString()}`;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

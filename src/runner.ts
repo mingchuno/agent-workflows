@@ -15,7 +15,11 @@ import {
 import { assertEvidenceDirectory } from "./evidence.js";
 import { defaultWorkflow, Operations } from "./operations.js";
 import { projectPrompts } from "./prompts.js";
-import { executionFingerprint, verifyPublicationRecovery } from "./recovery.js";
+import {
+  executionFingerprint,
+  resumePublicationExecution,
+  verifyPublicationRecoveryAdmission,
+} from "./recovery.js";
 import { createQueuedRun } from "./run-record.js";
 import {
   assertProcessesStopped,
@@ -327,8 +331,7 @@ export class Runner {
     const run = await DBOS.runStep(() => this.initializeExecution(runId), {
       name: "load-run",
     });
-    const project = this.config.projects.find((p) => p.id === run.projectId);
-    if (!project) throw new Error("Project removed from configuration");
+    const project = this.projectForRun(run);
     const workspace = this.options.workspace ?? new ExistingCheckout();
     let recoveryChecked = false;
     const operations = new Operations(runId, {
@@ -349,32 +352,7 @@ export class Runner {
         ),
       beforeStep: async () => {
         if (recoveryChecked) return;
-        const current = await this.store.run(runId);
-        const execution = current.executions?.at(-1);
-        if (!execution?.recoveryOf) {
-          await this.store.patchRun(runId, { outcome: "running" });
-          recoveryChecked = true;
-          return;
-        }
-        if (execution.id !== DBOS.workflowID)
-          throw new BlockedError("Execution has been superseded");
-        if (DBOS.stepID! < execution.startStep!)
-          throw new BlockedError(
-            "A reused checkpoint is missing; recovery refused",
-          );
-        // This runs inside the first non-replayed step, so copied start-gate
-        // checkpoints cannot bypass today's pause or checkout checks.
-        while (true) {
-          controller.signal.throwIfAborted();
-          const state = await this.store.project(project.id);
-          if (state.blocked) throw new BlockedError(state.blocked);
-          if (!state.paused) break;
-          await new Promise((resolve) =>
-            setTimeout(resolve, runnerPollIntervalMs),
-          );
-        }
-        await this.store.patchRun(runId, { outcome: "running" });
-        await this.checkRecoveryState(current, project, controller.signal);
+        await this.checkExecutionStart(runId, project, controller.signal);
         recoveryChecked = true;
       },
     });
@@ -402,33 +380,69 @@ export class Runner {
       );
     } catch (error) {
       await DBOS.runStep(
-        async () => {
-          let unsafe = false;
-          try {
-            await workspace.check(project);
-          } catch {
-            unsafe = true;
-          }
-          const outcome = controller.signal.aborted
-            ? "cancelled"
-            : isBlockedError(error)
-              ? "blocked"
-              : "failed";
-          await this.store.patchRun(runId, {
-            outcome,
-            error: this.redact(String(error)),
-          });
-          if (unsafe || isBlockedError(error))
-            await this.store.blockProject(
-              project.id,
-              `Run ${runId} requires recovery: ${this.redact(String(error))}`,
-            );
-        },
+        () =>
+          this.recordExecutionFailure(
+            runId,
+            project,
+            workspace,
+            controller,
+            error,
+          ),
         { name: "record-failure", retriesAllowed: false },
       );
     } finally {
       this.controllers.delete(runId);
     }
+  }
+  private async checkExecutionStart(
+    runId: string,
+    project: Project,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const current = await this.store.run(runId);
+    const execution = current.executions?.at(-1);
+    if (!execution?.recoveryOf) {
+      await this.store.patchRun(runId, { outcome: "running" });
+      return;
+    }
+    // The first non-replayed step must check today's pause and checkout state.
+    await resumePublicationExecution(current, DBOS.workflowID!, DBOS.stepID!, {
+      project,
+      signal,
+      store: this.store,
+      workspace: this.options.workspace ?? new ExistingCheckout(),
+      hosting: this.hosting.get(project.id)!,
+      stateDirectory: this.config.stateDirectory,
+      workflowVersion: this.options.workflowVersion ?? "phase1-v2",
+    });
+  }
+  private async recordExecutionFailure(
+    runId: string,
+    project: Project,
+    workspace: Workspace,
+    controller: AbortController,
+    error: unknown,
+  ): Promise<void> {
+    let unsafe = false;
+    try {
+      await workspace.check(project);
+    } catch {
+      unsafe = true;
+    }
+    const outcome = controller.signal.aborted
+      ? "cancelled"
+      : isBlockedError(error)
+        ? "blocked"
+        : "failed";
+    await this.store.patchRun(runId, {
+      outcome,
+      error: this.redact(String(error)),
+    });
+    if (unsafe || isBlockedError(error))
+      await this.store.blockProject(
+        project.id,
+        `Run ${runId} requires recovery: ${this.redact(String(error))}`,
+      );
   }
   async pause(projectId: string): Promise<void> {
     await this.store.project(projectId);
@@ -437,10 +451,7 @@ export class Runner {
   private async initializeExecution(runId: string): Promise<RunRecord> {
     const run = await this.store.run(runId);
     if (run.executions?.length) return run;
-    const project = this.config.projects.find(
-      (item) => item.id === run.projectId,
-    );
-    if (!project) throw new Error("Project removed from configuration");
+    this.projectForRun(run);
     return this.store.patchRun(runId, {
       executions: [
         {
@@ -487,10 +498,7 @@ export class Runner {
       checkSafety: async (previous) => {
         if (this.controllers.has(runId))
           throw new Error("Work has not stopped");
-        const project = this.config.projects.find(
-          (p) => p.id === previous.projectId,
-        );
-        if (!project) throw new Error("Project removed from configuration");
+        const project = this.projectForRun(previous);
         await assertProcessesStopped(
           resolve(this.config.stateDirectory, runId),
         );
@@ -514,55 +522,35 @@ export class Runner {
           );
         if (this.controllers.has(runId))
           throw new Error("Work has not stopped");
-        const project = this.config.projects.find(
-          (item) => item.id === run.projectId,
-        );
-        if (!project) throw new Error("Project removed from configuration");
+        const project = this.projectForRun(run);
         const execution = run.executions!.at(-1)!;
         const status = await DBOS.getWorkflowStatus(execution.id);
-        if (!status || !["SUCCESS", "ERROR"].includes(status.status))
-          throw new Error("Source execution has not finished");
-        if (
-          status.applicationVersion !==
-          `${this.config.id}-${this.options.workflowVersion ?? "phase1-v2"}`
-        )
-          throw new Error("Workflow version changed; use retry");
         const steps = await DBOS.listWorkflowSteps(execution.id);
-        const failed = steps?.find(
-          (step) => step.functionID === execution.failedStep,
+        return verifyPublicationRecoveryAdmission(
+          run,
+          {
+            status,
+            steps,
+            applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v2"}`,
+          },
+          {
+            project,
+            store: this.store,
+            workspace: this.options.workspace ?? new ExistingCheckout(),
+            hosting: this.hosting.get(project.id)!,
+            stateDirectory: this.config.stateDirectory,
+            workflowVersion: this.options.workflowVersion ?? "phase1-v2",
+          },
         );
-        if (!failed?.error || failed.name !== run.phase)
-          throw new Error("Failed publication checkpoint is unavailable");
-        const prefix = steps!.filter(
-          (step) => step.functionID < failed.functionID,
-        );
-        if (
-          prefix.length !== failed.functionID ||
-          prefix.some(
-            (step, index) => step.error || step.functionID !== index,
-          ) ||
-          !prefix.some((step) => step.name === "commit")
-        )
-          throw new Error("Completed publication checkpoints are unavailable");
-        await this.checkRecoveryState(run, project);
-        return prefix.map((step) => step.name);
       },
     });
   }
-  private async checkRecoveryState(
-    run: RunRecord,
-    project: Project,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    await verifyPublicationRecovery(run, {
-      project,
-      signal,
-      store: this.store,
-      workspace: this.options.workspace ?? new ExistingCheckout(),
-      hosting: this.hosting.get(project.id)!,
-      stateDirectory: this.config.stateDirectory,
-      workflowVersion: this.options.workflowVersion ?? "phase1-v2",
-    });
+  private projectForRun(run: RunRecord): Project {
+    const project = this.config.projects.find(
+      (item) => item.id === run.projectId,
+    );
+    if (!project) throw new Error("Project removed from configuration");
+    return project;
   }
   async shutdown(): Promise<void> {
     this.stopping = true;

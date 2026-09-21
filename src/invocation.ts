@@ -31,15 +31,6 @@ interface StageExecution {
   task: InvocationTask;
   stepId: number;
   dependencies: OperationDependencies;
-  saveImplementationSnapshot: (
-    runId: string,
-    snapshot: Snapshot,
-    provider: string,
-  ) => Promise<ContributionCandidate | undefined>;
-  acceptContribution: (
-    runId: string,
-    candidate: ContributionCandidate,
-  ) => Promise<void>;
 }
 /** One logical stage; only returned format errors admit a second response attempt. */
 export async function invokeStage({
@@ -49,8 +40,6 @@ export async function invokeStage({
   task,
   stepId,
   dependencies,
-  saveImplementationSnapshot,
-  acceptContribution,
 }: StageExecution): Promise<string> {
   const { store, project, agents, signal, workspace, redact } = dependencies;
   const previous = (await store.invocations(run.id)).filter(
@@ -168,6 +157,7 @@ export async function invokeStage({
           run.id,
           expected,
           profile.provider,
+          dependencies,
         );
       if (task.evidence) await verifyEvidence(task.evidence);
       invocationSignal.throwIfAborted();
@@ -200,7 +190,7 @@ export async function invokeStage({
         continue;
       }
       if (pendingContribution)
-        await acceptContribution(run.id, pendingContribution);
+        await acceptContribution(run.id, pendingContribution, dependencies);
       record.outcome = "completed";
       return redact(task.outputContract ? JSON.stringify(parsed) : output);
     } catch (error) {
@@ -213,4 +203,35 @@ export async function invokeStage({
     }
   }
   throw new Error("Format correction exhausted");
+}
+
+async function saveImplementationSnapshot(
+  runId: string,
+  expected: Snapshot,
+  provider: string,
+  dependencies: OperationDependencies,
+): Promise<ContributionCandidate | undefined> {
+  const { workspace, project, store } = dependencies;
+  const snapshot = await workspace.inspect(project);
+  if (snapshot.head !== expected.head || snapshot.branch !== expected.branch)
+    throw new BlockedError("Agent changed branch or committed unexpectedly");
+  await store.patchRun(runId, { snapshot });
+  return snapshot.fingerprint === expected.fingerprint
+    ? undefined
+    : {
+        provider,
+        beforeFiles: expected.files,
+        afterFiles: snapshot.files,
+      };
+}
+
+async function acceptContribution(
+  runId: string,
+  candidate: ContributionCandidate,
+  dependencies: OperationDependencies,
+): Promise<void> {
+  const run = await dependencies.store.run(runId);
+  await dependencies.store.patchRun(runId, {
+    contributionCandidates: [...(run.contributionCandidates ?? []), candidate],
+  });
 }

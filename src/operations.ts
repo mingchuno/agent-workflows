@@ -7,13 +7,12 @@ import type { Project, Stage } from "./config.js";
 import {
   type AgentAdapter,
   BlockedError,
-  type ContributionCandidate,
   type HostingAdapter,
   isBlockedError,
   publicationSchema,
   type RunRecord,
   reviewSchema,
-  type Snapshot,
+  type ValidationResult,
   type Workspace,
 } from "./domain.js";
 import {
@@ -160,44 +159,8 @@ export class Operations {
         task,
         stepId: DBOS.stepID!,
         dependencies: this.dependencies,
-        saveImplementationSnapshot: (runId, expected, provider) =>
-          this.saveImplementationSnapshot(runId, expected, provider),
-        acceptContribution: (runId, candidate) =>
-          this.acceptContribution(runId, candidate),
       }),
     );
-  }
-
-  private async saveImplementationSnapshot(
-    runId: string,
-    expected: Snapshot,
-    provider: string,
-  ): Promise<ContributionCandidate | undefined> {
-    const { workspace, project, store } = this.dependencies;
-    const snapshot = await workspace.inspect(project);
-    if (snapshot.head !== expected.head || snapshot.branch !== expected.branch)
-      throw new BlockedError("Agent changed branch or committed unexpectedly");
-    await store.patchRun(runId, { snapshot });
-    return snapshot.fingerprint === expected.fingerprint
-      ? undefined
-      : {
-          provider,
-          beforeFiles: expected.files,
-          afterFiles: snapshot.files,
-        };
-  }
-
-  private async acceptContribution(
-    runId: string,
-    candidate: ContributionCandidate,
-  ): Promise<void> {
-    const run = await this.dependencies.store.run(runId);
-    await this.dependencies.store.patchRun(runId, {
-      contributionCandidates: [
-        ...(run.contributionCandidates ?? []),
-        candidate,
-      ],
-    });
   }
   async implement(): Promise<void> {
     await this.invoke(
@@ -212,12 +175,12 @@ export class Operations {
 
   async validate(): Promise<boolean> {
     return this.step("validation", async (run) => {
-      const { project, workspace, store, signal, redact } = this.dependencies;
+      const { project, workspace, signal, redact } = this.dependencies;
       if (!run.snapshot)
         throw new BlockedError("Missing implementation snapshot");
       await workspace.verify(project, run.snapshot);
       if (!run.snapshot.paths.length) return false;
-      const validation = [];
+      const validation: ValidationResult[] = [];
       const directory = join(this.dependencies.artifacts, run.id);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       for (const [index, check] of project.validation.entries()) {
@@ -240,25 +203,23 @@ export class Operations {
           await appendFile(log, redact(captured + "\n" + String(error)), {
             mode: 0o600,
           });
-          validation.push({
+          await this.recordValidation(run.id, validation, {
             ...check,
             exitCode: -1,
             log,
             startedAt,
             finishedAt: new Date().toISOString(),
           });
-          await store.patchRun(run.id, { validation });
           throw error;
         }
         await appendFile(log, redact(captured), { mode: 0o600 });
-        validation.push({
+        await this.recordValidation(run.id, validation, {
           ...check,
           exitCode: result.exitCode,
           log,
           startedAt,
           finishedAt: new Date().toISOString(),
         });
-        await store.patchRun(run.id, { validation });
         if (result.exitCode !== 0)
           throw new Error(
             `Validation failed: ${check.command} (exit ${result.exitCode})`,
@@ -267,6 +228,14 @@ export class Operations {
       await workspace.verify(project, run.snapshot);
       return true;
     });
+  }
+  private async recordValidation(
+    runId: string,
+    validation: ValidationResult[],
+    result: ValidationResult,
+  ): Promise<void> {
+    validation.push(result);
+    await this.dependencies.store.patchRun(runId, { validation });
   }
   private async prepareEvidence(
     name: string,

@@ -1,8 +1,5 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
-import type { RunRecord } from "../domain.js";
-import type { EventRecord, InvocationRecord } from "../store.js";
-import { actionAvailability } from "./actions.js";
 import { minimumTerminalSize } from "./constants.js";
 import { type MonitorSource, useMonitorData } from "./data.js";
 import { ConfirmDialog, HelpDialog } from "./dialogs.js";
@@ -10,6 +7,7 @@ import { cells, colorFor, wrapLines } from "./format.js";
 import { monitorLayout } from "./layout.js";
 import { type LogSource, LogViewer } from "./log.js";
 import type { ExecutionNotificationWriter } from "./notifications.js";
+import { projectRunProjection } from "./projection.js";
 import {
   detailLines,
   Lines,
@@ -34,44 +32,6 @@ const actionDescriptions = {
   retry: "Create a new run and branch; execute the workflow again.",
   recover: "Continue the failed publication step using completed work.",
 };
-
-function currentExecutionSessions(
-  run: RunRecord | undefined,
-  sessions: InvocationRecord[],
-  events: EventRecord[],
-) {
-  const current = run?.executions?.at(-1);
-  if (!current || (run?.executions?.length ?? 0) <= 1) return sessions;
-  const currentStepIds = new Set(
-    events.flatMap((event) => {
-      const payload = event.payload as {
-        executionId?: unknown;
-        stepId?: unknown;
-      };
-      return payload.executionId === current.id &&
-        typeof payload.stepId === "number"
-        ? [payload.stepId]
-        : [];
-    }),
-  );
-  if (currentStepIds.size)
-    return sessions.filter((item) => currentStepIds.has(item.stepId));
-  const executionCreatedAt = Date.parse(current.createdAt);
-  if (!Number.isFinite(executionCreatedAt)) return [];
-  return sessions.filter(
-    (item) => Date.parse(item.startedAt) >= executionCreatedAt,
-  );
-}
-
-function latestSession(sessions: InvocationRecord[]) {
-  const byRecency = [...sessions].sort(
-    (left, right) => Date.parse(left.startedAt) - Date.parse(right.startedAt),
-  );
-  return (
-    byRecency.filter((item) => item.outcome === "running").at(-1) ??
-    byRecency.at(-1)
-  );
-}
 
 export function Monitor({
   source,
@@ -112,8 +72,15 @@ export function Monitor({
   );
   const { wide, height, paneWidth, summaryWidth } = layout;
   const session = sessions.find((item) => item.id === sessionId) ?? sessions[0];
-  const executionSessions = currentExecutionSessions(run, sessions, events);
-  const detailLogSession = latestSession(executionSessions);
+  const { executionSessions, detailLogSession, recoveryReason, available } =
+    projectRunProjection({
+      run,
+      project,
+      projectRuns,
+      sessions,
+      events,
+      pending: Boolean(data.pending),
+    });
   const event =
     events.find((item) => item.sequence === stepSequence) ?? events.at(-1);
   useEffect(() => {
@@ -159,12 +126,6 @@ export function Monitor({
       ),
     });
   };
-  const { recoveryReason, available } = actionAvailability({
-    run,
-    project,
-    projectRuns,
-    pending: Boolean(data.pending),
-  });
   const detailDocument = run
     ? detailLines(
         run,
