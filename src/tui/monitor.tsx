@@ -1,5 +1,7 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
+import type { RunRecord } from "../domain.js";
+import type { EventRecord, InvocationRecord } from "../store.js";
 import { actionAvailability } from "./actions.js";
 import { minimumTerminalSize } from "./constants.js";
 import { type MonitorSource, useMonitorData } from "./data.js";
@@ -7,7 +9,13 @@ import { ConfirmDialog, HelpDialog } from "./dialogs.js";
 import { cells, colorFor, wrapLines } from "./format.js";
 import { monitorLayout } from "./layout.js";
 import { type LogSource, LogViewer } from "./log.js";
-import { detailLines, Lines, RunList, summaryLines } from "./views.js";
+import {
+  detailLines,
+  Lines,
+  RunList,
+  summaryLines,
+  wrapDetailLines,
+} from "./views.js";
 
 type Focus = "runs" | "summary" | "sessions";
 type Screen = "dashboard" | "details";
@@ -23,6 +31,44 @@ const actionDescriptions = {
   retry: "Create a new run and branch; execute the workflow again.",
   recover: "Continue the failed publication step using completed work.",
 };
+
+function currentExecutionSessions(
+  run: RunRecord | undefined,
+  sessions: InvocationRecord[],
+  events: EventRecord[],
+) {
+  const current = run?.executions?.at(-1);
+  if (!current || (run?.executions?.length ?? 0) <= 1) return sessions;
+  const currentStepIds = new Set(
+    events.flatMap((event) => {
+      const payload = event.payload as {
+        executionId?: unknown;
+        stepId?: unknown;
+      };
+      return payload.executionId === current.id &&
+        typeof payload.stepId === "number"
+        ? [payload.stepId]
+        : [];
+    }),
+  );
+  if (currentStepIds.size)
+    return sessions.filter((item) => currentStepIds.has(item.stepId));
+  const executionCreatedAt = Date.parse(current.createdAt);
+  if (!Number.isFinite(executionCreatedAt)) return [];
+  return sessions.filter(
+    (item) => Date.parse(item.startedAt) >= executionCreatedAt,
+  );
+}
+
+function latestSession(sessions: InvocationRecord[]) {
+  const byRecency = [...sessions].sort(
+    (left, right) => Date.parse(left.startedAt) - Date.parse(right.startedAt),
+  );
+  return (
+    byRecency.filter((item) => item.outcome === "running").at(-1) ??
+    byRecency.at(-1)
+  );
+}
 
 export function Monitor({
   source,
@@ -49,9 +95,11 @@ export function Monitor({
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [logs, setLogs] = useState<{ sources: LogSource[]; initial: number }>();
   const [now, setNow] = useState(Date.now());
-  const layout = monitorLayout(columns, rows);
+  const layout = monitorLayout(columns, rows, screen === "details");
   const { wide, height, paneWidth, summaryWidth } = layout;
   const session = sessions.find((item) => item.id === sessionId) ?? sessions[0];
+  const executionSessions = currentExecutionSessions(run, sessions, events);
+  const detailLogSession = latestSession(executionSessions);
   const event =
     events.find((item) => item.sequence === stepSequence) ?? events.at(-1);
   useEffect(() => {
@@ -84,16 +132,16 @@ export function Monitor({
     setFocus("runs");
     setOffset(0);
   };
-  const openAgentLog = () => {
-    if (!sessions.length) return;
+  const openAgentLog = (candidates = sessions, initialSession = session) => {
+    if (!candidates.length) return;
     setLogs({
-      sources: sessions.map((item) => ({
+      sources: candidates.map((item) => ({
         path: item.log,
         label: `${item.step} · invocation ${item.attempt}`,
       })),
       initial: Math.max(
         0,
-        sessions.findIndex((item) => item.id === session?.id),
+        candidates.findIndex((item) => item.id === initialSession?.id),
       ),
     });
   };
@@ -103,6 +151,24 @@ export function Monitor({
     projectRuns,
     pending: Boolean(data.pending),
   });
+  const detailDocument = run
+    ? detailLines(
+        run,
+        sessions,
+        now,
+        recoveryReason,
+        layout.details.width,
+        available,
+      )
+    : ["Run no longer available"];
+  const wrappedDetailLines = wrapDetailLines(
+    detailDocument,
+    layout.details.width,
+  );
+  const detailOffset = Math.min(
+    offset,
+    Math.max(0, wrappedDetailLines.length - layout.details.height),
+  );
   useInput((input, key) => {
     if (key.ctrl || key.meta || key.eventType === "release") return;
     const terminalIsLargeEnough =
@@ -129,17 +195,20 @@ export function Monitor({
       setFocus(focuses[(focuses.indexOf(focus) + (key.shift ? 2 : 1)) % 3]!);
       setOffset(0);
     }
-    if (input === "a") {
+    if (input === "a" && screen === "dashboard") {
       setScreen("dashboard");
       setFocus("sessions");
     }
     if (key.leftArrow && screen === "dashboard") selectProject(-1);
     if (key.rightArrow && screen === "dashboard") selectProject(1);
-    if (key.return && run) {
+    if (key.return && run && screen === "dashboard") {
       setScreen("details");
       setOffset(0);
     }
-    if (input === "l") openAgentLog();
+    if (input === "l")
+      screen === "details"
+        ? openAgentLog(executionSessions, detailLogSession)
+        : openAgentLog();
     if (input === "v" && run?.validation?.length)
       setLogs({
         sources: run.validation.map((item) => ({
@@ -148,7 +217,7 @@ export function Monitor({
         })),
         initial: 0,
       });
-    if (input === "[" || input === "]") {
+    if (screen === "dashboard" && (input === "[" || input === "]")) {
       const index = events.findIndex(
         (item) => item.sequence === event?.sequence,
       );
@@ -161,27 +230,36 @@ export function Monitor({
         ]?.sequence,
       );
     }
-    if (key.end) setStepSequence(undefined);
+    if (key.end && screen === "dashboard") setStepSequence(undefined);
     if (key.upArrow || key.downArrow || key.pageUp || key.pageDown) {
       const delta = key.upArrow || key.pageUp ? -1 : 1;
       if (screen === "details" || focus === "summary") {
         const lines = run
           ? screen === "details"
-            ? detailLines(run, sessions, now, recoveryReason)
+            ? detailDocument
             : summaryLines(run, now, event)
           : [];
         const viewport = screen === "details" ? layout.details : layout.summary;
-        setOffset((value) =>
-          Math.max(
+        setOffset((value) => {
+          const maximum = Math.max(
+            0,
+            (screen === "details"
+              ? wrapDetailLines(lines, viewport.width)
+              : wrapLines(lines, viewport.width)
+            ).length - viewport.height,
+          );
+          const current =
+            screen === "details" ? Math.min(value, maximum) : value;
+          return Math.max(
             0,
             Math.min(
-              wrapLines(lines, viewport.width).length - viewport.height,
-              value +
+              maximum,
+              current +
                 delta *
                   (key.pageUp || key.pageDown ? layout.details.height : 1),
             ),
-          ),
-        );
+          );
+        });
       } else if (focus === "sessions") {
         const index = sessions.findIndex((item) => item.id === session?.id);
         setSessionId(
@@ -199,7 +277,7 @@ export function Monitor({
         });
       }
     }
-    if (input === "p" && project && !data.pending)
+    if (input === "p" && screen === "dashboard" && project && !data.pending)
       void data.action(project.paused ? "resume" : "pause", project.id);
     const kind =
       input === "s"
@@ -262,7 +340,10 @@ export function Monitor({
         onBack={() => setLogs(undefined)}
       />
     );
-  const status = `${data.connection}${data.lastUpdated ? ` · refreshed ${Math.max(0, Math.floor((now - data.lastUpdated) / statusRefreshIntervalMs))}s ago` : ""}`;
+  const freshness = data.lastUpdated
+    ? `refreshed ${Math.max(0, Math.floor((now - data.lastUpdated) / statusRefreshIntervalMs))}s ago`
+    : "freshness unavailable";
+  const status = `${data.connection} · ${freshness}`;
   const sessionIndex = Math.max(
     0,
     sessions.findIndex((item) => item.id === session?.id),
@@ -275,10 +356,23 @@ export function Monitor({
             `${item.id === session?.id ? ">" : " "} ${item.step} · invocation ${item.attempt} · ${item.outcome}`,
         )
     : ["No agent sessions recorded"];
+  const detailsLogControl = detailLogSession
+    ? columns < 120
+      ? "l current log"
+      : `l log: ${detailLogSession.step} invocation ${detailLogSession.attempt} (${detailLogSession.outcome})`
+    : "";
   const controls = [
-    sessions.length ? "l log" : "",
-    run?.validation?.length ? "v validation" : "",
-    project ? (project.paused ? "p resume" : "p pause") : "",
+    screen === "details" ? detailsLogControl : sessions.length ? "l log" : "",
+    run?.validation?.length
+      ? columns < 120
+        ? "v checks"
+        : "v validation"
+      : "",
+    screen === "dashboard" && project
+      ? project.paused
+        ? "p resume"
+        : "p pause"
+      : "",
     available.stop ? "s stop" : "",
     available.retry ? "r retry" : "",
     available.recover ? "c recover" : "",
@@ -312,16 +406,17 @@ export function Monitor({
             paddingX={1}
             flexDirection="column"
           >
-            <Text bold>Details · ↑↓ scroll · Esc back</Text>
+            <Text bold>
+              {wrappedDetailLines.length > layout.details.height
+                ? `Details · lines ${detailOffset + 1}–${Math.min(detailOffset + layout.details.height, wrappedDetailLines.length)} of ${wrappedDetailLines.length}`
+                : "Details"}
+            </Text>
             <Lines
-              lines={
-                run
-                  ? detailLines(run, sessions, now, recoveryReason)
-                  : ["Run no longer available"]
-              }
+              lines={detailDocument}
               width={layout.details.width}
               height={layout.details.height}
-              offset={offset}
+              offset={detailOffset}
+              outcome={run?.outcome}
             />
           </Box>
         ) : (
@@ -410,25 +505,26 @@ export function Monitor({
             : undefined
         }
       >
-        {cells(data.message || status, columns)}
-      </Text>
-      <Text dimColor wrap="truncate">
         {cells(
-          data.message
-            ? status
-            : "Runner liveness unverified · closing monitor leaves workflows running",
+          `${data.message ? `${data.message} · ` : ""}${columns < 120 ? status.replace("Database ", "DB ") : status} · runner liveness unverified · closing leaves workflows running`,
           columns,
         )}
       </Text>
       <Text color={colorFor("running")} wrap="truncate">
         {cells(
-          screen === "dashboard"
-            ? "Tab pane · ↑↓ select/scroll · ←→ project · Enter details"
-            : "↑↓ scroll · PgUp/PgDn page · Esc back",
+          [
+            screen === "dashboard"
+              ? "Tab pane · ↑↓ select/scroll · ←→ project · Enter details"
+              : columns < 120
+                ? "↑↓/Pg · Esc"
+                : "↑↓ scroll · PgUp/PgDn page · Esc back",
+            controls,
+          ]
+            .filter(Boolean)
+            .join(" · "),
           columns,
         )}
       </Text>
-      <Text wrap="truncate">{cells(controls, columns)}</Text>
     </Box>
   );
 }

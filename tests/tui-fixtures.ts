@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { RunRecord } from "../src/domain.js";
+import type { InvocationRecord } from "../src/store.js";
 import type { MonitorSource } from "../src/tui/index.js";
 
 export function monitorFixture() {
@@ -36,7 +37,7 @@ export function monitorFixture() {
     ],
   };
   const requests: string[] = [];
-  const sessions = [
+  const sessions: InvocationRecord[] = [
     {
       id: "inv",
       runId: "run",

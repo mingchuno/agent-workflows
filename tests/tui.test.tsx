@@ -9,6 +9,7 @@ import { Monitor } from "../src/tui/index.js";
 import { monitorFixture, settle, until } from "./tui-fixtures.js";
 
 const wide = { columns: 120, rows: 30 };
+const designTarget = { columns: 160, rows: 48 };
 test("dashboard has titles, bottom controls, details and confirmed commands", async () => {
   const { source, requests } = monitorFixture();
   let complete = false;
@@ -142,7 +143,7 @@ test("selection survives new rows and stale selected-run responses", async () =>
     await until(() => view.lastFrame()!.includes("New arrival"));
     view.stdin.write("\r");
     await settle();
-    assert.match(view.lastFrame()!, /Run: run/);
+    assert.match(view.lastFrame()!, /run-session/);
     view.stdin.write("\u001b");
     await settle();
     blocked = true;
@@ -296,6 +297,460 @@ test("scrolling details clamps at the bottom so Up moves immediately", async () 
     await settle();
     assert.notEqual(view.lastFrame()!.split("\n")[4], firstAtBottom);
   } finally {
+    view.unmount();
+  }
+});
+
+test("run details lead with operator facts and use the responsive evidence hierarchy", async () => {
+  const { source, run, sessions } = monitorFixture();
+  run.issue.number = 7;
+  run.issue.title = "Redesign TUI Run details around operator hierarchy";
+  run.validation = [
+    {
+      command: "pnpm",
+      args: ["test"],
+      exitCode: 0,
+      log: "/tmp/validation.log",
+      startedAt: "2026-09-20T10:00:10Z",
+      finishedAt: "2026-09-20T10:00:20Z",
+    },
+  ];
+  sessions[0]!.requested = {
+    provider: "codex",
+    model: "requested",
+    reasoningEffort: "medium",
+  };
+  sessions[0]!.effective = {
+    provider: "codex",
+    model: "effective",
+    reasoningEffort: "high",
+  };
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("operator hierarchy"));
+    view.stdin.write("\r");
+    await settle();
+    const frame = view.lastFrame()!;
+    assert.match(
+      frame,
+      /#7 Redesign TUI Run details around operator hierarchy/,
+    );
+    assert.match(frame, /Outcome\s+running/i);
+    assert.match(frame, /Phase\s+implementation/i);
+    assert.match(frame, /Attempt\s+1/i);
+    assert.match(frame, /Total elapsed/i);
+    assert.match(frame, /Branch\s+agent\/1/i);
+    assert.match(frame, /Error\s+none/i);
+    assert.match(frame, /Validation\s+1 recorded · 1 exit 0/i);
+    assert.doesNotMatch(frame, /ATTENTION/);
+    assert.ok(frame.indexOf("CURRENT EXECUTION") < frame.indexOf("VALIDATION"));
+    assert.ok(frame.indexOf("VALIDATION") < frame.indexOf("AGENT SESSIONS"));
+    assert.match(
+      frame,
+      /Requested codex \/ requested \/ medium → Effective codex \//,
+    );
+    assert.match(frame, /effective \/ high/);
+    assert.doesNotMatch(frame, /\{"provider":"codex"/);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("details switch at the evidence breakpoint without changing section order", async () => {
+  const { source } = monitorFixture();
+  const view = render(
+    <Monitor source={source} size={{ columns: 139, rows: 48 }} />,
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    const stacked = view.lastFrame()!;
+    assert.ok(
+      stacked
+        .split("\n")
+        .every(
+          (line) =>
+            !(
+              line.includes("CURRENT EXECUTION") && line.includes("VALIDATION")
+            ),
+        ),
+    );
+    assert.ok(
+      stacked.indexOf("CURRENT EXECUTION") < stacked.indexOf("VALIDATION"),
+    );
+    assert.ok(
+      stacked.indexOf("VALIDATION") < stacked.indexOf("AGENT SESSIONS"),
+    );
+
+    view.rerender(
+      <Monitor source={source} size={{ columns: 140, rows: 48 }} />,
+    );
+    await settle();
+    assert.ok(
+      view
+        .lastFrame()!
+        .split("\n")
+        .some(
+          (line) =>
+            line.includes("CURRENT EXECUTION") && line.includes("VALIDATION"),
+        ),
+    );
+  } finally {
+    view.unmount();
+  }
+});
+
+test("details reserve attention for outcomes that require it", async () => {
+  for (const [outcome, expectsAttention] of [
+    ["queued", false],
+    ["completed", false],
+    ["no-change", false],
+    ["blocked", true],
+    ["cancelled", true],
+  ] as const) {
+    const { source, run } = monitorFixture();
+    run.outcome = run.executions![0]!.outcome = outcome;
+    if (!["queued", "running"].includes(outcome))
+      run.executions![0]!.finishedAt = "2026-09-20T10:02:01Z";
+    const view = render(<Monitor source={source} size={designTarget} />);
+    try {
+      await until(() => view.lastFrame()!.includes("Implement feature"));
+      view.stdin.write("\r");
+      await settle();
+      assert.equal(view.lastFrame()!.includes("ATTENTION"), expectsAttention);
+    } finally {
+      view.unmount();
+    }
+  }
+});
+
+test("matching requested and effective profiles render once as effective", async () => {
+  const { source, sessions } = monitorFixture();
+  const profile = {
+    provider: "codex",
+    model: "same-model",
+    reasoningEffort: "medium",
+  };
+  sessions[0]!.requested = profile;
+  sessions[0]!.effective = { ...profile };
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    assert.match(view.lastFrame()!, /Effective codex \/ same-model \/ medium/);
+    assert.doesNotMatch(
+      view.lastFrame()!,
+      /Requested codex \/ same-model \/ medium/,
+    );
+  } finally {
+    view.unmount();
+  }
+});
+
+test("attention, diagnostics and technical evidence preserve action and exact values", async () => {
+  const { source, run } = monitorFixture();
+  run.outcome = run.executions![0]!.outcome = "failed";
+  run.phase = run.executions![0]!.phase = "implementation";
+  run.error = "Error: concise failure\ncomplete diagnostic evidence";
+  run.issue.url = "https://example.test/issues/1?exact=yes";
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    const frame = view.lastFrame()!;
+    assert.match(frame, /ATTENTION/);
+    assert.match(frame, /concise failure/);
+    assert.match(frame, /Recovery\s+Recovery does not support implementation/);
+    assert.match(frame, /Action\s+r retry/);
+    assert.ok(frame.indexOf("ATTENTION") < frame.indexOf("CURRENT EXECUTION"));
+    for (let index = 0; index < 8; index++) {
+      view.stdin.write("\u001b[6~");
+      await settle();
+    }
+    const bottom = view.lastFrame()!;
+    assert.match(bottom, /DIAGNOSTICS/);
+    assert.match(bottom, /complete diagnostic evidence/);
+    assert.match(bottom, /TECHNICAL DETAILS/);
+    assert.match(bottom, /https:\/\/example\.test\/issues\/1\?exact=yes/);
+    assert.match(bottom, /Run ID\s+run/);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("attention bounds single-line errors while Diagnostics preserves them", async () => {
+  const { source, run } = monitorFixture();
+  const exactError = `Error: ${"provider failure payload ".repeat(80)}tail marker`;
+  run.outcome = run.executions![0]!.outcome = "failed";
+  run.executions![0]!.finishedAt = "2026-09-20T10:02:01Z";
+  run.error = exactError;
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    const firstFrame = view.lastFrame()!;
+    assert.match(firstFrame, /Problem\s+provider failure payload/);
+    assert.match(firstFrame, /…/);
+    assert.match(firstFrame, /CURRENT EXECUTION/);
+    const problem = firstFrame
+      .split("\n")
+      .find((line) => line.includes("Problem"))!;
+    assert.doesNotMatch(problem, /tail marker/);
+    assert.match(firstFrame, /tail marker/);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("health summary distinguishes successful and failed validation", async () => {
+  const { source, run } = monitorFixture();
+  run.validation = [
+    {
+      command: "pnpm",
+      args: ["check"],
+      exitCode: 0,
+      log: "/tmp/check.log",
+      startedAt: "2026-09-20T10:00:10Z",
+      finishedAt: "2026-09-20T10:00:20Z",
+    },
+    {
+      command: "pnpm",
+      args: ["test"],
+      exitCode: 1,
+      log: "/tmp/test.log",
+      startedAt: "2026-09-20T10:00:20Z",
+      finishedAt: "2026-09-20T10:00:30Z",
+    },
+  ];
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    assert.match(
+      view.lastFrame()!,
+      /Validation\s+2 recorded · 1 exit 0 · 1 nonzero/,
+    );
+  } finally {
+    view.unmount();
+  }
+});
+
+test("details show latest execution first and l selects the current running session", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "aw-tui-current-"));
+  const { source, run, sessions } = monitorFixture();
+  run.executions = [
+    {
+      ...run.executions![0]!,
+      id: "original-execution",
+      outcome: "failed",
+      phase: "push",
+      finishedAt: "2026-09-20T10:01:00Z",
+      failedStep: 8,
+    },
+    {
+      id: "recovery-execution",
+      recoveryOf: "original-execution",
+      startStep: 8,
+      reusedSteps: ["implementation", "validation", "commit"],
+      fingerprint: "fingerprint",
+      recoverySupported: true,
+      createdAt: "2026-09-20T10:02:00Z",
+      startedAt: "2026-09-20T10:02:01Z",
+      outcome: "running",
+      phase: "push",
+    },
+  ];
+  sessions.splice(
+    0,
+    1,
+    {
+      ...sessions[0]!,
+      id: "old",
+      sessionId: "old-session",
+      startedAt: "2026-09-20T10:00:01Z",
+      log: join(directory, "old.log"),
+    },
+    {
+      ...sessions[0]!,
+      id: "finished-current",
+      sessionId: "finished-session",
+      startedAt: "2026-09-20T10:02:02Z",
+      finishedAt: "2026-09-20T10:02:03Z",
+      outcome: "completed",
+      log: join(directory, "finished.log"),
+    },
+    {
+      ...sessions[0]!,
+      id: "running-current",
+      sessionId: "running-session",
+      startedAt: "2026-09-20T10:02:04Z",
+      outcome: "running",
+      log: join(directory, "running.log"),
+    },
+  );
+  await Promise.all([
+    writeFile(join(directory, "old.log"), "OLD LOG\n"),
+    writeFile(join(directory, "finished.log"), "FINISHED LOG\n"),
+    writeFile(join(directory, "running.log"), "RUNNING CURRENT LOG\n"),
+  ]);
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    const frame = view.lastFrame()!;
+    assert.ok(
+      frame.indexOf("CURRENT EXECUTION") < frame.indexOf("PRIOR EXECUTION 1"),
+    );
+    assert.match(frame, /failed · push · duration 0m 59s · queue 0m 1s/);
+    assert.match(frame, /l log: implementation invocation 1 \(running\)/);
+    view.stdin.write("l");
+    await until(() => view.lastFrame()!.includes("RUNNING CURRENT LOG"));
+    assert.doesNotMatch(view.lastFrame()!, /OLD LOG/);
+  } finally {
+    view.unmount();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("details expose overflow range and ignore dashboard-only navigation keys", async () => {
+  const { source, run, requests } = monitorFixture();
+  run.error = "large error ".repeat(100);
+  const view = render(
+    <Monitor source={source} size={{ columns: 80, rows: 24 }} />,
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    assert.match(view.lastFrame()!, /lines 1–\d+ of \d+/);
+    for (const input of ["a", "[", "]", "p"]) {
+      view.stdin.write(input);
+      await settle();
+    }
+    assert.deepEqual(requests, []);
+    assert.match(view.lastFrame()!, /Run details/);
+    assert.match(view.lastFrame()!, /runner liveness unverified/);
+    assert.match(view.lastFrame()!, /q close/);
+    view.stdin.write("\u001b[6~");
+    await settle();
+    assert.match(view.lastFrame()!, /lines \d+–\d+ of \d+/);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("80-column details keep every active control visible", async () => {
+  const { source, run } = monitorFixture();
+  run.outcome = run.executions![0]!.outcome = "failed";
+  run.phase = run.executions![0]!.phase = "push";
+  run.executions![0]!.finishedAt = "2026-09-20T10:02:01Z";
+  Object.assign(run.executions![0]!, {
+    fingerprint: "fingerprint",
+    failedStep: 3,
+  });
+  run.base = "base";
+  run.head = "head";
+  run.snapshot = {
+    branch: run.branch,
+    head: "head",
+    fingerprint: "fingerprint",
+    diff: "diff",
+    paths: [],
+    files: {},
+  };
+  run.publication = {
+    commitMessage: "commit",
+    title: "title",
+    description: "description",
+  };
+  run.validation = [
+    {
+      command: "pnpm",
+      args: ["test"],
+      exitCode: 0,
+      log: "/tmp/test.log",
+      startedAt: "2026-09-20T10:00:10Z",
+      finishedAt: "2026-09-20T10:00:20Z",
+    },
+  ];
+  const view = render(
+    <Monitor source={source} size={{ columns: 80, rows: 24 }} />,
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    const footer = view.lastFrame()!.split("\n").at(-1)!;
+    for (const control of [
+      "↑↓/Pg",
+      "Esc",
+      "l current log",
+      "v checks",
+      "r retry",
+      "c recover",
+      "? help",
+      "q close",
+    ]) {
+      assert.match(footer, new RegExp(control.replace("?", "\\?")));
+    }
+    assert.ok(stringWidth(footer) <= 80);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("details scroll from the clamped position after a live resize", async () => {
+  const { source, run } = monitorFixture();
+  run.error = Array.from(
+    { length: 100 },
+    (_, index) => `diagnostic line ${index}`,
+  ).join("\n");
+  const view = render(
+    <Monitor source={source} size={{ columns: 80, rows: 24 }} />,
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    for (let index = 0; index < 10; index++) {
+      view.stdin.write("\u001b[6~");
+      await settle();
+    }
+    view.rerender(<Monitor source={source} size={designTarget} />);
+    await settle();
+    const before = view.lastFrame()!.match(/lines (\d+)–/)?.[1];
+    assert.ok(before);
+    view.stdin.write("\u001b[A");
+    await settle();
+    const after = view.lastFrame()!.match(/lines (\d+)–/)?.[1];
+    assert.equal(Number(after), Number(before) - 1);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("NO_COLOR details retain textual hierarchy and status", async () => {
+  const previous = process.env.NO_COLOR;
+  process.env.NO_COLOR = "1";
+  const { source } = monitorFixture();
+  const view = render(<Monitor source={source} size={designTarget} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    assert.match(view.lastFrame()!, /Outcome\s+running/);
+    assert.match(view.lastFrame()!, /CURRENT EXECUTION/);
+    assert.match(view.lastFrame()!, /VALIDATION/);
+    assert.match(view.lastFrame()!, /AGENT SESSIONS/);
+  } finally {
+    if (previous === undefined) delete process.env.NO_COLOR;
+    else process.env.NO_COLOR = previous;
     view.unmount();
   }
 });
