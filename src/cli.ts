@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node --
+import { realpathSync, statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { Command } from "commander";
 import { render } from "ink";
@@ -18,6 +19,10 @@ const program = new Command()
   .name("agent-workflows")
   .description("Local durable issue-to-review workflows")
   .option("-c, --config <file>", "configuration path", "agent-workflows.json")
+  .option(
+    "--config-base-directory <directory>",
+    "base directory for paths contained in configuration",
+  )
   .option(
     "--env-file <path>",
     "load literal dotenv values; existing environment wins",
@@ -39,9 +44,30 @@ const program = new Command()
     }
   });
 async function configuration(): Promise<Configuration> {
-  return configSchema.parse(
-    JSON.parse(await readFile(resolve(program.opts().config), "utf8")),
-  );
+  return configSchema.parse(JSON.parse(await readFile(configPath(), "utf8")));
+}
+function configPath(): string {
+  return resolve(launchDirectory, program.opts().config);
+}
+function configBaseDirectory(): string {
+  const selected = program.opts().configBaseDirectory as string | undefined;
+  const path = selected
+    ? resolve(launchDirectory, selected)
+    : dirname(configPath());
+  let canonical: string;
+  try {
+    canonical = realpathSync(path);
+  } catch (error) {
+    throw new Error(
+      `Configuration path base is not an existing directory: ${path}`,
+      { cause: error },
+    );
+  }
+  if (!statSync(canonical).isDirectory())
+    throw new Error(
+      `Configuration path base is not an existing directory: ${path}`,
+    );
+  return canonical;
 }
 function databaseUrl(config: Configuration): string {
   const value = process.env[config.databaseUrlEnv];
@@ -63,17 +89,22 @@ program
   .command("init")
   .description("Write a configuration scaffold without overwriting files")
   .action(async () => {
+    const base = configBaseDirectory();
+    const checkout = process.cwd();
+    const externalState = resolve(
+      checkout,
+      "..",
+      `${basename(checkout)}.agent-workflows`,
+    );
+    const portable = (path: string) => relative(base, path) || ".";
     const config = {
       id: "local",
       databaseUrlEnv: "AGENT_WORKFLOWS_DATABASE_URL",
-      stateDirectory: resolve(
-        "..",
-        `${basename(process.cwd())}.agent-workflows`,
-      ),
+      stateDirectory: portable(externalState),
       projects: [
         {
           id: "example",
-          checkout: process.cwd(),
+          checkout: portable(checkout),
           hosting: {
             provider: "github",
             origin: "https://github.com",
@@ -83,7 +114,7 @@ program
           labels: ["ready-for-agent"],
           baseBranch: "main",
           branchTemplate: "agent/{issue}-{attempt}",
-          gitIdentity: { name: "YOUR NAME", email: "you@example.com" },
+          includeAgentCoAuthors: true,
           agent: { provider: "codex" },
           validation: [
             {
@@ -96,13 +127,12 @@ program
         },
       ],
     };
-    await writeFile(
-      resolve(program.opts().config),
-      JSON.stringify(config, null, 2) + "\n",
-      { flag: "wx", mode: 0o600 },
-    );
+    await writeFile(configPath(), JSON.stringify(config, null, 2) + "\n", {
+      flag: "wx",
+      mode: 0o600,
+    });
     console.log(
-      "Created configuration. Set repository, checkout, identity and credentials before running.",
+      "Created configuration. Set repository and credentials before running.",
     );
   });
 program
@@ -120,7 +150,7 @@ program
       );
     }
     const runner = new Runner({
-      promptBaseDirectory: dirname(resolve(program.opts().config)),
+      pathBaseDirectory: configBaseDirectory(),
       config,
       databaseUrl: databaseUrl(config),
       hosting: createHosting,

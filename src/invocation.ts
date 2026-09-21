@@ -3,7 +3,12 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { resolveProfile, type Stage } from "./config.js";
-import { BlockedError, type RunRecord, type Snapshot } from "./domain.js";
+import {
+  BlockedError,
+  type ContributionCandidate,
+  type RunRecord,
+  type Snapshot,
+} from "./domain.js";
 import { type ChangeEvidence, verifyEvidence } from "./evidence.js";
 import type { OperationDependencies } from "./operations.js";
 import { resolveStagePrompt, sha256 } from "./prompts.js";
@@ -29,6 +34,11 @@ interface StageExecution {
   saveImplementationSnapshot: (
     runId: string,
     snapshot: Snapshot,
+    provider: string,
+  ) => Promise<ContributionCandidate | undefined>;
+  acceptContribution: (
+    runId: string,
+    candidate: ContributionCandidate,
   ) => Promise<void>;
 }
 /** One logical stage; only returned format errors admit a second response attempt. */
@@ -40,6 +50,7 @@ export async function invokeStage({
   stepId,
   dependencies,
   saveImplementationSnapshot,
+  acceptContribution,
 }: StageExecution): Promise<string> {
   const { store, project, agents, signal, workspace, redact } = dependencies;
   const previous = (await store.invocations(run.id)).filter(
@@ -91,6 +102,7 @@ export async function invokeStage({
   const directory = join(dependencies.artifacts, run.id);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   let correction = "";
+  let pendingContribution: ContributionCandidate | undefined;
   for (let attempt = 1; attempt <= maxInvocationAttempts; attempt++) {
     invocationSignal.throwIfAborted();
     const expected = (await store.run(run.id)).snapshot!;
@@ -151,7 +163,12 @@ export async function invokeStage({
       await appendFile(record.log, "", { mode: 0o600 });
       invocationSignal.throwIfAborted();
       if (readOnly) await workspace.verify(project, expected);
-      else await saveImplementationSnapshot(run.id, expected);
+      else
+        pendingContribution = await saveImplementationSnapshot(
+          run.id,
+          expected,
+          profile.provider,
+        );
       if (task.evidence) await verifyEvidence(task.evidence);
       invocationSignal.throwIfAborted();
       // Only returned output validation failures qualify for correction.
@@ -182,6 +199,8 @@ export async function invokeStage({
         correction = `\n\nCorrect the prior response format in this fresh inspection-only session. Do not modify files.\nPrior invalid response:\n${output}\nValidation errors:\n${String(error)}`;
         continue;
       }
+      if (pendingContribution)
+        await acceptContribution(run.id, pendingContribution);
       record.outcome = "completed";
       return redact(task.outputContract ? JSON.stringify(parsed) : output);
     } catch (error) {

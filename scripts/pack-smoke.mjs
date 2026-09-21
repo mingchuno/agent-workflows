@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Pool } from "pg";
@@ -158,7 +158,7 @@ try {
     await readFile(join(consumer, "agent-workflows.json"), "utf8"),
   );
   assert.equal(config.id, "local");
-  assert.equal(config.projects[0].checkout, await realpath(consumer));
+  assert.equal(config.projects[0].checkout, ".");
   await checkDatabase();
   await recordArtifact(artifact);
   console.log(

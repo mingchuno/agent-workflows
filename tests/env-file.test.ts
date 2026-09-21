@@ -44,7 +44,6 @@ async function fixture() {
           tokenEnv: "GITHUB_TOKEN",
         },
         agent: { provider: "codex" },
-        gitIdentity: { name: "Fixture", email: "fixture@example.com" },
       },
     ],
   });

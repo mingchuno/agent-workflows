@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { DBOS } from "@dbos-inc/dbos-sdk";
+import { contributingProviders, finalizeCommitMessage } from "./attribution.js";
 import type { Project, Stage } from "./config.js";
 import {
   type AgentAdapter,
   BlockedError,
+  type ContributionCandidate,
   type HostingAdapter,
   isBlockedError,
   publicationSchema,
@@ -158,8 +160,10 @@ export class Operations {
         task,
         stepId: DBOS.stepID!,
         dependencies: this.dependencies,
-        saveImplementationSnapshot: (runId, expected) =>
-          this.saveImplementationSnapshot(runId, expected),
+        saveImplementationSnapshot: (runId, expected, provider) =>
+          this.saveImplementationSnapshot(runId, expected, provider),
+        acceptContribution: (runId, candidate) =>
+          this.acceptContribution(runId, candidate),
       }),
     );
   }
@@ -167,12 +171,33 @@ export class Operations {
   private async saveImplementationSnapshot(
     runId: string,
     expected: Snapshot,
-  ): Promise<void> {
+    provider: string,
+  ): Promise<ContributionCandidate | undefined> {
     const { workspace, project, store } = this.dependencies;
     const snapshot = await workspace.inspect(project);
     if (snapshot.head !== expected.head || snapshot.branch !== expected.branch)
       throw new BlockedError("Agent changed branch or committed unexpectedly");
     await store.patchRun(runId, { snapshot });
+    return snapshot.fingerprint === expected.fingerprint
+      ? undefined
+      : {
+          provider,
+          beforeFiles: expected.files,
+          afterFiles: snapshot.files,
+        };
+  }
+
+  private async acceptContribution(
+    runId: string,
+    candidate: ContributionCandidate,
+  ): Promise<void> {
+    const run = await this.dependencies.store.run(runId);
+    await this.dependencies.store.patchRun(runId, {
+      contributionCandidates: [
+        ...(run.contributionCandidates ?? []),
+        candidate,
+      ],
+    });
   }
   async implement(): Promise<void> {
     await this.invoke(
@@ -279,8 +304,19 @@ export class Operations {
       },
     );
     await this.step("publication-content", async (run) => {
+      if (!run.snapshot) throw new Error("Missing publication snapshot");
+      const providers = contributingProviders(
+        run.contributionCandidates ?? [],
+        run.snapshot,
+      );
       await this.dependencies.store.patchRun(run.id, {
-        publication: publicationSchema.parse(JSON.parse(output)),
+        publication: finalizeCommitMessage(
+          publicationSchema.parse(JSON.parse(output)),
+          this.dependencies.project,
+          providers,
+          run.id,
+        ),
+        contributingProviders: providers,
       });
     });
   }

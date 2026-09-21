@@ -25,7 +25,6 @@ export async function repository() {
       tokenEnv: "FIXTURE_TOKEN",
     },
     agent: { provider: "codex" },
-    gitIdentity: { name: "Agent", email: "agent@example.com" },
   });
   return { root, git, project };
 }

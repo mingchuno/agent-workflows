@@ -55,6 +55,11 @@ export interface Snapshot {
   paths: string[];
   files: Record<string, string | null>;
 }
+export interface ContributionCandidate {
+  provider: string;
+  beforeFiles: Record<string, string | null>;
+  afterFiles: Record<string, string | null>;
+}
 export interface Workspace {
   check(project: Project): Promise<void>;
   prepare(
@@ -174,6 +179,8 @@ export interface RunRecord {
   snapshot?: Snapshot;
   validation?: ValidationResult[];
   publication?: Publication;
+  contributionCandidates?: ContributionCandidate[];
+  contributingProviders?: string[];
   change?: ChangeRequest;
   review?: Review;
   reviewHead?: string;

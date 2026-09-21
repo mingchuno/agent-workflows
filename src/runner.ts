@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
 import { mkdir, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { DBOS } from "@dbos-inc/dbos-sdk";
@@ -28,6 +29,7 @@ const runnerPollIntervalMs = 100;
 const shutdownPollIntervalMs = 20;
 
 export interface RunnerOptions {
+  pathBaseDirectory?: string;
   promptBaseDirectory?: string;
   config: Configuration;
   databaseUrl: string;
@@ -43,6 +45,7 @@ export class Runner {
   private readonly controllers = new Map<string, AbortController>();
   private readonly active = new Map<string, Promise<unknown>>();
   private readonly hosting = new Map<string, HostingAdapter>();
+  private readonly promptBaseDirectory: string;
   private workflow!: (runId: string) => Promise<void>;
   private readonly ownership = new CheckoutOwnership();
   private stopping = false;
@@ -53,8 +56,22 @@ export class Runner {
   private readonly polling = new Map<string, Promise<void>>();
   constructor(readonly options: RunnerOptions) {
     this.config = configSchema.parse(options.config);
+    const pathBaseDirectory = canonicalDirectory(
+      options.pathBaseDirectory ?? process.cwd(),
+      "Configuration path base",
+    );
+    this.config.stateDirectory = resolve(
+      pathBaseDirectory,
+      this.config.stateDirectory,
+    );
     for (const project of this.config.projects)
-      projectPrompts(project, options.promptBaseDirectory);
+      project.checkout = resolve(pathBaseDirectory, project.checkout);
+    const promptBaseDirectory = options.promptBaseDirectory
+      ? resolve(options.promptBaseDirectory)
+      : pathBaseDirectory;
+    this.promptBaseDirectory = promptBaseDirectory;
+    for (const project of this.config.projects)
+      projectPrompts(project, promptBaseDirectory);
     this.store = new Store(options.databaseUrl, this.config.id, this.redact);
   }
   private queue(id: string) {
@@ -71,7 +88,7 @@ export class Runner {
     const ids = new Set<string>();
     for (const project of this.config.projects) {
       project.checkout = await realpath(project.checkout);
-      await assertEvidenceDirectory(
+      this.config.stateDirectory = await assertEvidenceDirectory(
         project.checkout,
         this.config.stateDirectory,
       );
@@ -315,7 +332,7 @@ export class Runner {
     const workspace = this.options.workspace ?? new ExistingCheckout();
     let recoveryChecked = false;
     const operations = new Operations(runId, {
-      promptBaseDirectory: this.options.promptBaseDirectory,
+      promptBaseDirectory: this.promptBaseDirectory,
       store: this.store,
       project,
       workspace,
@@ -567,4 +584,19 @@ export class Runner {
     await this.ownership.release();
     await this.store.close();
   }
+}
+
+function canonicalDirectory(path: string, label: string): string {
+  const resolved = resolve(path);
+  let canonical: string;
+  try {
+    canonical = realpathSync(resolved);
+  } catch (error) {
+    throw new Error(`${label} is not an existing directory: ${resolved}`, {
+      cause: error,
+    });
+  }
+  if (!statSync(canonical).isDirectory())
+    throw new Error(`${label} is not an existing directory: ${resolved}`);
+  return canonical;
 }
