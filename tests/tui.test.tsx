@@ -817,3 +817,119 @@ test("confirmation defaults to Cancel and traps focus while Tab changes options"
     view.unmount();
   }
 });
+
+test("help and confirmation restore the scrolled details after a terminal resize", async () => {
+  const { source, run, requests } = monitorFixture();
+  run.error = "diagnostic line\n".repeat(100);
+  const size = { columns: 80, rows: 24 };
+  const view = render(<Monitor source={source} size={size} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    view.stdin.write("\u001b[6~");
+    await settle();
+    const line = view.lastFrame()!.match(/lines (\d+)–/)?.[1];
+    assert.ok(Number(line) > 1);
+    for (const shortcut of ["?", "s"]) {
+      view.stdin.write(shortcut);
+      await settle();
+      view.rerender(
+        <Monitor source={source} size={{ columns: 40, rows: 10 }} />,
+      );
+      await settle();
+      assert.match(view.lastFrame()!, /Resize terminal/);
+      view.stdin.write("p");
+      await settle();
+      view.rerender(<Monitor source={source} size={size} />);
+      await settle();
+      assert.match(
+        view.lastFrame()!,
+        shortcut === "?" ? /Keyboard shortcuts/ : /Confirm stop/,
+      );
+      view.stdin.write("\u001b");
+      await settle();
+      assert.match(view.lastFrame()!, /Run details/);
+      assert.equal(view.lastFrame()!.match(/lines (\d+)–/)?.[1], line);
+    }
+    assert.deepEqual(requests, []);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("a removed selected run dismisses its confirmation without submitting a command", async () => {
+  const { source, run, requests } = monitorFixture();
+  let runs = [run];
+  source.runs = async () => runs;
+  const view = render(<Monitor source={source} size={wide} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("s");
+    await settle();
+    assert.match(view.lastFrame()!, /Confirm stop/);
+    runs = [
+      {
+        ...run,
+        id: "replacement",
+        issue: { ...run.issue, title: "Replacement task" },
+      },
+    ];
+    await until(() => view.lastFrame()!.includes("Replacement task"));
+    assert.doesNotMatch(view.lastFrame()!, /Confirm stop/);
+    assert.deepEqual(requests, []);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("batched detail scroll keys each advance the viewport", async () => {
+  const { source, run } = monitorFixture();
+  run.error = "diagnostic line\n".repeat(100);
+  const view = render(
+    <Monitor source={source} size={{ columns: 80, rows: 24 }} />,
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await settle();
+    const before = Number(view.lastFrame()!.match(/lines (\d+)–/)?.[1]);
+    view.stdin.write("\u001b[B");
+    view.stdin.write("\u001b[B");
+    view.stdin.write("\u001b[B");
+    await settle();
+    assert.equal(
+      Number(view.lastFrame()!.match(/lines (\d+)–/)?.[1]),
+      before + 3,
+    );
+  } finally {
+    view.unmount();
+  }
+});
+
+test("project navigation at its boundary preserves the displayed run's session selection", async () => {
+  const { source, sessions } = monitorFixture();
+  sessions.push({
+    ...sessions[0]!,
+    id: "second-invocation",
+    step: "review",
+    attempt: 2,
+  });
+  const view = render(<Monitor source={source} size={wide} />);
+  try {
+    await until(() => view.lastFrame()!.includes("review · invocation 2"));
+    view.stdin.write("a");
+    await settle();
+    view.stdin.write("\u001b[B");
+    await settle();
+    assert.match(view.lastFrame()!, /> review · invocation 2/);
+    view.stdin.write("\u001b[D");
+    await settle();
+    assert.match(view.lastFrame()!, /> review · invocation 2/);
+    view.stdin.write("l");
+    await settle();
+    assert.match(view.lastFrame()!, /Logs · review · invocation 2/);
+  } finally {
+    view.unmount();
+  }
+});

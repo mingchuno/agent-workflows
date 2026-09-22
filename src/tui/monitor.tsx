@@ -5,7 +5,12 @@ import { type MonitorSource, useMonitorData } from "./data.js";
 import { ConfirmDialog, HelpDialog } from "./dialogs.js";
 import { cells, colorFor, wrapLines } from "./format.js";
 import { monitorLayout } from "./layout.js";
-import { type LogSource, LogViewer } from "./log.js";
+import { LogViewer } from "./log.js";
+import {
+  initialNavigation,
+  type NavigationEvent,
+  transitionNavigation,
+} from "./monitor-navigation.js";
 import type { ExecutionNotificationWriter } from "./notifications.js";
 import { projectRunProjection } from "./projection.js";
 import {
@@ -18,14 +23,6 @@ import {
 
 const notificationNoticeDurationMs = 2000;
 
-type Focus = "runs" | "summary" | "sessions";
-type Screen = "dashboard" | "details";
-type Confirmation = {
-  kind: "stop" | "retry" | "recover";
-  runId: string;
-  title: string;
-};
-const focuses: Focus[] = ["runs", "summary", "sessions"];
 const statusRefreshIntervalMs = 1_000;
 const actionDescriptions = {
   stop: "Cancel this run and wait for its active local work to stop.",
@@ -45,20 +42,17 @@ export function Monitor({
   const window = useWindowSize();
   const { columns, rows } = size ?? window;
   const { exit } = useApp();
-  const [selection, setSelection] = useState<{
-    projectId?: string;
-    runId?: string;
-  }>({});
+  const [navigation, setNavigation] = useState(initialNavigation);
+  const { selection, focus, screen, sessionId, stepSequence, offset, modal } =
+    navigation;
+  const confirmation = modal?.type === "confirmation" ? modal : undefined;
+  const logs = modal?.type === "logs" ? modal : undefined;
   const data = useMonitorData(source, selection, notificationWriter);
   const { projects, project, projectRuns, run, sessions, events } = data;
-  const [focus, setFocus] = useState<Focus>("runs");
-  const [screen, setScreen] = useState<Screen>("dashboard");
-  const [sessionId, setSessionId] = useState<string>();
-  const [stepSequence, setStepSequence] = useState<number>();
-  const [offset, setOffset] = useState(0);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [confirmation, setConfirmation] = useState<Confirmation>();
-  const [logs, setLogs] = useState<{ sources: LogSource[]; initial: number }>();
+  const dismissModal = () =>
+    setNavigation(
+      (current) => transitionNavigation(current, { type: "dismiss" }).state,
+    );
   const [now, setNow] = useState(Date.now());
   const [notificationNoticeUntil] = useState(
     () => Date.now() + notificationNoticeDurationMs,
@@ -91,41 +85,15 @@ export function Monitor({
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
-    // Pin default selections by identity before incoming rows can reorder them.
-    setSelection((current) =>
-      current.projectId === project?.id && current.runId === run?.id
-        ? current
-        : { projectId: project?.id, runId: run?.id },
+    // Pin default selections and reset run-specific navigation in one transition.
+    setNavigation(
+      (current) =>
+        transitionNavigation(current, {
+          type: "selection",
+          selection: { projectId: project?.id, runId: run?.id },
+        }).state,
     );
   }, [project?.id, run?.id]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset navigation when the selected run identity changes.
-  useEffect(() => {
-    setSessionId(undefined);
-    setStepSequence(undefined);
-    setOffset(0);
-    setConfirmation(undefined);
-  }, [run?.id]);
-  const selectProject = (delta: number) => {
-    const index = projects.findIndex((item) => item.id === project?.id);
-    const next =
-      projects[Math.max(0, Math.min(projects.length - 1, index + delta))];
-    setSelection({ projectId: next?.id });
-    setFocus("runs");
-    setOffset(0);
-  };
-  const openAgentLog = (candidates = sessions, initialSession = session) => {
-    if (!candidates.length) return;
-    setLogs({
-      sources: candidates.map((item) => ({
-        path: item.log,
-        label: `${item.step} · invocation ${item.attempt}`,
-      })),
-      initial: Math.max(
-        0,
-        candidates.findIndex((item) => item.id === initialSession?.id),
-      ),
-    });
-  };
   const detailDocument = run
     ? detailLines(
         run,
@@ -144,132 +112,46 @@ export function Monitor({
     offset,
     Math.max(0, wrappedDetailLines.length - layout.details.height),
   );
+  const terminalIsLargeEnough =
+    columns >= minimumTerminalSize.columns && rows >= minimumTerminalSize.rows;
   useInput((input, key) => {
-    if (key.ctrl || key.meta || key.eventType === "release") return;
-    const terminalIsLargeEnough =
-      columns >= minimumTerminalSize.columns &&
-      rows >= minimumTerminalSize.rows;
-    if (logs && terminalIsLargeEnough) return;
-    if (terminalIsLargeEnough && (confirmation || helpOpen)) return;
-    if (input === "q") {
-      exit();
-      return;
-    }
-    if (!terminalIsLargeEnough) return;
-    if (key.escape) {
-      setScreen("dashboard");
-      setFocus("runs");
-      setOffset(0);
-      return;
-    }
-    if (input === "?") {
-      setHelpOpen(true);
-      return;
-    }
-    if (key.tab && screen === "dashboard") {
-      setFocus(focuses[(focuses.indexOf(focus) + (key.shift ? 2 : 1)) % 3]!);
-      setOffset(0);
-    }
-    if (input === "a" && screen === "dashboard") {
-      setScreen("dashboard");
-      setFocus("sessions");
-    }
-    if (key.leftArrow && screen === "dashboard") selectProject(-1);
-    if (key.rightArrow && screen === "dashboard") selectProject(1);
-    if (key.return && run && screen === "dashboard") {
-      setScreen("details");
-      setOffset(0);
-    }
-    if (input === "l")
-      screen === "details"
-        ? openAgentLog(executionSessions, detailLogSession)
-        : openAgentLog();
-    if (input === "v" && run?.validation?.length)
-      setLogs({
-        sources: run.validation.map((item) => ({
-          path: item.log,
-          label: `${item.command} · exit ${item.exitCode}`,
-        })),
-        initial: 0,
-      });
-    if (screen === "dashboard" && (input === "[" || input === "]")) {
-      const index = events.findIndex(
-        (item) => item.sequence === event?.sequence,
-      );
-      setStepSequence(
-        events[
-          Math.max(
-            0,
-            Math.min(events.length - 1, index + (input === "]" ? 1 : -1)),
-          )
-        ]?.sequence,
-      );
-    }
-    if (key.end && screen === "dashboard") setStepSequence(undefined);
-    if (key.upArrow || key.downArrow || key.pageUp || key.pageDown) {
-      const delta = key.upArrow || key.pageUp ? -1 : 1;
-      if (screen === "details" || focus === "summary") {
-        const lines = run
-          ? screen === "details"
-            ? detailDocument
-            : summaryLines(run, now, event)
-          : [];
-        const viewport = screen === "details" ? layout.details : layout.summary;
-        setOffset((value) => {
-          const maximum = Math.max(
-            0,
-            (screen === "details"
-              ? wrapDetailLines(lines, viewport.width)
-              : wrapLines(lines, viewport.width)
-            ).length - viewport.height,
-          );
-          const current =
-            screen === "details" ? Math.min(value, maximum) : value;
-          return Math.max(
-            0,
-            Math.min(
-              maximum,
-              current +
-                delta *
-                  (key.pageUp || key.pageDown ? layout.details.height : 1),
-            ),
-          );
-        });
-      } else if (focus === "sessions") {
-        const index = sessions.findIndex((item) => item.id === session?.id);
-        setSessionId(
-          sessions[Math.max(0, Math.min(sessions.length - 1, index + delta))]
-            ?.id,
-        );
-      } else {
-        const index = projectRuns.findIndex((item) => item.id === run?.id);
-        setSelection({
-          projectId: project?.id,
-          runId:
-            projectRuns[
-              Math.max(0, Math.min(projectRuns.length - 1, index + delta))
-            ]?.id,
-        });
-      }
-    }
-    if (input === "p" && screen === "dashboard" && project && !data.pending)
-      void data.action(project.paused ? "resume" : "pause", project.id);
-    const kind =
-      input === "s"
-        ? "stop"
-        : input === "r"
-          ? "retry"
-          : input === "c"
-            ? "recover"
-            : undefined;
-    if (kind && run && available[kind])
-      setConfirmation({
-        kind,
-        runId: run.id,
-        title: `#${run.issue.number} ${run.issue.title}`,
-      });
+    const viewport = screen === "details" ? layout.details : layout.summary;
+    const scrollLines = run
+      ? screen === "details"
+        ? wrappedDetailLines
+        : wrapLines(summaryLines(run, now, event), viewport.width)
+      : [];
+    const navigationEvent: NavigationEvent = {
+      type: "key",
+      input,
+      key,
+      context: {
+        terminalIsLargeEnough,
+        projects,
+        project,
+        runs: projectRuns,
+        run,
+        sessions,
+        session,
+        events,
+        event,
+        logSessions: screen === "details" ? executionSessions : sessions,
+        logSession: screen === "details" ? detailLogSession : session,
+        available,
+        pending: Boolean(data.pending),
+        scrollMaximum: Math.max(0, scrollLines.length - viewport.height),
+        pageSize: layout.details.height,
+      },
+    };
+    const { effect } = transitionNavigation(navigation, navigationEvent);
+    setNavigation(
+      (current) => transitionNavigation(current, navigationEvent).state,
+    );
+    if (effect?.type === "exit") exit();
+    if (effect?.type === "command")
+      void data.action(effect.kind, effect.target);
   });
-  if (columns < minimumTerminalSize.columns || rows < minimumTerminalSize.rows)
+  if (!terminalIsLargeEnough)
     return (
       <Box width={columns} height={rows} flexDirection="column">
         <Text>
@@ -280,14 +162,8 @@ export function Monitor({
         </Text>
       </Box>
     );
-  if (helpOpen)
-    return (
-      <HelpDialog
-        columns={columns}
-        rows={rows}
-        onClose={() => setHelpOpen(false)}
-      />
-    );
+  if (modal?.type === "help")
+    return <HelpDialog columns={columns} rows={rows} onClose={dismissModal} />;
   if (confirmation)
     return (
       <ConfirmDialog
@@ -299,10 +175,10 @@ export function Monitor({
         available={
           run?.id === confirmation.runId && available[confirmation.kind]
         }
-        onCancel={() => setConfirmation(undefined)}
+        onCancel={dismissModal}
         onConfirm={() => {
           void data.action(confirmation.kind, confirmation.runId);
-          setConfirmation(undefined);
+          dismissModal();
         }}
       />
     );
@@ -312,7 +188,7 @@ export function Monitor({
         {...logs}
         columns={columns}
         rows={rows}
-        onBack={() => setLogs(undefined)}
+        onBack={dismissModal}
       />
     );
   const freshness = data.lastUpdated
