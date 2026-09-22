@@ -134,46 +134,57 @@ export class Store {
     id: string,
     change: { paused?: boolean; blocked?: string | null },
   ): Promise<void> {
-    const { projects } = tables;
-    if (change.paused !== undefined || change.blocked !== undefined) {
-      await this.db
-        .update(projects)
-        .set(change)
-        .where(and(eq(projects.scope, this.scope), eq(projects.id, id)));
-    }
-    await this.emit(null, "project", { id, ...change });
+    await this.db.transaction(async (tx) => {
+      const { projects } = tables;
+      if (change.paused !== undefined || change.blocked !== undefined) {
+        await tx
+          .update(projects)
+          .set(change)
+          .where(and(eq(projects.scope, this.scope), eq(projects.id, id)));
+      }
+      await tx
+        .insert(tables.events)
+        .values(this.event(null, "project", { id, ...change }));
+    });
   }
   async insertRun(run: RunRecord): Promise<boolean> {
-    const { runs } = tables;
-    const inserted = await this.db
-      .insert(runs)
-      .values({
-        scope: this.scope,
-        id: run.id,
-        taskKey: run.taskKey,
-        attempt: run.attempt,
-        record: redactValue(run, this.redact) as RunRecord,
-      })
-      .onConflictDoNothing()
-      .returning({ id: runs.id });
-    if (inserted.length) await this.emit(run.id, "run", run);
-    return inserted.length > 0;
+    return this.db.transaction(async (tx) => {
+      const { runs } = tables;
+      const inserted = await tx
+        .insert(runs)
+        .values({
+          scope: this.scope,
+          id: run.id,
+          taskKey: run.taskKey,
+          attempt: run.attempt,
+          record: redactValue(run, this.redact) as RunRecord,
+        })
+        .onConflictDoNothing()
+        .returning({ id: runs.id });
+      if (inserted.length)
+        await tx.insert(tables.events).values(this.event(run.id, "run", run));
+      return inserted.length > 0;
+    });
   }
   async blockProject(id: string, reason: string): Promise<void> {
-    const { projects } = tables;
-    const updated = await this.db
-      .update(projects)
-      .set({ blocked: this.redact(reason) })
-      .where(
-        and(
-          eq(projects.scope, this.scope),
-          eq(projects.id, id),
-          isNull(projects.blocked),
-        ),
-      )
-      .returning({ id: projects.id });
-    if (updated.length)
-      await this.emit(null, "project", { id, blocked: reason });
+    await this.db.transaction(async (tx) => {
+      const { projects } = tables;
+      const updated = await tx
+        .update(projects)
+        .set({ blocked: this.redact(reason) })
+        .where(
+          and(
+            eq(projects.scope, this.scope),
+            eq(projects.id, id),
+            isNull(projects.blocked),
+          ),
+        )
+        .returning({ id: projects.id });
+      if (updated.length)
+        await tx
+          .insert(tables.events)
+          .values(this.event(null, "project", { id, blocked: reason }));
+    });
   }
   /**
    * Admit a retry and its events atomically. Safety checks run under the project
@@ -423,7 +434,7 @@ export class Store {
     const { runs } = tables;
     const change = { ...patch, updatedAt: new Date().toISOString() };
     const predicate = and(eq(runs.scope, this.scope), eq(runs.id, id));
-    const record = await this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx) => {
       // Serialize read/merge/write so concurrent patches cannot lose fields.
       const [row] = await tx
         .select({ record: runs.record })
@@ -451,27 +462,30 @@ export class Store {
           execution.finishedAt = change.updatedAt;
       }
       await tx.update(runs).set({ record: merged }).where(predicate);
+      await tx.insert(tables.events).values(this.event(id, "run", change));
       return merged;
     });
-    await this.emit(id, "run", change);
-    return record;
   }
   async saveInvocation(record: InvocationRecord): Promise<void> {
-    const { invocations } = tables;
-    const persisted = redactValue(record, this.redact) as InvocationRecord;
-    await this.db
-      .insert(invocations)
-      .values({
-        scope: this.scope,
-        id: record.id,
-        runId: record.runId,
-        record: persisted,
-      })
-      .onConflictDoUpdate({
-        target: invocations.id,
-        set: { record: persisted },
-      });
-    await this.emit(record.runId, "invocation", record);
+    await this.db.transaction(async (tx) => {
+      const { invocations } = tables;
+      const persisted = redactValue(record, this.redact) as InvocationRecord;
+      await tx
+        .insert(invocations)
+        .values({
+          scope: this.scope,
+          id: record.id,
+          runId: record.runId,
+          record: persisted,
+        })
+        .onConflictDoUpdate({
+          target: invocations.id,
+          set: { record: persisted },
+        });
+      await tx
+        .insert(tables.events)
+        .values(this.event(record.runId, "invocation", record));
+    });
   }
   async invocations(runId: string): Promise<InvocationRecord[]> {
     const { invocations } = tables;
@@ -490,7 +504,12 @@ export class Store {
     kind: string,
     payload: unknown,
   ): Promise<void> {
-    await this.db.insert(tables.events).values({
+    await this.db
+      .insert(tables.events)
+      .values(this.event(runId, kind, payload));
+  }
+  private event(runId: string | null, kind: string, payload: unknown) {
+    return {
       scope: this.scope,
       runId,
       kind,
@@ -498,7 +517,7 @@ export class Store {
       payload: new SQL([
         new Param(JSON.stringify(redactValue(payload, this.redact))),
       ]),
-    });
+    };
   }
   async events(after = 0, runId?: string): Promise<EventRecord[]> {
     const { events } = tables;

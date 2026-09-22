@@ -125,3 +125,95 @@ test("store preserves scoped records, uniqueness, numeric ordering and concurren
     await other.close();
   }
 });
+
+for (const mutation of [
+  "setProject",
+  "blockProject",
+  "insertRun",
+  "patchRun",
+  "insertInvocation",
+  "updateInvocation",
+] as const)
+  test(`${mutation} rolls back state when its event cannot be written`, {
+    skip: !databaseUrl,
+  }, async () => {
+    const scope = `store_atomic_${randomUUID()}`;
+    const store = new Store(databaseUrl!, scope);
+    const original = run(scope);
+    const invocation: InvocationRecord = {
+      id: randomUUID(),
+      runId: original.id,
+      projectId: original.projectId,
+      step: "implementation",
+      stepId: 1,
+      attempt: 1,
+      provider: "fixture",
+      sessionId: null,
+      sessionState: "pending",
+      requested: {},
+      effective: {},
+      prompt: "task",
+      outcome: "running",
+      startedAt: original.createdAt,
+      log: "fixture",
+    };
+    try {
+      await store.initialize();
+      await store.registerProject(original.projectId);
+      if (mutation !== "insertRun") await store.insertRun(original);
+      if (mutation === "updateInvocation")
+        await store.saveInvocation(invocation);
+      const before = {
+        project: await store.project(original.projectId),
+        runs: await store.runs(),
+        invocations: await store.invocations(original.id),
+        events: await store.events(),
+      };
+      await store.pool.query(
+        `ALTER TABLE agent_workflows.events ADD CONSTRAINT store_event_failure_fixture
+         CHECK (scope NOT LIKE 'store_atomic_%') NOT VALID`,
+      );
+      const mutate = () => {
+        switch (mutation) {
+          case "setProject":
+            return store.setProject(original.projectId, { paused: true });
+          case "blockProject":
+            return store.blockProject(original.projectId, "unsafe");
+          case "insertRun":
+            return store.insertRun(original);
+          case "patchRun":
+            return store.patchRun(original.id, {
+              outcome: "running",
+              phase: "prepare",
+            });
+          case "insertInvocation":
+            return store.saveInvocation(invocation);
+          case "updateInvocation":
+            return store.saveInvocation({
+              ...invocation,
+              outcome: "completed",
+            });
+        }
+      };
+      await assert.rejects(mutate, (error: Error) =>
+        /store_event_failure_fixture/.test(String(error.cause ?? error)),
+      );
+      assert.deepEqual(await store.project(original.projectId), before.project);
+      assert.deepEqual(await store.runs(), before.runs);
+      assert.deepEqual(
+        await store.invocations(original.id),
+        before.invocations,
+      );
+      assert.deepEqual(await store.events(), before.events);
+      await store.pool.query(
+        "ALTER TABLE agent_workflows.events DROP CONSTRAINT store_event_failure_fixture",
+      );
+      await mutate();
+      assert.equal((await store.events()).length, before.events.length + 1);
+    } finally {
+      await store.pool.query(
+        "ALTER TABLE agent_workflows.events DROP CONSTRAINT IF EXISTS store_event_failure_fixture",
+      );
+      await store.close();
+    }
+  });
