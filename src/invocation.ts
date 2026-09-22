@@ -32,16 +32,44 @@ interface StageExecution {
   stepId: number;
   dependencies: OperationDependencies;
 }
+interface AttemptInput {
+  number: number;
+  correction: string;
+  contribution?: ContributionCandidate;
+}
+type AttemptResult =
+  | { kind: "completed"; output: string }
+  | {
+      kind: "correction";
+      correction: string;
+      contribution?: ContributionCandidate;
+    };
+
 /** One logical stage; only returned format errors admit a second response attempt. */
-export async function invokeStage({
-  run,
-  name,
-  stage,
-  task,
-  stepId,
-  dependencies,
-}: StageExecution): Promise<string> {
-  const { store, project, agents, signal, workspace, redact } = dependencies;
+export async function invokeStage(execution: StageExecution): Promise<string> {
+  const prepared = await prepareStage(execution);
+  let attempt: AttemptInput = { number: 1, correction: "" };
+  while (attempt.number <= maxInvocationAttempts) {
+    const result = await invokeAttempt(execution, prepared, attempt);
+    if (result.kind === "completed") return result.output;
+    attempt = {
+      number: attempt.number + 1,
+      correction: result.correction,
+      contribution: result.contribution,
+    };
+  }
+  throw new Error("Format correction exhausted");
+}
+
+async function refusePreviousInvocations(
+  execution: StageExecution,
+): Promise<void> {
+  const {
+    run,
+    name,
+    stepId,
+    dependencies: { store },
+  } = execution;
   const previous = (await store.invocations(run.id)).filter(
     (item) => item.stepId === stepId,
   );
@@ -57,9 +85,11 @@ export async function invokeStage({
       `Interrupted agent stage ${name}; inspect existing sessions before explicit retry`,
     );
   }
-  if (!run.snapshot) throw new BlockedError("Missing workspace snapshot");
-  await workspace.verify(project, run.snapshot);
-  if (task.evidence) await verifyEvidence(task.evidence);
+}
+
+function prepareRequest(execution: StageExecution) {
+  const { run, stage, task, dependencies } = execution;
+  const { project } = dependencies;
   const resolved = resolveStagePrompt(
     stage,
     task.defaultPrompt,
@@ -80,6 +110,18 @@ export async function invokeStage({
     contract,
   ].join("\n\n");
   const profile = resolveProfile(project.agent, stage.profile);
+  return { resolved, outputSchema, fullPrompt, profile };
+}
+
+async function prepareStage(execution: StageExecution) {
+  const { run, stage, task, dependencies } = execution;
+  const { project, agents, signal, workspace } = dependencies;
+  await refusePreviousInvocations(execution);
+  if (!run.snapshot) throw new BlockedError("Missing workspace snapshot");
+  await workspace.verify(project, run.snapshot);
+  if (task.evidence) await verifyEvidence(task.evidence);
+  const request = prepareRequest(execution);
+  const { profile } = request;
   const adapter = agents[profile.provider];
   if (!adapter) throw new Error(`Missing agent adapter ${profile.provider}`);
   const deadline = Date.now() + stage.timeoutMs;
@@ -90,119 +132,187 @@ export async function invokeStage({
   const effective = await adapter.validate(profile, invocationSignal);
   const directory = join(dependencies.artifacts, run.id);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  let correction = "";
-  let pendingContribution: ContributionCandidate | undefined;
-  for (let attempt = 1; attempt <= maxInvocationAttempts; attempt++) {
+  return {
+    ...request,
+    adapter,
+    effective,
+    deadline,
+    invocationSignal,
+    directory,
+  };
+}
+
+type PreparedStage = Awaited<ReturnType<typeof prepareStage>>;
+
+async function invokeAttempt(
+  execution: StageExecution,
+  prepared: PreparedStage,
+  attempt: AttemptInput,
+): Promise<AttemptResult> {
+  const { run, name, task, stepId, dependencies } = execution;
+  const { store, project, workspace, redact } = dependencies;
+  const {
+    profile,
+    effective,
+    resolved,
+    outputSchema,
+    fullPrompt,
+    directory,
+    invocationSignal,
+  } = prepared;
+  invocationSignal.throwIfAborted();
+  const expected = (await store.run(run.id)).snapshot!;
+  await workspace.verify(project, expected);
+  if (task.evidence) await verifyEvidence(task.evidence);
+  const id = randomUUID();
+  const prompt = fullPrompt + attempt.correction;
+  const readOnly =
+    task.readOnly === true || attempt.number === maxInvocationAttempts;
+  const record: InvocationRecord = {
+    id,
+    runId: run.id,
+    projectId: project.id,
+    step: name,
+    stepId,
+    attempt: attempt.number,
+    provider: profile.provider,
+    sessionId: null,
+    sessionState: "pending",
+    requested: profile,
+    effective,
+    prompt: redact(prompt),
+    taskPrompt: { ...resolved, content: redact(resolved.content) },
+    outputContract: outputSchema
+      ? sha256(JSON.stringify(outputSchema))
+      : undefined,
+    evidence: task.evidence,
+    outcome: "running",
+    startedAt: new Date().toISOString(),
+    log: join(directory, `${id}.jsonl`),
+  };
+  await store.saveInvocation(record);
+  try {
     invocationSignal.throwIfAborted();
-    const expected = (await store.run(run.id)).snapshot!;
-    await workspace.verify(project, expected);
+    const output = await invokeProvider(execution, prepared, {
+      record,
+      prompt,
+      readOnly,
+    });
+    await appendFile(record.log, "", { mode: 0o600 });
+    invocationSignal.throwIfAborted();
+    let contribution = attempt.contribution;
+    if (readOnly) await workspace.verify(project, expected);
+    else
+      contribution = await saveImplementationSnapshot(
+        run.id,
+        expected,
+        profile.provider,
+        dependencies,
+      );
     if (task.evidence) await verifyEvidence(task.evidence);
-    const id = randomUUID();
-    const prompt = fullPrompt + correction;
-    const readOnly =
-      task.readOnly === true || attempt === maxInvocationAttempts;
-    const record: InvocationRecord = {
-      id,
-      runId: run.id,
-      projectId: project.id,
-      step: name,
-      stepId,
-      attempt,
-      provider: profile.provider,
-      sessionId: null,
-      sessionState: "pending",
-      requested: profile,
-      effective,
-      prompt: redact(prompt),
-      taskPrompt: { ...resolved, content: redact(resolved.content) },
-      outputContract: outputSchema
-        ? sha256(JSON.stringify(outputSchema))
-        : undefined,
-      evidence: task.evidence,
-      outcome: "running",
-      startedAt: new Date().toISOString(),
-      log: join(directory, `${id}.jsonl`),
-    };
-    await store.saveInvocation(record);
-    try {
-      invocationSignal.throwIfAborted();
-      const output = await adapter.invoke({
-        id,
-        runId: run.id,
-        step: name,
-        cwd: project.checkout,
-        prompt,
-        profile,
-        outputSchema,
-        processFile: record.log + ".process.json",
-        readOnly,
-        signal: invocationSignal,
-        timeoutMs: Math.max(1, deadline - Date.now()),
-        session: async (sessionId) => {
-          record.sessionId = sessionId;
-          record.sessionState = "available";
-          await store.saveInvocation(record);
-        },
-        event: async (event) => {
-          await appendFile(record.log, redact(JSON.stringify(event)) + "\n", {
-            mode: 0o600,
-          });
-        },
-      });
-      await appendFile(record.log, "", { mode: 0o600 });
-      invocationSignal.throwIfAborted();
-      if (readOnly) await workspace.verify(project, expected);
-      else
-        pendingContribution = await saveImplementationSnapshot(
-          run.id,
-          expected,
-          profile.provider,
-          dependencies,
-        );
-      if (task.evidence) await verifyEvidence(task.evidence);
-      invocationSignal.throwIfAborted();
-      // Only returned output validation failures qualify for correction.
-      let parsed: unknown;
-      try {
-        parsed = task.outputContract
-          ? task.outputContract.parse(JSON.parse(output))
-          : undefined;
-      } catch (error) {
-        if (!(error instanceof SyntaxError) && !(error instanceof z.ZodError))
-          throw error;
-        record.outcome = "invalid-output";
-        record.validationError = redact(String(error));
-        await appendFile(
-          record.log,
-          redact(
-            JSON.stringify({
-              type: "invalid-output",
-              output,
-              error: String(error),
-            }),
-          ) + "\n",
-        );
-        if (attempt === maxInvocationAttempts)
-          throw new Error(
-            `Invalid output after one correction: ${String(error)}`,
-          );
-        correction = `\n\nCorrect the prior response format in this fresh inspection-only session. Do not modify files.\nPrior invalid response:\n${output}\nValidation errors:\n${String(error)}`;
-        continue;
-      }
-      if (pendingContribution)
-        await acceptContribution(run.id, pendingContribution, dependencies);
-      record.outcome = "completed";
-      return redact(task.outputContract ? JSON.stringify(parsed) : output);
-    } catch (error) {
-      if (record.outcome === "running") record.outcome = "failed";
-      throw error;
-    } finally {
-      record.finishedAt = new Date().toISOString();
-      if (!record.sessionId) record.sessionState = "unavailable";
-      await store.saveInvocation(record);
+    invocationSignal.throwIfAborted();
+    const response = validateResponse(output, task.outputContract);
+    if (response.kind === "invalid") {
+      const correction = await recordInvalidResponse(
+        record,
+        output,
+        response.error,
+        redact,
+      );
+      return { kind: "correction", correction, contribution };
     }
+    if (contribution)
+      await acceptContribution(run.id, contribution, dependencies);
+    record.outcome = "completed";
+    return {
+      kind: "completed",
+      output: redact(
+        task.outputContract ? JSON.stringify(response.parsed) : output,
+      ),
+    };
+  } catch (error) {
+    if (record.outcome === "running") record.outcome = "failed";
+    throw error;
+  } finally {
+    record.finishedAt = new Date().toISOString();
+    if (!record.sessionId) record.sessionState = "unavailable";
+    await store.saveInvocation(record);
   }
-  throw new Error("Format correction exhausted");
+}
+
+async function invokeProvider(
+  execution: StageExecution,
+  prepared: PreparedStage,
+  attempt: { record: InvocationRecord; prompt: string; readOnly: boolean },
+): Promise<string> {
+  const {
+    run,
+    name,
+    dependencies: { project, store, redact },
+  } = execution;
+  const { adapter, profile, outputSchema, invocationSignal, deadline } =
+    prepared;
+  const { record, prompt, readOnly } = attempt;
+  return adapter.invoke({
+    id: record.id,
+    runId: run.id,
+    step: name,
+    cwd: project.checkout,
+    prompt,
+    profile,
+    outputSchema,
+    processFile: record.log + ".process.json",
+    readOnly,
+    signal: invocationSignal,
+    timeoutMs: Math.max(1, deadline - Date.now()),
+    session: async (sessionId) => {
+      record.sessionId = sessionId;
+      record.sessionState = "available";
+      await store.saveInvocation(record);
+    },
+    event: async (event) => {
+      await appendFile(record.log, redact(JSON.stringify(event)) + "\n", {
+        mode: 0o600,
+      });
+    },
+  });
+}
+
+/** Only returned output validation failures qualify for correction. */
+function validateResponse(
+  output: string,
+  contract?: z.ZodType,
+):
+  | { kind: "valid"; parsed: unknown }
+  | { kind: "invalid"; error: SyntaxError | z.ZodError } {
+  let parsed: unknown;
+  try {
+    parsed = contract ? contract.parse(JSON.parse(output)) : undefined;
+  } catch (error) {
+    if (!(error instanceof SyntaxError) && !(error instanceof z.ZodError))
+      throw error;
+    return { kind: "invalid", error };
+  }
+  return { kind: "valid", parsed };
+}
+
+async function recordInvalidResponse(
+  record: InvocationRecord,
+  output: string,
+  error: SyntaxError | z.ZodError,
+  redact: (text: string) => string,
+): Promise<string> {
+  record.outcome = "invalid-output";
+  record.validationError = redact(String(error));
+  await appendFile(
+    record.log,
+    redact(
+      JSON.stringify({ type: "invalid-output", output, error: String(error) }),
+    ) + "\n",
+  );
+  if (record.attempt === maxInvocationAttempts)
+    throw new Error(`Invalid output after one correction: ${String(error)}`);
+  return `\n\nCorrect the prior response format in this fresh inspection-only session. Do not modify files.\nPrior invalid response:\n${output}\nValidation errors:\n${String(error)}`;
 }
 
 async function saveImplementationSnapshot(

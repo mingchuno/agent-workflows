@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -29,6 +29,10 @@ async function fixture(invoke: AgentAdapter["invoke"], timeoutMs = 5000) {
   const controller = new AbortController();
   const store = {
     async run() {
+      return run;
+    },
+    async patchRun(_id: string, patch: Partial<RunRecord>) {
+      Object.assign(run, patch);
       return run;
     },
     async invocations() {
@@ -127,4 +131,61 @@ test("custom text stages return literal output without format correction", async
   delete input.task.outputContract;
   assert.equal(await invokeStage(input), "plain text");
   assert.equal(calls, 1);
+});
+
+for (const response of ["valid", "invalid", "throws"] as const)
+  test(`final persistence failure takes precedence over ${response} output and stops correction`, async () => {
+    let calls = 0;
+    const { input, records } = await fixture(async () => {
+      calls++;
+      if (response === "throws") throw new Error("provider failure");
+      return response === "valid" ? '{"result":"ok"}' : "invalid";
+    });
+    const save = input.dependencies.store.saveInvocation.bind(
+      input.dependencies.store,
+    );
+    input.dependencies.store.saveInvocation = async (record) => {
+      if (record.finishedAt) throw new Error("final persistence failed");
+      await save(record);
+    };
+    await assert.rejects(invokeStage(input), /final persistence failed/);
+    assert.equal(calls, 1);
+    assert.equal(records[0]?.outcome, "running");
+    assert.equal(records[0]?.finishedAt, undefined);
+  });
+
+test("a writable stage retains its contribution through read-only format correction", async () => {
+  const calls: AgentInvocation[] = [];
+  const { input, records } = await fixture(async (invocation) => {
+    calls.push(invocation);
+    if (calls.length === 1) {
+      await writeFile(
+        join(invocation.cwd, "contribution.txt"),
+        "implementation",
+      );
+      return "invalid";
+    }
+    assert.equal(input.run.contributionCandidates, undefined);
+    return '{"result":"ok"}';
+  });
+  input.task.readOnly = false;
+  assert.equal(await invokeStage(input), '{"result":"ok"}');
+  assert.deepEqual(
+    calls.map((call) => call.readOnly),
+    [false, true],
+  );
+  assert.equal(calls[0]!.signal, calls[1]!.signal);
+  assert.ok(calls[1]!.timeoutMs! <= calls[0]!.timeoutMs!);
+  assert.equal(input.run.contributionCandidates?.length, 1);
+  const candidate = input.run.contributionCandidates![0]!;
+  assert.equal(candidate.provider, "codex");
+  assert.equal(candidate.beforeFiles["contribution.txt"], undefined);
+  assert.equal(
+    candidate.afterFiles["contribution.txt"],
+    input.run.snapshot!.files["contribution.txt"],
+  );
+  assert.deepEqual(
+    records.map((record) => record.outcome),
+    ["invalid-output", "completed"],
+  );
 });
