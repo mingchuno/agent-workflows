@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/mingchuno/agent-workflows/compare/v0.4.0...v0.4.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* **store:** make state and event writes atomic ([51dbca4](https://github.com/mingchuno/agent-workflows/commit/51dbca4aa53ac252a9939c23be0e5eed08e1a6a9))
+
 ## [0.4.0](https://github.com/mingchuno/agent-workflows/compare/v0.3.0...v0.4.0) (2026-09-21)
 
 
