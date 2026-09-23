@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -96,6 +96,25 @@ test("cancelled or timed-out returned output never gets format correction", asyn
     assert.equal(calls, 1);
     assert.equal(setup.records[0]?.outcome, "failed");
   }
+});
+test("preflight failure leaves a readable stage diagnostic without an invocation", async () => {
+  const { input, records } = await fixture(async () => "unused");
+  input.dependencies.agents.codex = {
+    ...agent,
+    validate: async () => {
+      throw new Error("worker exited before session startup");
+    },
+  };
+  await assert.rejects(
+    invokeStage(input),
+    /worker exited before session startup/,
+  );
+  assert.equal(records.length, 0);
+  const path = input.run.stageLogs?.[0]?.path;
+  assert.ok(path);
+  const log = await readFile(path, "utf8");
+  assert.match(log, /Validating codex agent profile/);
+  assert.match(log, /worker exited before session startup/);
 });
 test("custom prompt overrides task only, context is frozen across response attempts", async () => {
   const calls: AgentInvocation[] = [];

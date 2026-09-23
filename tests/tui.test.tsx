@@ -10,6 +10,24 @@ import { monitorFixture, settle, until } from "./tui-fixtures.js";
 
 const wide = { columns: 120, rows: 30 };
 const designTarget = { columns: 160, rows: 48 };
+test("details open a stage diagnostic when no agent session exists", async () => {
+  const { source, run, sessions } = monitorFixture();
+  sessions.length = 0;
+  run.outcome = "failed";
+  run.stageLogs = [
+    { executionId: "run", step: "implementation", path: "/missing/stage.log" },
+  ];
+  const view = render(<Monitor source={source} size={wide} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await until(() => view.lastFrame()!.includes("l stage diagnostic"));
+    view.stdin.write("l");
+    await until(() => view.lastFrame()!.includes("Logs · implementation"));
+  } finally {
+    view.unmount();
+  }
+});
 test("dashboard has titles, bottom controls, details and confirmed commands", async () => {
   const { source, requests } = monitorFixture();
   let complete = false;

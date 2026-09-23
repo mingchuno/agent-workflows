@@ -150,6 +150,7 @@ export class SDKAgent implements AgentAdapter {
       output = "",
       events = Promise.resolve();
     let eventError: unknown;
+    let stderr = "";
     const persistenceFailure = new AbortController();
     try {
       await command(
@@ -166,6 +167,9 @@ export class SDKAgent implements AgentAdapter {
             ...(signal ? [signal] : []),
           ]),
           captureOutput: false,
+          onStderr: (chunk) => {
+            stderr = (stderr + chunk).slice(-16_384);
+          },
           processFile: invocation?.processFile,
           timeoutMs: invocation
             ? (invocation.timeoutMs ?? defaultStageTimeoutMs)
@@ -197,7 +201,14 @@ export class SDKAgent implements AgentAdapter {
             }
           },
         },
-      );
+      ).catch((error) => {
+        const detail = stderr.trim();
+        throw detail
+          ? new Error(
+              `${String(error)}\nWorker stderr (last 16 KiB):\n${detail}`,
+            )
+          : error;
+      });
       await events;
       if (eventError) throw eventError;
       return output;

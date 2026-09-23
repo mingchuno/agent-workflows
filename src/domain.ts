@@ -186,6 +186,7 @@ export interface RunRecord {
   reviewHead?: string;
   error?: string;
   failedStep?: number;
+  stageLogs?: Array<{ executionId: string; step: string; path: string }>;
   executions?: ExecutionRecord[];
 }
 export class BlockedError extends Error {

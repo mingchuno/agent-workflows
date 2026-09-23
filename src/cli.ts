@@ -207,6 +207,9 @@ program
         (item) => !options.invocation || item.id === options.invocation,
       );
       const paths = [
+        ...(!options.invocation
+          ? (record.stageLogs?.map((item) => item.path) ?? [])
+          : []),
         ...invocations.map((item) => item.log),
         ...(!options.invocation
           ? (record.validation?.map((check) => check.log) ?? [])

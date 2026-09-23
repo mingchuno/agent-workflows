@@ -242,21 +242,36 @@ function openAgentLog(
   state: MonitorNavigation,
   context: NavigationContext,
 ): MonitorNavigation {
-  if (!context.logSessions.length) return state;
+  const currentExecutionId =
+    context.run?.executions?.at(-1)?.id ?? context.run?.id;
+  const stageSources = (context.run?.stageLogs ?? [])
+    .filter((item) => item.executionId === currentExecutionId)
+    .map((item) => ({
+      path: item.path,
+      label: `${item.step} · stage diagnostic`,
+    }));
+  const sources = [
+    ...stageSources,
+    ...context.logSessions.map((session) => ({
+      path: session.log,
+      label: `${session.step} · invocation ${session.attempt}`,
+    })),
+  ];
+  if (!sources.length) return state;
   return {
     ...state,
     modal: {
       type: "logs",
-      sources: context.logSessions.map((session) => ({
-        path: session.log,
-        label: `${session.step} · invocation ${session.attempt}`,
-      })),
-      initial: Math.max(
-        0,
-        context.logSessions.findIndex(
-          (session) => session.id === context.logSession?.id,
-        ),
-      ),
+      sources,
+      initial: context.logSession
+        ? Math.max(
+            0,
+            stageSources.length +
+              context.logSessions.findIndex(
+                (session) => session.id === context.logSession?.id,
+              ),
+          )
+        : 0,
     },
   };
 }

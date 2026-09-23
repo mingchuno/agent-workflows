@@ -14,6 +14,7 @@ export interface CommandOptions {
   captureOutput?: boolean;
   strictUtf8?: boolean;
   onOutput?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
 }
 export interface CommandResult {
   stdout: string;
@@ -90,7 +91,10 @@ export function command(
         const value = decoders[target].decode(chunk, {
           stream: chunk !== undefined,
         });
-        if (value) options.onOutput?.(value);
+        if (value) {
+          if (target === "stderr" && options.onStderr) options.onStderr(value);
+          else options.onOutput?.(value);
+        }
         if (options.captureOutput !== false) {
           if (target === "stdout") stdout += value;
           else stderr += value;

@@ -211,9 +211,17 @@ export function Monitor({
     ? columns < 120
       ? "l current log"
       : `l log: ${detailLogSession.step} invocation ${detailLogSession.attempt} (${detailLogSession.outcome})`
-    : "";
+    : run?.stageLogs?.some(
+          (item) => item.executionId === (run.executions?.at(-1)?.id ?? run.id),
+        )
+      ? "l stage diagnostic"
+      : "";
   const controls = [
-    screen === "details" ? detailsLogControl : sessions.length ? "l log" : "",
+    screen === "details"
+      ? detailsLogControl
+      : sessions.length || run?.stageLogs?.length
+        ? "l log"
+        : "",
     run?.validation?.length
       ? columns < 120
         ? "v checks"

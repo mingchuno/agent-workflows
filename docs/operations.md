@@ -10,7 +10,7 @@ All commands accept `--config PATH` before the subcommand.
 | `run [--project ID ...]`           | Start selected projects in the foreground                       |
 | `status [--json]`                  | Projects, runs and command outcomes                             |
 | `inspect RUN`                      | Full run and invocation/session records as JSON                 |
-| `logs RUN [--invocation ID]`       | Local agent and validation artifacts                            |
+| `logs RUN [--invocation ID]`       | Local stage, agent and validation artifacts                     |
 | `pause PROJECT` / `resume PROJECT` | Queue an intake control command                                 |
 | `stop RUN`                         | Queue cancellation; success means active local work has stopped |
 | `recover RUN`                      | Continue a failed publication step using completed checkpoints |
@@ -57,7 +57,7 @@ fallback. An overflowing document shows its visible line range in the heading.
 | Context | Keys |
 | --- | --- |
 | Dashboard | Left/Right project; Tab/Shift+Tab pane; Up/Down selection or scroll |
-| Details | Enter opens; Up/Down or PgUp/PgDn scroll; Esc returns; `l` opens the latest current-execution session, preferring a running session |
+| Details | Enter opens; Up/Down or PgUp/PgDn scroll; Esc returns; `l` opens the latest current-execution session, or the stage diagnostic before a session exists |
 | Progress | `[`/`]` inspect step history; End follows latest event |
 | Sessions | `a` focuses session list; Up/Down selects invocation; `l` opens log |
 | Validation | `v` opens validation logs |

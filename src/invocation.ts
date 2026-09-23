@@ -47,18 +47,48 @@ type AttemptResult =
 
 /** One logical stage; only returned format errors admit a second response attempt. */
 export async function invokeStage(execution: StageExecution): Promise<string> {
-  const prepared = await prepareStage(execution);
-  let attempt: AttemptInput = { number: 1, correction: "" };
-  while (attempt.number <= maxInvocationAttempts) {
-    const result = await invokeAttempt(execution, prepared, attempt);
-    if (result.kind === "completed") return result.output;
-    attempt = {
-      number: attempt.number + 1,
-      correction: result.correction,
-      contribution: result.contribution,
-    };
+  const { run, name, stepId, dependencies } = execution;
+  const directory = join(dependencies.artifacts, run.id);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const path = join(directory, `stage-${name}-${stepId}.log`);
+  const executionId = run.executions?.at(-1)?.id ?? run.id;
+  await dependencies.store.patchRun(run.id, {
+    stageLogs: [
+      ...(run.stageLogs ?? []).filter(
+        (item) => item.executionId !== executionId || item.step !== name,
+      ),
+      { executionId, step: name, path },
+    ],
+  });
+  const note = (message: string) =>
+    appendFile(
+      path,
+      `${new Date().toISOString()} ${dependencies.redact(message)}\n`,
+      { mode: 0o600 },
+    );
+  try {
+    await note(`Preparing ${name} agent stage`);
+    const prepared = await prepareStage(execution, note);
+    await note(`Agent preflight passed: ${prepared.profile.provider}`);
+    let attempt: AttemptInput = { number: 1, correction: "" };
+    while (attempt.number <= maxInvocationAttempts) {
+      await note(`Starting invocation ${attempt.number}`);
+      const result = await invokeAttempt(execution, prepared, attempt);
+      if (result.kind === "completed") {
+        await note(`${name} agent stage completed`);
+        return result.output;
+      }
+      attempt = {
+        number: attempt.number + 1,
+        correction: result.correction,
+        contribution: result.contribution,
+      };
+    }
+    throw new Error("Format correction exhausted");
+  } catch (error) {
+    await note(`Failed: ${String(error)}`);
+    throw error;
   }
-  throw new Error("Format correction exhausted");
 }
 
 async function refusePreviousInvocations(
@@ -113,7 +143,10 @@ function prepareRequest(execution: StageExecution) {
   return { resolved, outputSchema, fullPrompt, profile };
 }
 
-async function prepareStage(execution: StageExecution) {
+async function prepareStage(
+  execution: StageExecution,
+  note: (message: string) => Promise<void>,
+) {
   const { run, stage, task, dependencies } = execution;
   const { project, agents, signal, workspace } = dependencies;
   await refusePreviousInvocations(execution);
@@ -129,6 +162,7 @@ async function prepareStage(execution: StageExecution) {
     signal,
     AbortSignal.timeout(stage.timeoutMs),
   ]);
+  await note(`Validating ${profile.provider} agent profile`);
   const effective = await adapter.validate(profile, invocationSignal);
   const directory = join(dependencies.artifacts, run.id);
   await mkdir(directory, { recursive: true, mode: 0o700 });

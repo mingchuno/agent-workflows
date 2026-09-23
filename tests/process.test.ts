@@ -19,6 +19,25 @@ test("command output preserves UTF-8 code points split across stdout chunks", as
   assert.equal(result.stdout, "😀");
   assert.equal(parts.join(""), "😀");
 });
+test("worker stderr remains available when normal output capture is disabled", async () => {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  await assert.rejects(
+    command(
+      process.execPath,
+      ["-e", "process.stderr.write('startup failed'); process.exit(1)"],
+      {
+        cwd: process.cwd(),
+        captureOutput: false,
+        onOutput: (chunk) => stdout.push(chunk),
+        onStderr: (chunk) => stderr.push(chunk),
+      },
+    ),
+    /failed \(1\)/,
+  );
+  assert.deepEqual(stdout, []);
+  assert.equal(stderr.join(""), "startup failed");
+});
 test("command capture limits report overflow explicitly", async () => {
   await assert.rejects(
     command(
