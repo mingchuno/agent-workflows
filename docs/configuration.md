@@ -250,6 +250,15 @@ Text chunks are at most 64 KiB; total text evidence, including indexes, is at mo
 bounded pages; binary changes contain metadata instead of encoded content.
 These are internal limits, not configurable model context limits.
 
+Copilot publication and review sessions receive runner-owned tools automatically
+when captured evidence is present. The tools list changed paths in bounded pages,
+read one manifest-backed patch or untracked-content chunk, and search captured
+text for a case-sensitive literal with bounded matches. References come only
+from the current invocation's verified manifest; arbitrary filesystem paths,
+missing pages or chunks, and modified artifacts fail explicitly. List and read
+responses report unread chunks so the agent can disclose incomplete inspection.
+Binary entries are returned as metadata. No configuration or opt-in is required.
+
 Review output includes `complete` and `limitations`. Incomplete reviews preserve
 partial findings locally and block normal review publication. Prompt content,
 output contract and evidence identities are retained with each response attempt.

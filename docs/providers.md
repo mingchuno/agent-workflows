@@ -95,7 +95,11 @@ providers. Stage task text cannot remove those checks. Both retain their existin
 inspection permissions: Codex's read-only sandbox and Copilot's read-only
 permission handler (`approve-once` for reads, `reject` for non-read requests).
 Managed human-approval requirements remain denied. No shell permission is added
-for Copilot.
+for Copilot. Copilot publication and review additionally receive three
+runner-owned tools for listing, chunk-reading and literal-searching only their
+current verified evidence manifest. Tool calls and explicit failures flow into
+the invocation event log. The tools do not grant shell, write or arbitrary path
+access. Codex tool access and evidence presentation are unchanged.
 
 Evidence indexes use absolute paths outside the checkout. Controlled tests check
 schema mapping, outside-directory reads and denied write/shell requests. The

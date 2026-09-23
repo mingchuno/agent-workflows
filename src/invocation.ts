@@ -128,6 +128,7 @@ function prepareRequest(execution: StageExecution) {
   const outputSchema = task.outputContract
     ? z.toJSONSchema(task.outputContract)
     : undefined;
+  const profile = resolveProfile(project.agent, stage.profile);
   const contract = outputSchema
     ? `Return ONLY JSON satisfying this application-owned schema:\n${JSON.stringify(outputSchema)}`
     : "";
@@ -137,9 +138,14 @@ function prepareRequest(execution: StageExecution) {
     task.readOnly
       ? "Inspection only. Do not modify files, commit, push, or publish."
       : "Do not commit, push, or publish.",
+    task.evidence &&
+    profile.provider === "copilot" &&
+    task.readOnly &&
+    (execution.name === "publication" || execution.name === "review")
+      ? "Use the runner-owned evidence_list_changes, evidence_read_change, and evidence_search tools to inspect the captured change. These tools are the authority for this stage's change evidence. Inspect all material chunks; if any remain unread or unavailable, state that limitation honestly. Do not request shell or write permission."
+      : "",
     contract,
   ].join("\n\n");
-  const profile = resolveProfile(project.agent, stage.profile);
   return { resolved, outputSchema, fullPrompt, profile };
 }
 
@@ -290,6 +296,7 @@ async function invokeProvider(
   const {
     run,
     name,
+    task,
     dependencies: { project, store, redact },
   } = execution;
   const { adapter, profile, outputSchema, invocationSignal, deadline } =
@@ -307,6 +314,13 @@ async function invokeProvider(
     readOnly,
     signal: invocationSignal,
     timeoutMs: Math.max(1, deadline - Date.now()),
+    evidence:
+      profile.provider === "copilot" &&
+      readOnly &&
+      task.evidence &&
+      (name === "publication" || name === "review")
+        ? task.evidence
+        : undefined,
     session: async (sessionId) => {
       record.sessionId = sessionId;
       record.sessionState = "available";

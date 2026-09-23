@@ -157,6 +157,59 @@ test("custom text stages return literal output without format correction", async
   assert.equal(calls, 1);
 });
 
+test("only Copilot publication and review receive captured evidence tools", async () => {
+  const { EvidenceWriter } = await import("../src/evidence.js");
+  const directory = await mkdtemp(join(tmpdir(), "invocation-evidence-"));
+  const writer = new EvidenceWriter(directory);
+  const index = await writer.index("", { changedPaths: 0 });
+  const evidence = {
+    index: index.path,
+    identity: index.sha256,
+    files: writer.files,
+    changedPaths: 0,
+    base: "base",
+  };
+  const calls: AgentInvocation[] = [];
+  const setup = await fixture(async (invocation) => {
+    calls.push(invocation);
+    return '{"result":"ok"}';
+  });
+  setup.input.name = "publication";
+  setup.input.task.evidence = evidence;
+  setup.input.dependencies.project.agent.provider = "copilot";
+  setup.input.dependencies.agents.copilot =
+    setup.input.dependencies.agents.codex!;
+  assert.equal(await invokeStage(setup.input), '{"result":"ok"}');
+  assert.equal(calls[0]!.evidence, evidence);
+  assert.match(calls[0]!.prompt, /evidence_list_changes/);
+  assert.match(calls[0]!.prompt, /Do not request shell or write permission/);
+
+  const codexCalls: AgentInvocation[] = [];
+  const codex = await fixture(async (invocation) => {
+    codexCalls.push(invocation);
+    return '{"result":"ok"}';
+  });
+  codex.input.name = "publication";
+  codex.input.task.evidence = evidence;
+  assert.equal(await invokeStage(codex.input), '{"result":"ok"}');
+  assert.equal(codexCalls[0]!.evidence, undefined);
+  assert.doesNotMatch(codexCalls[0]!.prompt, /evidence_list_changes/);
+
+  const implementationCalls: AgentInvocation[] = [];
+  const implementation = await fixture(async (invocation) => {
+    implementationCalls.push(invocation);
+    return '{"result":"ok"}';
+  });
+  implementation.input.name = "implementation";
+  implementation.input.task.evidence = evidence;
+  implementation.input.dependencies.project.agent.provider = "copilot";
+  implementation.input.dependencies.agents.copilot =
+    implementation.input.dependencies.agents.codex!;
+  assert.equal(await invokeStage(implementation.input), '{"result":"ok"}');
+  assert.equal(implementationCalls[0]!.evidence, undefined);
+  assert.doesNotMatch(implementationCalls[0]!.prompt, /evidence_list_changes/);
+});
+
 for (const response of ["valid", "invalid", "throws"] as const)
   test(`final persistence failure takes precedence over ${response} output and stops correction`, async () => {
     let calls = 0;

@@ -9,7 +9,7 @@ export const evidenceLimits = {
   chunkBytes: 64 * 1024,
   totalBytes: maxCapturedOutputBytes,
 } as const;
-interface Artifact {
+export interface EvidenceArtifact {
   path: string;
   sha256: string;
   bytes: number;
@@ -17,7 +17,7 @@ interface Artifact {
 export interface ChangeEvidence {
   index: string;
   identity: string;
-  files: Artifact[];
+  files: EvidenceArtifact[];
   changedPaths: number;
   base: string;
   head?: string;
@@ -36,10 +36,10 @@ export function chunkText(text: string): string[] {
   return chunks;
 }
 export class EvidenceWriter {
-  readonly files: Artifact[] = [];
+  readonly files: EvidenceArtifact[] = [];
   private bytes = 0;
   constructor(readonly directory: string) {}
-  async write(name: string, content: string): Promise<Artifact> {
+  async write(name: string, content: string): Promise<EvidenceArtifact> {
     const bytes = Buffer.byteLength(content);
     const total = this.bytes + bytes;
     if (total > evidenceLimits.totalBytes)
@@ -63,7 +63,7 @@ export class EvidenceWriter {
   async index(
     contents: string,
     metadata: Record<string, unknown>,
-  ): Promise<Artifact> {
+  ): Promise<EvidenceArtifact> {
     let pages = await this.chunks("index", contents);
     let depth = 0;
     const serialize = () =>
@@ -140,7 +140,9 @@ export async function captureEvidence(
           ...untracked,
         ]),
       ].sort();
-  const entries = [];
+  const entries: Record<string, unknown>[] = [];
+  const addEntry = (entry: Record<string, unknown>) =>
+    entries.push({ reference: `change-${entries.length}`, ...entry });
   for (const [number, path] of paths.entries()) {
     signal?.throwIfAborted();
     if (untracked.includes(path)) {
@@ -155,7 +157,7 @@ export async function captureEvidence(
       } catch {
         /* Binary metadata is intentional. */
       }
-      entries.push({
+      addEntry({
         path,
         kind: "untracked",
         change: "added",
@@ -180,7 +182,7 @@ export async function captureEvidence(
       const patch = await diff(...range.args, "--", path);
       if (!patch) continue;
       const blobs = /^index ([0-9a-f]+)\.\.([0-9a-f]+)/m.exec(patch);
-      entries.push({
+      addEntry({
         path,
         kind: range.kind,
         change: /^new file mode /m.test(patch)
