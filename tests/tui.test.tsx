@@ -127,6 +127,147 @@ test("log follows, searches whole file, isolates input and escapes back to selec
   }
 });
 
+test("horizontal log panning preserves record rows and live follow", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "aw-tui-"));
+  const { source, sessions } = monitorFixture();
+  sessions[0]!.log = join(directory, "events.log");
+  const records = Array.from({ length: 26 }, (_, index) => `line-${index + 1}`);
+  records[4] = "short";
+  records[5] = `${"a".repeat(60)}active-anchor`;
+  records[6] = `${"b".repeat(60)}active-next`;
+  await writeFile(sessions[0]!.log, `${records.join("\n")}\n`);
+  const view = render(<Monitor source={source} size={wide} />);
+  try {
+    await until(() => view.lastFrame()!.includes("invocation 1"));
+    view.stdin.write("l");
+    await until(() =>
+      view.lastFrame()!.includes("LIVE FOLLOW · Readable · lines 3–26/26"),
+    );
+    const initialRows = view.lastFrame()!.split("\n");
+    const anchorRow = initialRows.findIndex((row) =>
+      row.includes("active-anchor"),
+    );
+    const nextRow = initialRows.findIndex((row) => row.includes("active-next"));
+    assert.ok(anchorRow >= 0);
+    assert.ok(initialRows[anchorRow]!.startsWith("a".repeat(60)));
+    assert.equal(nextRow, anchorRow + 1);
+
+    view.stdin.write("\u001b[C");
+    view.stdin.write("\u001b[C");
+    view.stdin.write("\u001b[C");
+    await settle();
+
+    const pannedRows = view.lastFrame()!.split("\n");
+    assert.equal(
+      pannedRows.findIndex((row) => row.includes("active-anchor")),
+      anchorRow,
+    );
+    assert.equal(
+      pannedRows.findIndex((row) => row.includes("active-next")),
+      nextRow,
+    );
+    assert.ok(pannedRows[anchorRow]!.startsWith("active-anchor"));
+    assert.match(view.lastFrame()!, /LIVE FOLLOW · Readable · lines 3–26\/26/);
+
+    view.stdin.write("R");
+    await settle();
+    assert.match(view.lastFrame()!, /LIVE FOLLOW · Raw · lines 3–26\/26/);
+    assert.equal(
+      view
+        .lastFrame()!
+        .split("\n")
+        .findIndex((row) => row.includes("active-anchor")),
+      anchorRow,
+    );
+
+    await appendFile(sessions[0]!.log, `${"z".repeat(60)}live-after-pan\n`);
+    await until(() =>
+      view.lastFrame()!.includes("LIVE FOLLOW · Raw · lines 4–27/27"),
+    );
+    assert.match(view.lastFrame()!, /live-after-pan/);
+    const rowAfterAppend = view
+      .lastFrame()!
+      .split("\n")
+      .findIndex((row) => row.includes("active-anchor"));
+
+    view.stdin.write("\u001b[D");
+    view.stdin.write("\u001b[D");
+    view.stdin.write("\u001b[D");
+    await settle();
+    assert.equal(
+      view
+        .lastFrame()!
+        .split("\n")
+        .findIndex((row) => row.includes("active-anchor")),
+      rowAfterAppend,
+    );
+    assert.equal(
+      view
+        .lastFrame()!
+        .split("\n")
+        .findIndex((row) => row.includes("active-next")),
+      rowAfterAppend + 1,
+    );
+    assert.ok(
+      view.lastFrame()!.split("\n")[rowAfterAppend]!.startsWith("a".repeat(60)),
+    );
+    assert.match(view.lastFrame()!, /LIVE FOLLOW · Raw · lines 4–27\/27/);
+  } finally {
+    view.unmount();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("completed log panning preserves a manually selected line range", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "aw-tui-"));
+  const { run, sessions, source } = monitorFixture();
+  run.outcome = "completed";
+  run.executions![0]!.outcome = "completed";
+  sessions[0]!.outcome = "completed";
+  sessions[0]!.log = join(directory, "completed.log");
+  const records = Array.from({ length: 30 }, (_, index) => `line-${index + 1}`);
+  records[3] = "short";
+  records[4] = `${"b".repeat(20)}completed-anchor`;
+  await writeFile(sessions[0]!.log, `${records.join("\n")}\n`);
+  const view = render(<Monitor source={source} size={wide} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await until(() => view.lastFrame()!.includes("l log: implementation"));
+    view.stdin.write("l");
+    await until(() =>
+      view.lastFrame()!.includes("LIVE FOLLOW · Readable · lines 7–30/30"),
+    );
+    for (let index = 0; index < 5; index++) view.stdin.write("\u001b[A");
+    await until(() =>
+      view.lastFrame()!.includes("SCROLLING · Readable · lines 2–25/30"),
+    );
+    const anchorRow = view
+      .lastFrame()!
+      .split("\n")
+      .findIndex((row) => row.includes("completed-anchor"));
+    assert.ok(anchorRow >= 0);
+
+    view.stdin.write("\u001b[C");
+    await settle();
+
+    assert.equal(
+      view
+        .lastFrame()!
+        .split("\n")
+        .findIndex((row) => row.includes("completed-anchor")),
+      anchorRow,
+    );
+    assert.ok(
+      view.lastFrame()!.split("\n")[anchorRow]!.startsWith("completed-anchor"),
+    );
+    assert.match(view.lastFrame()!, /SCROLLING · Readable · lines 2–25\/30/);
+  } finally {
+    view.unmount();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("selection survives new rows and stale selected-run responses", async () => {
   const { source, run, sessions } = monitorFixture();
   let runs = [

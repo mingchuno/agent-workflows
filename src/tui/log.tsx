@@ -148,7 +148,9 @@ function LogScreen({
           // biome-ignore lint/suspicious/noArrayIndexKey: the absolute file line is the stable record identity.
           <Text key={`${position + index}`} wrap="truncate">
             <Highlight
-              text={cells(presentLogLine(line, raw), columns, horizontal)}
+              text={
+                cells(presentLogLine(line, raw), columns, horizontal) || " "
+              }
               query={query}
             />
           </Text>
