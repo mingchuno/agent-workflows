@@ -169,6 +169,7 @@ export interface RunRecord {
   attempt: number;
   retryOf?: string;
   issue: Issue;
+  validationProfile?: string;
   outcome: Outcome;
   phase: string;
   createdAt: string;

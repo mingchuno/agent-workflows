@@ -71,6 +71,94 @@ test("public runner completes durable issue-to-review workflow and deduplicates 
   }
 });
 
+test("ticket profile runs after baseline checks and is recorded on the run", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project } = await repository();
+  const hosting = new FixtureHosting();
+  hosting.issues[0]!.body +=
+    "\n\n```agent-workflows-validation\nmigration\n```";
+  project.validation = [
+    {
+      command: process.execPath,
+      args: ["-e", "process.exit(0)"],
+      timeoutMs: 30_000,
+    },
+  ];
+  project.validationProfiles.migration = [
+    {
+      command: process.execPath,
+      args: ["-e", "process.exit(0)"],
+      timeoutMs: 30_000,
+    },
+  ];
+  const runner = new Runner({
+    config: configSchema.parse({
+      id: "validation_" + randomUUID().replaceAll("-", ""),
+      stateDirectory: await mkdtemp(join(tmpdir(), "aw-validation-")),
+      projects: [project],
+    }),
+    databaseUrl: databaseUrl!,
+    hosting: () => hosting,
+    agents: { codex: agent },
+  });
+  try {
+    await runner.start();
+    await waitFor(async () =>
+      (await runner.store.runs()).some((run) => run.outcome === "completed"),
+    );
+    const run = (await runner.store.runs())[0]!;
+    assert.equal(run.validationProfile, "migration");
+    assert.equal(run.validation?.length, 2);
+    assert.deepEqual(
+      run.validation?.map((check) => check.exitCode),
+      [0, 0],
+    );
+  } finally {
+    await runner.shutdown();
+  }
+});
+
+test("unknown ticket profile fails before implementation", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project } = await repository();
+  const hosting = new FixtureHosting();
+  hosting.issues[0]!.body += "\n\n```agent-workflows-validation\nunknown\n```";
+  let invocations = 0;
+  const runner = new Runner({
+    config: configSchema.parse({
+      id: "invalid_validation_" + randomUUID().replaceAll("-", ""),
+      stateDirectory: await mkdtemp(join(tmpdir(), "aw-invalid-validation-")),
+      projects: [project],
+    }),
+    databaseUrl: databaseUrl!,
+    hosting: () => hosting,
+    agents: {
+      codex: {
+        ...agent,
+        async invoke() {
+          invocations++;
+          return "";
+        },
+      },
+    },
+  });
+  try {
+    await runner.start();
+    await waitFor(async () =>
+      (await runner.store.runs()).some((run) => run.outcome === "failed"),
+    );
+    assert.equal(invocations, 0);
+    assert.match(
+      (await runner.store.runs())[0]!.error!,
+      /Unknown validation profile/,
+    );
+  } finally {
+    await runner.shutdown();
+  }
+});
+
 test("configured stage timeout reaches the agent adapter", {
   skip: !databaseUrl,
 }, async () => {

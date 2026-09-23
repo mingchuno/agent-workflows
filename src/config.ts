@@ -44,6 +44,11 @@ export const stageSchema = z
     (stage) => stage.prompt === undefined || stage.promptFile === undefined,
     "Specify either prompt or promptFile, never both",
   );
+const validationCommandSchema = z.strictObject({
+  command: z.string().min(1),
+  args: z.array(z.string()).default([]),
+  timeoutMs: z.number().int().positive().default(defaultValidationTimeoutMs),
+});
 export const projectSchema = z.strictObject({
   id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
   checkout: z.string().min(1),
@@ -64,19 +69,13 @@ export const projectSchema = z.strictObject({
     .includes("{issue}")
     .default("agent/{issue}-{attempt}"),
   pollIntervalMs: z.number().int().min(100).default(30_000),
-  validation: z
-    .array(
-      z.strictObject({
-        command: z.string().min(1),
-        args: z.array(z.string()).default([]),
-        timeoutMs: z
-          .number()
-          .int()
-          .positive()
-          .default(defaultValidationTimeoutMs),
-      }),
+  validation: z.array(validationCommandSchema).default([]),
+  validationProfiles: z
+    .record(
+      z.string().regex(/^[a-zA-Z0-9_-]+$/),
+      z.array(validationCommandSchema).min(1),
     )
-    .default([]),
+    .default({}),
   includeAgentCoAuthors: z.boolean().default(true),
   agent: profileSchema,
   stages: z

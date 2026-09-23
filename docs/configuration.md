@@ -28,10 +28,41 @@ part of the public SDK `Configuration` type.
 | `pollIntervalMs`       | 30000; minimum 100                                                                                  |
 | `includeAgentCoAuthors` | `true`; append co-author trailers for providers whose writable invocations produced retained changes |
 | `validation`           | Array of `{command,args,timeoutMs}`; no shell expansion; timeout defaults to 300000 ms              |
+| `validationProfiles`   | Named, nonempty arrays of validation commands selectable by a ticket; defaults to `{}`                |
 | `agent`                | Required default profile                                                                            |
 | `stages`               | `implementation`, `publication`, `review`; each has optional `profile`, `prompt`, `promptFile`, `timeoutMs` |
 
 Issues are selected in ascending issue-number order within each intake scan. Deduplication persists across restarts. An explicit retry is a new numbered attempt linked through `retryOf`.
+
+## Ticket-selected validation
+
+Define optional checks under a project in `validationProfiles` using the same
+command format as `validation`:
+
+```json
+{
+  "validation": [{ "command": "pnpm", "args": ["lint"] }],
+  "validationProfiles": {
+    "migration": [{ "command": "pnpm", "args": ["test:migrations"] }]
+  }
+}
+```
+
+An issue description selects one profile with a standalone fenced block:
+
+````markdown
+```agent-workflows-validation
+migration
+```
+````
+
+The runner executes the project's `validation` commands first, then the selected
+profile's commands. Without the block, only the baseline runs. The block must
+contain exactly one configured profile name (`A-Z`, `a-z`, digits, `_`, or `-`);
+duplicate, malformed, and unknown selections fail the run before checkout
+preparation or agent invocation. The issue body is saved with the run, so edits
+to the hosted issue do not change an existing run. A retry creates a new run
+from its recorded issue; edit the selection before the initial run to affect it.
 
 Absolute configuration paths remain absolute. Effective state and checkout
 paths are normalized once during startup before safety and ownership checks, so

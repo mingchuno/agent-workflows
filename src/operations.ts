@@ -25,6 +25,7 @@ import { defaultStagePrompts } from "./prompts.js";
 import { publicationSteps } from "./recovery.js";
 import { command } from "./runtime/process.js";
 import type { Store } from "./store.js";
+import { selectValidation } from "./validation-selection.js";
 
 export type { InvocationTask } from "./invocation.js";
 
@@ -118,10 +119,16 @@ export class Operations {
     return this.step("eligibility", async (run) => {
       const { hosting, project } = this.dependencies;
       const issue = await hosting.getIssue(run.issue.number);
-      return (
-        issue.open &&
-        project.labels.every((label) => issue.labels.includes(label))
-      );
+      if (
+        !issue.open ||
+        !project.labels.every((label) => issue.labels.includes(label))
+      )
+        return false;
+      const { profile } = selectValidation(run.issue.body, project);
+      await this.dependencies.store.patchRun(run.id, {
+        validationProfile: profile,
+      });
+      return true;
     });
   }
   async prepare(): Promise<void> {
@@ -183,7 +190,8 @@ export class Operations {
       const validation: ValidationResult[] = [];
       const directory = join(this.dependencies.artifacts, run.id);
       await mkdir(directory, { recursive: true, mode: 0o700 });
-      for (const [index, check] of project.validation.entries()) {
+      const checks = selectValidation(run.issue.body, project).commands;
+      for (const [index, check] of checks.entries()) {
         const startedAt = new Date().toISOString();
         const log = join(directory, `validation-${index}.log`);
         let captured = "";
