@@ -5,7 +5,7 @@ import type { MonitorAction } from "./data.js";
 import type { LogSource } from "./log.js";
 
 type Focus = "runs" | "summary" | "sessions";
-type RunAction = "stop" | "retry" | "recover";
+type RunAction = "stop" | "retry" | "retry-refresh" | "recover";
 type Selection = { projectId?: string; runId?: string };
 type Modal =
   | { type: "help" }
@@ -42,7 +42,7 @@ interface NavigationContext {
   event?: EventRecord;
   logSessions: InvocationRecord[];
   logSession?: InvocationRecord;
-  available: Record<RunAction, boolean>;
+  available: Record<"stop" | "retry" | "recover", boolean>;
   pending: boolean;
   scrollMaximum: number;
   pageSize: number;
@@ -101,10 +101,16 @@ export function transitionNavigation(
       ? "stop"
       : input === "r"
         ? "retry"
-        : input === "c"
-          ? "recover"
-          : undefined;
-  if (kind && context.run && context.available[kind])
+        : input === "R"
+          ? "retry-refresh"
+          : input === "c"
+            ? "recover"
+            : undefined;
+  if (
+    kind &&
+    context.run &&
+    context.available[kind === "retry-refresh" ? "retry" : kind]
+  )
     return {
       state: {
         ...state,

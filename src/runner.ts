@@ -8,6 +8,7 @@ import {
   type AgentAdapter,
   BlockedError,
   type HostingAdapter,
+  type Issue,
   isBlockedError,
   type RunRecord,
   type Workspace,
@@ -27,6 +28,7 @@ import {
 } from "./runtime/ownership.js";
 import { createRedactor, runtimeLogger } from "./runtime/redaction.js";
 import { Store } from "./store.js";
+import { selectValidation } from "./validation-selection.js";
 import { ExistingCheckout } from "./workspace.js";
 
 const runnerPollIntervalMs = 100;
@@ -222,6 +224,8 @@ export class Runner {
         else if (request.kind === "stop") await this.stop(request.target);
         else if (request.kind === "retry")
           await this.retry(request.target, request.id);
+        else if (request.kind === "retry-refresh")
+          await this.retry(request.target, request.id, { refreshIssue: true });
         else if (request.kind === "recover")
           await this.recover(request.target, request.id);
         else throw new Error("Unknown command");
@@ -492,7 +496,11 @@ export class Runner {
         "No local process ownership for this running workflow",
       );
   }
-  async retry(runId: string, commandId?: string): Promise<string> {
+  async retry(
+    runId: string,
+    commandId?: string,
+    options: { refreshIssue?: boolean } = {},
+  ): Promise<string> {
     return this.store.admitRetry(runId, {
       commandId,
       checkSafety: async (previous) => {
@@ -503,9 +511,31 @@ export class Runner {
           resolve(this.config.stateDirectory, runId),
         );
         await (this.options.workspace ?? new ExistingCheckout()).check(project);
+        let issue: Issue | undefined;
+        if (options.refreshIssue) {
+          const hosting =
+            this.hosting.get(project.id) ?? this.options.hosting(project);
+          const current = await hosting.getIssue(previous.issue.number);
+          if (
+            current.id !== previous.issue.id ||
+            current.number !== previous.issue.number ||
+            current.url !== previous.issue.url
+          )
+            throw new Error("Refreshed issue identity differs from the run");
+          if (
+            !current.open ||
+            !project.labels.every((label) => current.labels.includes(label))
+          )
+            throw new Error(
+              "Refreshed issue is closed or missing required labels",
+            );
+          selectValidation(current.body, project);
+          issue = current;
+        }
         return {
           checkout: project.checkout,
           branchTemplate: project.branchTemplate,
+          issue,
         };
       },
     });

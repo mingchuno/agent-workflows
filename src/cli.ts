@@ -225,7 +225,7 @@ program
       }
     }),
   );
-for (const kind of ["pause", "resume", "stop", "retry", "recover"] as const)
+for (const kind of ["pause", "resume", "stop", "recover"] as const)
   program
     .command(`${kind} <target>`)
     .description(`${kind} project or run through the active runner`)
@@ -239,6 +239,23 @@ for (const kind of ["pause", "resume", "stop", "retry", "recover"] as const)
         );
       }),
     );
+program
+  .command("retry <target>")
+  .description("retry a run through the active runner")
+  .option("--refresh-issue", "use the current hosted issue for the new run")
+  .action(async (target: string, options: { refreshIssue?: boolean }) =>
+    withStore(async (store) => {
+      console.log(
+        JSON.stringify({
+          commandId: await store.request(
+            options.refreshIssue ? "retry-refresh" : "retry",
+            target,
+          ),
+          status: "pending",
+        }),
+      );
+    }),
+  );
 program
   .command("monitor")
   .option("--notify", "notify when an observed execution reaches an outcome")

@@ -61,8 +61,10 @@ profile's commands. Without the block, only the baseline runs. The block must
 contain exactly one configured profile name (`A-Z`, `a-z`, digits, `_`, or `-`);
 duplicate, malformed, and unknown selections fail the run before checkout
 preparation or agent invocation. The issue body is saved with the run, so edits
-to the hosted issue do not change an existing run. A retry creates a new run
-from its recorded issue; edit the selection before the initial run to affect it.
+to the hosted issue do not change an existing run. A plain retry creates a new
+run from its recorded issue. Use `retry RUN --refresh-issue` (or `R` in the
+monitor) to snapshot the current hosted issue and its validation selection for
+the new run. Later issue edits do not change that run.
 
 Absolute configuration paths remain absolute. Effective state and checkout
 paths are normalized once during startup before safety and ownership checks, so

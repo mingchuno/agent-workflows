@@ -20,7 +20,13 @@ export interface MonitorSource {
   request: Store["request"];
   commands: Store["commands"];
 }
-export type MonitorAction = "pause" | "resume" | "stop" | "retry" | "recover";
+export type MonitorAction =
+  | "pause"
+  | "resume"
+  | "stop"
+  | "retry"
+  | "retry-refresh"
+  | "recover";
 
 export function useMonitorData(
   source: MonitorSource,

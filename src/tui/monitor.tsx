@@ -27,6 +27,8 @@ const statusRefreshIntervalMs = 1_000;
 const actionDescriptions = {
   stop: "Cancel this run and wait for its active local work to stop.",
   retry: "Create a new run and branch; execute the workflow again.",
+  "retry-refresh":
+    "Create a new run using the current hosted issue and validation selection.",
   recover: "Continue the failed publication step using completed work.",
 };
 
@@ -173,7 +175,10 @@ export function Monitor({
         subject={confirmation.title}
         description={actionDescriptions[confirmation.kind]}
         available={
-          run?.id === confirmation.runId && available[confirmation.kind]
+          run?.id === confirmation.runId &&
+          available[
+            confirmation.kind === "retry-refresh" ? "retry" : confirmation.kind
+          ]
         }
         onCancel={dismissModal}
         onConfirm={() => {

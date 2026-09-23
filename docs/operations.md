@@ -15,6 +15,7 @@ All commands accept `--config PATH` before the subcommand.
 | `stop RUN`                         | Queue cancellation; success means active local work has stopped |
 | `recover RUN`                      | Continue a failed publication step using completed checkpoints |
 | `retry RUN`                        | Queue an explicit new attempt after checkout validation         |
+| `retry RUN --refresh-issue`        | Queue a new attempt using the current hosted issue              |
 | `monitor [--notify]`               | Attach an interactive terminal view; optionally alert on outcomes |
 
 Control commands return a command ID and `pending`; inspect `status --json` or the monitor for success/failure. With no runner, commands stay pending. Run and monitor are separate processes. Closing the monitor never cancels work. Ctrl-C on the runner stops intake, cancels active work, waits for process termination and releases ownership. Queued issues remain durable for the next start.
@@ -176,7 +177,7 @@ After a blocked/failed task that cannot be recovered:
 1. Read `inspect RUN`, logs, session IDs and the local Git diff.
 2. Establish that no worker/process group is still running. If startup reports an old PID or process journal, inspect that exact process and stop it before recovery. Never remove a live owner's lease.
 3. Preserve unfinished work on a developer-owned commit/branch or move it to a safe location. Resolve merge/rebase state yourself. Do not rely on DBOS to restore files.
-4. Once the checkout is clean, request `retry RUN`. This creates a new attempt and branch from the configured base, keeping the old run and files/commits inspectable.
+4. Once the checkout is clean, request `retry RUN`. This creates a new attempt and branch from the configured base, keeping the old run and files/commits inspectable. Use `retry RUN --refresh-issue` to capture the current hosted issue description and validation selection in the new run. The hosted issue must retain its identity, be open, and have the required labels; its selected validation profile must be configured.
 
 A failed review after publication remains a failed automation attempt, even if its draft request exists. Explicit retry starts the full workflow as a new attempt; it does not silently modify the old request. Human review/merging remains separate. A stale review never claims coverage of a changed remote head.
 

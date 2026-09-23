@@ -46,8 +46,106 @@ async function setup(scopePrefix = "retry") {
     blocked: "Preserve recovery evidence",
     paused: true,
   });
-  return { runner, original, root, project };
+  return { runner, original, root, project, hosting };
 }
+
+test("refresh retry snapshots the current issue and selected validation profile", {
+  skip: !databaseUrl,
+}, async () => {
+  const { runner, original, hosting, project } = await setup();
+  try {
+    runner.config.projects[0]!.validationProfiles.migration = [
+      { command: "pnpm", args: ["test:migrations"], timeoutMs: 300000 },
+    ];
+    hosting.issues[0] = {
+      ...hosting.issues[0]!,
+      title: "Revised task",
+      body: "Revised instructions\n\n```agent-workflows-validation\nmigration\n```",
+    };
+    const id = await runner.retry(original.id, undefined, {
+      refreshIssue: true,
+    });
+    const retried = await runner.store.run(id);
+    assert.equal(retried.issue.title, "Revised task");
+    assert.equal(retried.issue.body, hosting.issues[0]!.body);
+    assert.equal(
+      (await runner.store.run(original.id)).issue.body,
+      original.issue.body,
+    );
+    hosting.issues[0]!.body = "Changed again";
+    assert.match((await runner.store.run(id)).issue.body, /migration/);
+    assert.equal((await runner.store.project(project.id)).blocked, null);
+  } finally {
+    await runner.store.close();
+  }
+});
+
+test("plain retry retains the recorded issue after hosted edits", {
+  skip: !databaseUrl,
+}, async () => {
+  const { runner, original, hosting } = await setup();
+  try {
+    hosting.issues[0]!.body = "New hosted instructions";
+    const id = await runner.retry(original.id);
+    assert.equal((await runner.store.run(id)).issue.body, "Implement the task");
+  } finally {
+    await runner.store.close();
+  }
+});
+
+test("refresh retry rejects ineligible issues and invalid validation selections", {
+  skip: !databaseUrl,
+}, async () => {
+  const { runner, original, hosting, project } = await setup();
+  try {
+    const refresh = () =>
+      runner.retry(original.id, undefined, { refreshIssue: true });
+    hosting.issues[0]!.open = false;
+    await assert.rejects(refresh(), /closed or missing required labels/);
+    hosting.issues[0]!.open = true;
+    hosting.issues[0]!.labels = [];
+    await assert.rejects(refresh(), /closed or missing required labels/);
+    hosting.issues[0]!.labels = [...project.labels];
+    hosting.issues[0]!.body = "```agent-workflows-validation\nmissing\n```";
+    await assert.rejects(refresh(), /Unknown validation profile/);
+    hosting.issues[0]!.body = "Updated";
+    hosting.issues[0]!.id = "replacement";
+    await assert.rejects(refresh(), /identity differs/);
+    assert.equal((await runner.store.runs()).length, 1);
+    assert.equal(
+      (await runner.store.project(project.id)).blocked,
+      "Preserve recovery evidence",
+    );
+  } finally {
+    await runner.store.close();
+  }
+});
+
+test("refresh command replay retains the admitted issue snapshot", {
+  skip: !databaseUrl,
+}, async () => {
+  const { runner, original, hosting } = await setup();
+  try {
+    const commandId = randomUUID();
+    hosting.issues[0]!.body = "First revision";
+    assert.equal(
+      await runner.retry(original.id, commandId, { refreshIssue: true }),
+      commandId,
+    );
+    hosting.issues[0]!.body = "Second revision";
+    hosting.issues[0]!.open = false;
+    assert.equal(
+      await runner.retry(original.id, commandId, { refreshIssue: true }),
+      commandId,
+    );
+    assert.equal(
+      (await runner.store.run(commandId)).issue.body,
+      "First revision",
+    );
+  } finally {
+    await runner.store.close();
+  }
+});
 
 test("competing retry requests admit exactly one persisted attempt", {
   skip: !databaseUrl,

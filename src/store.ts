@@ -5,7 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { tryLock, unlockAll } from "./db/locks.js";
 import { migrateDatabase } from "./db/migrations.js";
 import * as tables from "./db/schema.js";
-import type { ExecutionRecord, RunRecord } from "./domain.js";
+import type { ExecutionRecord, Issue, RunRecord } from "./domain.js";
 import { recoveryUnavailable } from "./recovery.js";
 import { createQueuedRun } from "./run-record.js";
 import { redactValue } from "./runtime/redaction.js";
@@ -50,7 +50,7 @@ interface RetryAdmission {
   commandId?: string;
   checkSafety: (
     previous: RunRecord,
-  ) => Promise<{ checkout: string; branchTemplate: string }>;
+  ) => Promise<{ checkout: string; branchTemplate: string; issue?: Issue }>;
 }
 interface RecoveryAdmission {
   commandId?: string;
@@ -252,7 +252,7 @@ export class Store {
         taskKey: previous.taskKey,
         attempt,
         retryOf: previous.id,
-        issue: previous.issue,
+        issue: target.issue ?? previous.issue,
         now,
         branchTemplate: target.branchTemplate,
       });
@@ -576,7 +576,7 @@ export class Store {
     };
   }
   async request(
-    kind: "pause" | "resume" | "stop" | "retry" | "recover",
+    kind: "pause" | "resume" | "stop" | "retry" | "retry-refresh" | "recover",
     target: string,
   ): Promise<string> {
     const id = randomUUID();

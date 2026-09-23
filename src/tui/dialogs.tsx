@@ -68,6 +68,7 @@ const helpPages = [
       ["p", "Pause or resume project intake"],
       ["s", "Stop selected run"],
       ["r", "Retry as a new run"],
+      ["R", "Retry with the current hosted issue"],
       ["c", "Recover failed publication"],
       ["[ / ]", "Inspect previous or next step event"],
       ["End", "Follow latest step event"],
