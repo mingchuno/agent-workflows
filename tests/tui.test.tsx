@@ -132,7 +132,11 @@ test("horizontal log panning preserves record rows and live follow", async () =>
   const { source, sessions } = monitorFixture();
   sessions[0]!.log = join(directory, "events.log");
   const records = Array.from({ length: 26 }, (_, index) => `line-${index + 1}`);
-  records[4] = "short";
+  records[4] = JSON.stringify({
+    type: "event",
+    metadata: "m".repeat(60),
+    text: "short",
+  });
   records[5] = `${"a".repeat(60)}active-anchor`;
   records[6] = `${"b".repeat(60)}active-next`;
   await writeFile(sessions[0]!.log, `${records.join("\n")}\n`);
@@ -151,6 +155,7 @@ test("horizontal log panning preserves record rows and live follow", async () =>
     assert.ok(anchorRow >= 0);
     assert.ok(initialRows[anchorRow]!.startsWith("a".repeat(60)));
     assert.equal(nextRow, anchorRow + 1);
+    assert.ok(initialRows[anchorRow - 1]!.startsWith("event: short"));
 
     view.stdin.write("\u001b[C");
     view.stdin.write("\u001b[C");
@@ -167,17 +172,22 @@ test("horizontal log panning preserves record rows and live follow", async () =>
       nextRow,
     );
     assert.ok(pannedRows[anchorRow]!.startsWith("active-anchor"));
+    assert.equal(pannedRows[anchorRow - 1]!.trim(), "");
     assert.match(view.lastFrame()!, /LIVE FOLLOW · Readable · lines 3–26\/26/);
 
     view.stdin.write("R");
     await settle();
     assert.match(view.lastFrame()!, /LIVE FOLLOW · Raw · lines 3–26\/26/);
+    const rawRows = view.lastFrame()!.split("\n");
+    assert.ok(rawRows[anchorRow - 1]!.startsWith("m".repeat(20)));
+    assert.ok(rawRows[anchorRow]!.startsWith("active-anchor"));
     assert.equal(
-      view
-        .lastFrame()!
-        .split("\n")
-        .findIndex((row) => row.includes("active-anchor")),
+      rawRows.findIndex((row) => row.includes("active-anchor")),
       anchorRow,
+    );
+    assert.equal(
+      rawRows.findIndex((row) => row.includes("active-next")),
+      nextRow,
     );
 
     await appendFile(sessions[0]!.log, `${"z".repeat(60)}live-after-pan\n`);
