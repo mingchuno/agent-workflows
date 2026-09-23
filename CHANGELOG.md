@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/mingchuno/agent-workflows/compare/v0.5.0...v0.5.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **copilot:** Connect before listing models ([0a4a0b3](https://github.com/mingchuno/agent-workflows/commit/0a4a0b3455fb45d02b70f23ee76cc89950fbe8b1))
+
 ## [0.5.0](https://github.com/mingchuno/agent-workflows/compare/v0.4.1...v0.5.0) (2026-09-23)
 
 
