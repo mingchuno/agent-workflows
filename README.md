@@ -61,21 +61,51 @@ The runner fetches the configured base, creates a branch, implements an eligible
 
 ## SDK
 
+The SDK accepts the same project configuration as the CLI. Parse the JSON with
+`configSchema`, pass the database URL explicitly, and set `pathBaseDirectory`
+when the file contains relative paths:
+
 ```ts
-import { Runner, createAgents, createHosting } from "@mingchuno/agent-workflows";
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import {
+  configSchema,
+  createAgents,
+  createHosting,
+  Runner,
+} from "@mingchuno/agent-workflows";
+
+const configPath = resolve("agent-workflows.json");
+const config = configSchema.parse(
+  JSON.parse(await readFile(configPath, "utf8")),
+);
+const databaseUrl = process.env[config.databaseUrlEnv];
+if (!databaseUrl) throw new Error(`Set ${config.databaseUrlEnv}`);
 
 const runner = new Runner({
   config,
   databaseUrl,
-  agents: createAgents(),
+  pathBaseDirectory: dirname(configPath),
   hosting: createHosting,
+  agents: createAgents(),
 });
-await runner.start();
-// Later, stop intake and terminate in-flight local work safely:
-await runner.shutdown();
+try {
+  await runner.start();
+  await new Promise<void>((done) => {
+    process.once("SIGINT", done);
+    process.once("SIGTERM", done);
+  });
+} finally {
+  await runner.shutdown();
+}
 ```
 
-[Custom workflow](examples/custom-workflow.ts), [complete runner](examples/run.ts), [configuration](examples/config.ts), and [inspection](examples/observe.ts) examples are type-checked with the library. The custom workflow is also exercised using controlled providers.
+See the [complete runner](examples/run.ts) for a custom workflow. The
+[SDK reference](docs/api.md) covers runner methods, custom workflows, adapters,
+and inspection. The [configuration reference](docs/configuration.md) lists every
+JSON field and default. The [custom workflow](examples/custom-workflow.ts),
+[configuration](examples/config.ts), and [inspection](examples/observe.ts)
+examples are type-checked with the library.
 
 ## Documentation
 

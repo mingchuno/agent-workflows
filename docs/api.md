@@ -1,30 +1,117 @@
-# Public SDK API
+# Public TypeScript SDK
 
-Exports are in `src/index.ts`; the built package resolves to `dist/src/index.js`. Generated TypeScript declarations describe full argument/return types. Node ESM is required.
+The package exports ESM from `@mingchuno/agent-workflows` (see
+[`src/index.ts`](../src/index.ts)); its generated declarations provide the full
+TypeScript types. Use Node.js 22.12 or later. The CLI and SDK share the same
+runtime and configuration schema, but the CLI-only `envFile` field is not part
+of `Configuration`.
 
-## Runner and controls
+Use `Runner` for issue intake and execution, `Operations` inside a custom
+workflow, and `Store` for persisted inspection or queued controls. The
+[configuration reference](configuration.md#schema-at-a-glance) describes every
+`Configuration` field.
 
-`new Runner({config,databaseUrl,hosting,agents,workspace?,workflow?,workflowVersion?,pathBaseDirectory?,promptBaseDirectory?})` injects hosting/agent adapters and optionally a workspace strategy or workflow. `hosting(project)` returns a host-qualified adapter. `agents` maps provider names to adapters. The default workspace uses the existing checkout. One DBOS runtime runs per Node process; one runner owns each configuration and checkout.
+## Run from an application
 
-`pathBaseDirectory` must identify an existing directory. It resolves relative
-state, checkout, and prompt-file paths once when the runner is constructed.
-Omitting it preserves current-working-directory behavior for SDK callers.
-`promptBaseDirectory` retains its narrower role and, when both are supplied,
-overrides only relative prompt files.
+```ts
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import {
+  configSchema,
+  createAgents,
+  createHosting,
+  Runner,
+} from "@mingchuno/agent-workflows";
 
-`start()` validates registration, acquires ownership, launches DBOS, registers concurrency-one project queues, and starts polling. `poll(projectId?)` performs an immediate scan. `pause(projectId)` stops new starts while active work continues. `resume(projectId)` refuses blocked checkouts. `stop(runId)` waits for the active invocation/process to end, or cancels queued work. `retry(runId)` requires a terminal failed/blocked/cancelled run and a clean checkout, then returns a new linked run ID using its saved issue. `retry(runId, commandId, { refreshIssue: true })` fetches and validates the current hosted issue once during admission, saving it on the new run. `recover(runId)` returns a new execution ID for publication recovery of the same run. `shutdown()` stops intake, cancels and awaits active work, closes DBOS and releases ownership.
+const configPath = resolve("agent-workflows.json");
+const config = configSchema.parse(
+  JSON.parse(await readFile(configPath, "utf8")),
+);
+const databaseUrl = process.env[config.databaseUrlEnv];
+if (!databaseUrl) throw new Error(`Set ${config.databaseUrlEnv}`);
 
-Use `try/finally` to call `shutdown()`, including failed startup. A custom `workflowVersion` must change when its durable step order changes; finish existing work before replacing an incompatible version.
+const runner = new Runner({
+  config,
+  databaseUrl,
+  pathBaseDirectory: dirname(configPath),
+  hosting: createHosting,
+  agents: createAgents(),
+});
+try {
+  await runner.start();
+  await new Promise<void>((done) => {
+    process.once("SIGINT", done);
+    process.once("SIGTERM", done);
+  });
+} finally {
+  await runner.shutdown();
+}
+```
 
-Polling runs independently per project, with at most one scan in flight per project. `start()` does not wait for scans to finish; `poll(projectId?)` waits for the requested scans, joining any already in flight. Shutdown drains outstanding scans without admitting their results or starting queued work.
+See the [type-checked complete runner](../examples/run.ts) for a custom
+workflow variant. SDK callers load their own environment before constructing the
+runner and pass the database URL explicitly. `configSchema.parse` applies
+defaults and rejects unknown keys.
 
-Retry admission serializes competing requests per project. One request creates
-the next attempt; another request for the same task fails while that retry is
-queued or running. Replaying the same command ID returns its existing retry,
-without rechecking the checkout or emitting events. A command ID cannot identify
-retries of different runs. Retry creation, project unblocking and their events
-commit together; failure preserves the blocked state. The rationale for separate
-run and execution identities is in
+## Runner options
+
+`new Runner(options)` requires the following:
+
+| Option | Type | Purpose |
+| --- | --- | --- |
+| `config` | `Configuration` | Parsed runner and project settings. |
+| `databaseUrl` | `string` | PostgreSQL connection URL. |
+| `hosting` | `(project: Project) => HostingAdapter` | Create a hosting adapter for each project; `createHosting` supplies GitHub/GitLab. |
+| `agents` | `Record<string, AgentAdapter>` | Provider adapters; `createAgents()` supplies Codex/Copilot. |
+
+Optional options:
+
+| Option | Type | Default / purpose |
+| --- | --- | --- |
+| `pathBaseDirectory` | `string` | Existing directory for relative state, checkout, and prompt paths; defaults to `process.cwd()`. |
+| `promptBaseDirectory` | `string` | Overrides the base for relative prompt files only. |
+| `workspace` | `Workspace` | Defaults to `ExistingCheckout`. |
+| `workflow` | `(operations: Operations) => Promise<void>` | Defaults to `defaultWorkflow`. |
+| `workflowVersion` | `string` | Durable workflow version; change it when custom step order changes. |
+
+Paths are resolved once during construction; checkout roots are canonicalized
+and ownership is checked at startup. The runner reads configured prompt files at
+construction. One `Runner` owns the DBOS runtime per Node process; do not start
+two runners in one process or point concurrent runners at the same checkout.
+
+## Runner methods
+
+| Method | Result | Behavior |
+| --- | --- | --- |
+| `start()` | `Promise<void>` | Validate projects, acquire checkout ownership, launch DBOS, register one-at-a-time project queues, and begin polling. |
+| `poll(projectId?)` | `Promise<void>` | Scan all projects or one project immediately; joins an existing scan for that project. |
+| `pause(projectId)` | `Promise<void>` | Stop new intake for that project; active work continues. |
+| `resume(projectId)` | `Promise<void>` | Resume intake if the project is not blocked. |
+| `stop(runId)` | `Promise<void>` | Cancel queued work or wait for the active local invocation/process to stop. |
+| `retry(runId, commandId?, options?)` | `Promise<string>` | Admit a new run ID from a terminal failed, blocked, or cancelled run after safety checks. |
+| `recover(runId, commandId?)` | `Promise<string>` | Admit a new execution ID for a failed publication step in the default workflow. |
+| `shutdown()` | `Promise<void>` | Stop intake, cancel and await active work, close DBOS and release ownership. |
+
+`runner.config` contains parsed, resolved configuration. `runner.store` exposes
+persisted records and commands. Always call `shutdown()` in `finally`, including
+when startup fails. `start()` begins polling but does not wait for an intake scan;
+call `poll()` when you need to await a scan.
+
+A plain retry keeps the issue snapshot stored with the previous run. Pass
+`{ refreshIssue: true }` as the third argument to fetch and validate the current
+hosted issue for the new run:
+
+```ts
+const newRunId = await runner.retry(failedRunId, undefined, {
+  refreshIssue: true,
+});
+```
+
+`commandId` is an optional stable identifier for an uncertain retry or recovery
+request. Reusing it returns the admitted ID without creating another attempt.
+Admission serializes competing requests per project and checks checkout safety.
+Publication recovery keeps the run ID, branch, commit, and completed checkpoints;
+see [recovery rules](operations.md#publication-recovery) and
 [ADR 0003](adr/0003-run-and-execution-identity.md).
 
 ## Durable operations
@@ -151,24 +238,51 @@ Caveats:
 
 `HostingAdapter` provides issue pagination/revalidation, instance-qualified `identity`, change-request lookup/create, remote head, and idempotent review publication. `preflight` is optional. Reconciliation keys must be stable across response loss; providers must never infer successful publication from agent prose.
 
-## Query and event interface
+## Store: history, events, and commands
 
-`runner.store` is a `Store`. Independently construct `new Store(databaseUrl, runnerId)` to inspect history after shutdown; always `close()` it. `projects()`, `runs()`, `run(id)`, `invocations(runId)` and `events(afterSequence)` return persisted data. Events are ordered by monotonic sequence, paged at 1000; advance the cursor to retrieve more. `subscribe(listener,{after,intervalMs})` polls and returns an unsubscribe function. Delivery resumes from the caller's cursor; persist it if needed.
+`runner.store` is the runner's `Store`. For a separate read process or inspection
+after shutdown, construct `new Store(databaseUrl, runnerId)` and close it when
+finished:
 
-`Store.admitRetry` owns persisted retry admission. Runner supplies its checkout
-and process safety check, which runs under the project lock for new admissions
-only. This callback must not mutate Store records. Operator tools should use
-`retry` commands or `Runner.retry`, preserving those safety checks. The locking
-boundary is recorded in [ADR 0005](adr/0005-postgresql-persistence-boundary.md).
+```ts
+import { Store } from "@mingchuno/agent-workflows";
 
-Invocation records include project/run IDs, stable DBOS step ID and name, invocation ID, attempt, timestamps, requested/effective profile, provider, effective task prompt/source/hash, output-contract and evidence identities, artifact path and session state (`pending`, `available`, `unavailable`). Repeated custom steps retain separate invocations. A retry has a separate run record linked to its predecessor.
+const store = new Store(databaseUrl, config.id);
+try {
+  const run = await store.run(runId);
+  const sessions = await store.invocations(runId);
+  const events = await store.events(0, runId);
+} finally {
+  await store.close();
+}
+```
 
-Writable invocation before/after evidence is retained on the run. Publication
-finalization persists contributing provider identities in first-contribution
-order, independent of custom stage names. Recovery reuses that provenance and
-the finalized publication message.
+Use a runner ID matching the configuration's `id`; it scopes every query.
 
-`request(kind,target)` queues the same `pause`, `resume`, `stop`, `retry`, or `recover` commands used by the CLI/TUI; `commands()` reports pending/success/failure. A runner must be active to execute them. `finishCommand` and record-writing methods support adapters and custom workflows; operator tools should prefer commands over direct mutation.
+| Method | Result / use |
+| --- | --- |
+| `projects()` / `project(id)` | Persisted project state, including pause/block status. |
+| `runs()` / `run(id)` | Run history or one run record. |
+| `invocations(runId)` | Agent invocation and session records for a run. |
+| `events(afterSequence?, runId?)` | Ordered events after a sequence, up to 1000 per call. Advance the cursor to page. |
+| `subscribe(listener, { after?, intervalMs? })` | Poll for events; returns an unsubscribe function. Persist `after` if delivery must resume across restarts. |
+| `request(kind, target)` | Queue a `pause`, `resume`, `stop`, `retry`, `retry-refresh`, or `recover` command; returns its command ID. |
+| `commands()` | Command IDs, targets, and pending/success/failure status. |
+| `recoveryPlan(runId)` | Persisted recovery eligibility and reason; live checks still happen at admission. |
+| `close()` | Release the Store database connection. |
+
+A queued command needs an active runner to execute it. `finishCommand`,
+`admitRetry`, `admitRecovery`, and record-writing methods are lower-level
+persistence APIs. Operator tools should use queued commands or the `Runner`
+methods so checkout and process safety checks run.
+
+Invocation records include project/run IDs, stable DBOS step ID and name,
+invocation ID, attempt, timestamps, requested/effective profile, provider,
+effective task prompt/source/hash, output-contract and evidence identities,
+artifact path, and session state (`pending`, `available`, `unavailable`). A retry
+has a separate run record linked to its predecessor. The run also retains
+before/after evidence for writable invocations; publication finalization records
+contributing provider identities in first-contribution order.
 
 ## Publication recovery
 
