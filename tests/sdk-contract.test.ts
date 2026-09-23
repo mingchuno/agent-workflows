@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { SessionConfig } from "@github/copilot-sdk";
 import type { ThreadEvent, ThreadOptions } from "@openai/codex-sdk";
 import {
+  type CopilotClientContract,
   runCodex,
   runCopilot,
   type WorkerInput,
@@ -52,6 +53,7 @@ test("Copilot contract starts fresh sessions with context controls and stops on 
   let stopped = false;
   const messages: Array<[string, unknown]> = [];
   const client = {
+    async start() {},
     async listModels() {
       return [];
     },
@@ -100,10 +102,47 @@ test("Copilot contract starts fresh sessions with context controls and stops on 
   assert.equal(stopped, true);
 });
 
+test("Copilot model discovery connects before listing and closes afterward", async () => {
+  const calls: string[] = [];
+  const messages: Array<[string, unknown]> = [];
+  await runCopilot(
+    {
+      async start() {
+        calls.push("start");
+      },
+      async listModels() {
+        calls.push("listModels");
+        return [
+          {
+            id: "model",
+            supportedReasoningEfforts: ["high"],
+            capabilities: { limits: { max_context_window_tokens: 128_000 } },
+          },
+        ] as Awaited<ReturnType<CopilotClientContract["listModels"]>>;
+      },
+      async createSession() {
+        throw new Error("model discovery must not create a session");
+      },
+      async stop() {
+        calls.push("stop");
+        return [];
+      },
+      async forceStop() {},
+    },
+    { ...input, provider: "copilot", operation: "models" },
+    (type, value) => messages.push([type, value]),
+  );
+  assert.deepEqual(calls, ["start", "listModels", "stop"]);
+  assert.deepEqual(JSON.parse(messages[0]?.[1] as string), [
+    { id: "model", reasoningEfforts: ["high"], contextWindowTokens: 128_000 },
+  ]);
+});
+
 test("Copilot honors a configured timeout longer than the default", async () => {
   let observedTimeout: number | undefined;
   await runCopilot(
     {
+      async start() {},
       async listModels() {
         return [];
       },
@@ -169,6 +208,7 @@ test("Copilot permits outside-checkout file reads while denying shell and writes
   const messages: unknown[] = [];
   await runCopilot(
     {
+      async start() {},
       async listModels() {
         return [];
       },

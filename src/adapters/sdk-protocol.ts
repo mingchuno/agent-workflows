@@ -65,6 +65,7 @@ export interface CopilotSessionClient {
   disconnect(): Promise<void>;
 }
 export interface CopilotClientContract {
+  start(): Promise<void>;
   listModels(): Promise<ModelInfo[]>;
   createSession(options: SessionConfig): Promise<CopilotSessionClient>;
   stop(): Promise<Error[]>;
@@ -77,6 +78,7 @@ export async function runCopilot(
 ): Promise<void> {
   try {
     if (input.operation === "models") {
+      await client.start();
       emit(
         "result",
         JSON.stringify(
