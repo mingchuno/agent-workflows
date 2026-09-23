@@ -89,7 +89,12 @@ test("cancelled or timed-out returned output never gets format correction", asyn
     // Keep the event loop alive while waiting for AbortSignal.timeout's unref'ed timer.
     const keepAlive = setInterval(() => {}, 1000);
     try {
-      await assert.rejects(invokeStage(setup.input));
+      if (reason === "timeout")
+        await assert.rejects(
+          invokeStage(setup.input),
+          /custom agent stage timed out after 300 ms/,
+        );
+      else await assert.rejects(invokeStage(setup.input));
     } finally {
       clearInterval(keepAlive);
     }

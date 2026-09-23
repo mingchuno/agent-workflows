@@ -48,6 +48,41 @@ test("Codex contract passes requested profile and emits thread ID before a faile
   assert.equal(options?.sandboxMode, "read-only");
   assert.deepEqual(messages[0], ["session", "thread-123"]);
 });
+test("Codex rejects a stream that ends before turn completion", async () => {
+  const messages: Array<[string, unknown]> = [];
+  await assert.rejects(
+    runCodex(
+      {
+        startThread() {
+          return {
+            async runStreamed() {
+              return {
+                events: (async function* (): AsyncGenerator<ThreadEvent> {
+                  yield { type: "thread.started", thread_id: "partial" };
+                  yield {
+                    type: "item.completed",
+                    item: {
+                      type: "agent_message",
+                      id: "message",
+                      text: '{"result":',
+                    },
+                  } as ThreadEvent;
+                })(),
+              };
+            },
+          };
+        },
+      },
+      input,
+      (type, value) => messages.push([type, value]),
+    ),
+    /ended before turn.completed/,
+  );
+  assert.equal(
+    messages.some(([type]) => type === "result"),
+    false,
+  );
+});
 test("Copilot contract starts fresh sessions with context controls and stops on failure", async () => {
   let options: SessionConfig | undefined;
   let stopped = false;
@@ -186,6 +221,16 @@ test("Codex forwards the output contract independently of task text", async () =
             return {
               events: (async function* (): AsyncGenerator<ThreadEvent> {
                 yield { type: "thread.started", thread_id: "structured" };
+                yield {
+                  type: "turn.completed",
+                  usage: {
+                    input_tokens: 0,
+                    cached_input_tokens: 0,
+                    cache_write_input_tokens: 0,
+                    output_tokens: 0,
+                    reasoning_output_tokens: 0,
+                  },
+                };
               })(),
             };
           },

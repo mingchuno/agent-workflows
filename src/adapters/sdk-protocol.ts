@@ -45,14 +45,17 @@ export async function runCodex(
     outputSchema: input.outputSchema,
   });
   let output = "";
+  let completed = false;
   for await (const event of turn.events) {
     if (event.type === "thread.started") emit("session", event.thread_id);
     emit("event", event);
     if (event.type === "item.completed" && event.item.type === "agent_message")
       output = event.item.text;
+    if (event.type === "turn.completed") completed = true;
     if (event.type === "turn.failed") throw new Error(event.error.message);
     if (event.type === "error") throw new Error(event.message);
   }
+  if (!completed) throw new Error("Codex stream ended before turn.completed");
   emit("result", output);
 }
 export interface CopilotSessionClient {

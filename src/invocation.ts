@@ -266,6 +266,14 @@ async function invokeAttempt(
     };
   } catch (error) {
     if (record.outcome === "running") record.outcome = "failed";
+    if (
+      invocationSignal.aborted &&
+      (invocationSignal.reason as Error)?.name === "TimeoutError"
+    )
+      throw new Error(
+        `${name} agent stage timed out after ${execution.stage.timeoutMs} ms`,
+        { cause: error },
+      );
     throw error;
   } finally {
     record.finishedAt = new Date().toISOString();
