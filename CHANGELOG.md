@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.0](https://github.com/mingchuno/agent-workflows/compare/v0.4.1...v0.5.0) (2026-09-23)
+
+
+### Features
+
+* **monitor:** Expose agent preflight diagnostics ([14a7f5b](https://github.com/mingchuno/agent-workflows/commit/14a7f5b335b427f5c088d2a04d7f3a267f458597))
+* **retry:** Support refreshing the issue snapshot ([cfe37c2](https://github.com/mingchuno/agent-workflows/commit/cfe37c27245a26fff14ecdde2a5086d3fbffd127))
+* **validation:** Add ticket-selected check profiles ([2b8ed4d](https://github.com/mingchuno/agent-workflows/commit/2b8ed4d9113f41786c9c0571abb4645278d25002))
+
 ## [0.4.1](https://github.com/mingchuno/agent-workflows/compare/v0.4.0...v0.4.1) (2026-09-22)
 
 
