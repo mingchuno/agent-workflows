@@ -883,9 +883,12 @@ test("a removed selected run dismisses its confirmation without submitting a com
   const view = render(<Monitor source={source} size={wide} />);
   try {
     await until(() => view.lastFrame()!.includes("Implement feature"));
-    view.stdin.write("s");
     await settle();
-    assert.match(view.lastFrame()!, /Confirm stop/);
+    view.stdin.write("s");
+    await until(
+      () => view.lastFrame()!.includes("Confirm stop"),
+      view.lastFrame,
+    );
     runs = [
       {
         ...run,
