@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/mingchuno/agent-workflows/compare/v0.5.1...v0.5.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* **invocation:** Reject incomplete agent turns ([65ca75b](https://github.com/mingchuno/agent-workflows/commit/65ca75bccd878cea004df6886b28a64c7ea51163))
+* **tui:** preserve log rows during horizontal panning ([#20](https://github.com/mingchuno/agent-workflows/issues/20)) ([9cf9de2](https://github.com/mingchuno/agent-workflows/commit/9cf9de242dafaa25915175761d4facdac1b2ed18))
+
 ## [0.5.1](https://github.com/mingchuno/agent-workflows/compare/v0.5.0...v0.5.1) (2026-09-23)
 
 
