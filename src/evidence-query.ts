@@ -163,54 +163,88 @@ export class EvidenceQuery {
       preview: string;
     }> = [];
     let hasMore = false;
+    let searchedChanges = 0;
+    let searchedChunks = 0;
     for (const change of changes) {
       signal?.throwIfAborted();
       if (change.binary || change.chunks.length === 0) continue;
-      const parts = await Promise.all(
-        change.chunks.map((chunk) => this.readManifestArtifact(chunk, signal)),
-      );
-      const content = parts.join("");
-      const characterOffsets: number[] = [];
-      let characterOffset = 0;
-      for (const part of parts) {
-        characterOffsets.push(characterOffset);
-        characterOffset += part.length;
-      }
-      for (let offset = content.indexOf(term); offset >= 0; ) {
-        if (matches.length === limit) {
-          hasMore = true;
-          break;
+      let current = await this.readManifestArtifact(change.chunks[0]!, signal);
+      let previousTail = "";
+      let line = 1;
+      let lineStart = 0;
+      let chunkStart = 0;
+      for (const [index, chunk] of change.chunks.entries()) {
+        signal?.throwIfAborted();
+        const next = change.chunks[index + 1];
+        const following = next
+          ? await this.readManifestArtifact(next, signal)
+          : "";
+        const content = previousTail + current + following;
+        const currentStart = previousTail.length;
+        let position = 0;
+        const advance = (end: number) => {
+          for (let index = position; index < end; index++) {
+            if (current.charCodeAt(index) === 10) {
+              line++;
+              lineStart = chunkStart + index + 1;
+            }
+          }
+          position = end;
+        };
+        for (
+          let offset = content.indexOf(term, currentStart);
+          offset >= currentStart && offset < currentStart + current.length;
+          offset = content.indexOf(term, offset + term.length)
+        ) {
+          if (matches.length === limit) {
+            hasMore = true;
+            break;
+          }
+          const localOffset = offset - currentStart;
+          advance(localOffset);
+          const absoluteOffset = chunkStart + localOffset;
+          const previewStart = Math.max(lineStart, absoluteOffset - 80);
+          const previewOffset = currentStart + previewStart - chunkStart;
+          const lineEnd = content.indexOf("\n", offset);
+          const previewEnd = Math.min(
+            lineEnd < 0 ? content.length : lineEnd,
+            previewOffset + evidenceQueryLimits.previewCharacters,
+          );
+          matches.push({
+            reference: change.reference,
+            path: change.path,
+            kind: change.kind,
+            chunk: chunk.ordinal,
+            line,
+            column: absoluteOffset - lineStart + 1,
+            previewStartColumn: previewStart - lineStart + 1,
+            preview: content.slice(previewOffset, previewEnd),
+          });
         }
-        const before = content.slice(0, offset);
-        const lineStart = before.lastIndexOf("\n") + 1;
-        const lineEnd = content.indexOf("\n", offset);
-        const previewStart = Math.max(lineStart, offset - 80);
-        const previewEnd = Math.min(
-          lineEnd < 0 ? content.length : lineEnd,
-          previewStart + evidenceQueryLimits.previewCharacters,
-        );
-        const chunkIndex = Math.max(
-          0,
-          characterOffsets.findLastIndex((start) => start <= offset),
-        );
-        matches.push({
-          reference: change.reference,
-          path: change.path,
-          kind: change.kind,
-          chunk: change.chunks[chunkIndex]!.ordinal,
-          line: before.split("\n").length,
-          column: offset - lineStart + 1,
-          previewStartColumn: previewStart - lineStart + 1,
-          preview: content.slice(previewStart, previewEnd),
-        });
-        offset = content.indexOf(term, offset + Math.max(1, term.length));
+        if (hasMore) break;
+        advance(current.length);
+        searchedChunks++;
+        chunkStart += current.length;
+        previousTail = current.slice(-80);
+        current = following;
       }
       if (hasMore) break;
+      searchedChanges++;
     }
+    const searchableChanges = changes.filter(
+      (change) => !change.binary && change.chunks.length > 0,
+    );
     return this.bounded({
       term,
       limit,
-      searchedChanges: changes.filter((change) => !change.binary).length,
+      searchedChanges,
+      unsearchedChanges: searchableChanges.length - searchedChanges,
+      searchedChunks,
+      unsearchedChunks:
+        searchableChanges.reduce(
+          (total, change) => total + change.chunks.length,
+          0,
+        ) - searchedChunks,
       binaryChanges: changes.filter((change) => change.binary).length,
       matches,
       truncated: hasMore,

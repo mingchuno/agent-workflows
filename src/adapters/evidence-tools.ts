@@ -80,7 +80,7 @@ export function createEvidenceTools(
     {
       name: "evidence_search",
       description:
-        "Search only this invocation's captured text for a case-sensitive literal term. Returns bounded manifest references, chunk ordinals, line and column locations, previews, and whether more matches exist. Binary changes are counted but not searched.",
+        "Search only this invocation's captured text for a case-sensitive literal term. Returns bounded manifest references, chunk ordinals, line and column locations, previews, and fully searched versus unsearched change and chunk counts. Binary changes are counted but not searched.",
       parameters: {
         type: "object",
         properties: {

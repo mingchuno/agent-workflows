@@ -73,6 +73,9 @@ test("literal search returns bounded manifest locations and distinguishes no mat
   assert.equal(result.matches.length, 2);
   assert.equal(result.limit, 2);
   assert.equal(result.truncated, true);
+  assert.ok(result.unsearchedChanges > 0);
+  assert.ok(result.unsearchedChunks > 0);
+  assert.equal(result.searchedChanges, 1);
   assert.ok(result.matches.every((match) => match.preview.includes("needle")));
   assert.ok(
     result.matches.every((match) => match.line > 0 && match.column > 0),
@@ -86,6 +89,48 @@ test("literal search returns bounded manifest locations and distinguishes no mat
   assert.equal(absent.truncated, false);
   assert.ok(absent.searchedChanges > 0);
   assert.ok(absent.binaryChanges > 0);
+  assert.equal(absent.unsearchedChanges, 0);
+  assert.equal(absent.unsearchedChunks, 0);
+});
+
+test("search reports partial coverage when the first change exceeds the limit", async () => {
+  const { root, project } = await repository();
+  await writeFile(join(root, "a.txt"), "needle needle needle\n");
+  await writeFile(join(root, "b.txt"), "needle\n");
+  const evidence = await captureEvidence({
+    project,
+    directory: await mkdtemp(join(tmpdir(), "query-coverage-")),
+    snapshot: await new ExistingCheckout().inspect(project),
+  });
+  const result = await new EvidenceQuery(evidence).search({
+    term: "needle",
+    limit: 1,
+  });
+  assert.equal(result.truncated, true);
+  assert.equal(result.searchedChanges, 0);
+  assert.equal(result.unsearchedChanges, 2);
+  assert.equal(result.searchedChunks, 0);
+  assert.equal(result.unsearchedChunks, 2);
+});
+
+test("search finds a literal across chunks with its starting location", async () => {
+  const { root, project } = await repository();
+  await writeFile(
+    join(root, "split.txt"),
+    `${"x".repeat(evidenceLimits.chunkBytes - 3)}needle\n`,
+  );
+  const evidence = await captureEvidence({
+    project,
+    directory: await mkdtemp(join(tmpdir(), "query-boundary-")),
+    snapshot: await new ExistingCheckout().inspect(project),
+  });
+  const result = await new EvidenceQuery(evidence).search({ term: "needle" });
+  assert.equal(result.matches.length, 1);
+  assert.equal(result.matches[0]?.chunk, 0);
+  assert.equal(result.matches[0]?.line, 1);
+  assert.equal(result.matches[0]?.column, evidenceLimits.chunkBytes - 2);
+  assert.match(result.matches[0]!.preview, /needle/);
+  assert.equal(result.unsearchedChunks, 0);
 });
 
 test("evidence queries reject absent pages, references, chunks, and modified artifacts", async () => {
