@@ -119,6 +119,7 @@ export interface AgentInvocation {
   readOnly: boolean;
   signal: AbortSignal;
   timeoutMs?: number;
+  evidence?: import("./evidence.js").ChangeEvidence;
   session: (id: string) => Promise<void>;
   event: (event: unknown) => Promise<void>;
 }

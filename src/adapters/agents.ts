@@ -120,6 +120,7 @@ export class SDKAgent implements AgentAdapter {
         outputSchema: invocation.outputSchema,
         readOnly: invocation.readOnly,
         timeoutMs: invocation.timeoutMs ?? defaultStageTimeoutMs,
+        evidence: invocation.evidence,
       },
       invocation,
     );

@@ -308,3 +308,178 @@ test("Copilot permits outside-checkout file reads while denying shell and writes
   );
   assert.ok(messages.includes("captured evidence"));
 });
+
+test("Copilot read-only stages expose bounded evidence tools and retain tool failures", async () => {
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { EvidenceWriter } = await import("../src/evidence.js");
+  const directory = await mkdtemp(join(tmpdir(), "copilot-tools-"));
+  const writer = new EvidenceWriter(directory);
+  const chunks = await writer.chunks("patch-0", "patch needle\n");
+  const index = await writer.index(
+    `${JSON.stringify({
+      reference: "change-0",
+      path: "file.txt",
+      kind: "published",
+      change: "modified",
+      sha256: "captured-change",
+      binary: false,
+      chunks,
+    })}\n`,
+    { base: "base", head: "head", changedPaths: 1 },
+  );
+  const evidence = {
+    index: index.path,
+    identity: index.sha256,
+    files: writer.files,
+    changedPaths: 1,
+    base: "base",
+    head: "head",
+  };
+  const events: unknown[] = [];
+  await runCopilot(
+    {
+      async start() {},
+      async listModels() {
+        return [];
+      },
+      async createSession(options) {
+        assert.deepEqual(
+          options.tools?.map((tool) => tool.name),
+          ["evidence_list_changes", "evidence_read_change", "evidence_search"],
+        );
+        assert.ok(options.tools?.every((tool) => tool.skipPermission));
+        const listed = (await options.tools![0]!.handler!(
+          { page: 1 },
+          {
+            sessionId: "test",
+            toolCallId: "list",
+            toolName: "evidence_list_changes",
+            arguments: { page: 1 },
+          },
+        )) as { changes: Array<{ reference: string }> };
+        assert.equal(listed.changes[0]!.reference, "change-0");
+        const read = (await options.tools![1]!.handler!(
+          { reference: "change-0", chunk: 0 },
+          {
+            sessionId: "test",
+            toolCallId: "read",
+            toolName: "evidence_read_change",
+            arguments: { reference: "change-0", chunk: 0 },
+          },
+        )) as { text: string };
+        assert.equal(read.text, "patch needle\n");
+        const searched = (await options.tools![2]!.handler!(
+          { term: "needle" },
+          {
+            sessionId: "test",
+            toolCallId: "search",
+            toolName: "evidence_search",
+            arguments: { term: "needle" },
+          },
+        )) as { matches: unknown[] };
+        assert.equal(searched.matches.length, 1);
+        await assert.rejects(
+          async () =>
+            options.tools![1]!.handler!(
+              { reference: "/tmp/arbitrary", chunk: 0 },
+              {
+                sessionId: "test",
+                toolCallId: "bad-read",
+                toolName: "evidence_read_change",
+                arguments: { reference: "/tmp/arbitrary", chunk: 0 },
+              },
+            ),
+          /reference.*absent/i,
+        );
+        const permission = options.onPermissionRequest!;
+        assert.equal(
+          (
+            await permission(
+              {
+                kind: "shell",
+                fullCommandText: "git diff",
+                commands: [],
+                possiblePaths: [],
+                possibleUrls: [],
+                hasWriteFileRedirection: false,
+                intention: "inspect",
+                canOfferSessionApproval: false,
+              },
+              { sessionId: "test" },
+            )
+          ).kind,
+          "reject",
+        );
+        return {
+          sessionId: "test",
+          on() {},
+          async sendAndWait() {
+            return { data: { content: "finished" } };
+          },
+          async disconnect() {},
+        };
+      },
+      async stop() {
+        return [];
+      },
+      async forceStop() {},
+    },
+    {
+      ...input,
+      provider: "copilot",
+      operation: "invoke",
+      evidence,
+    },
+    (type, value) => {
+      if (type === "event") events.push(value);
+    },
+  );
+  assert.ok(
+    events.some(
+      (event) => (event as { type?: string }).type === "evidence.tool.failed",
+    ),
+  );
+  assert.ok(
+    events.some(
+      (event) => (event as { type?: string }).type === "evidence.tool.started",
+    ),
+  );
+  assert.ok(
+    events.some(
+      (event) =>
+        (event as { type?: string }).type === "evidence.tool.completed",
+    ),
+  );
+});
+
+test("Copilot does not register evidence tools without invocation evidence", async () => {
+  let tools: SessionConfig["tools"];
+  await runCopilot(
+    {
+      async start() {},
+      async listModels() {
+        return [];
+      },
+      async createSession(options) {
+        tools = options.tools;
+        return {
+          sessionId: "none",
+          on() {},
+          async sendAndWait() {
+            return { data: { content: "finished" } };
+          },
+          async disconnect() {},
+        };
+      },
+      async stop() {
+        return [];
+      },
+      async forceStop() {},
+    },
+    { ...input, provider: "copilot", operation: "invoke" },
+    () => {},
+  );
+  assert.equal(tools, undefined);
+});

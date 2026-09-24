@@ -3,13 +3,17 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import type { SessionConfig } from "@github/copilot-sdk";
 import { z } from "zod";
+import { runCopilot } from "../src/adapters/sdk-protocol.js";
 import { stageSchema } from "../src/config.js";
 import type {
   AgentAdapter,
   AgentInvocation,
   RunRecord,
 } from "../src/domain.js";
+import { publicationSchema } from "../src/domain.js";
+import { captureEvidence } from "../src/evidence.js";
 import { invokeStage } from "../src/invocation.js";
 import type { InvocationRecord, Store } from "../src/store.js";
 import { ExistingCheckout } from "../src/workspace.js";
@@ -155,6 +159,238 @@ test("custom text stages return literal output without format correction", async
   delete input.task.outputContract;
   assert.equal(await invokeStage(input), "plain text");
   assert.equal(calls, 1);
+});
+
+test("only Copilot publication and review receive captured evidence tools", async () => {
+  const { EvidenceWriter } = await import("../src/evidence.js");
+  const directory = await mkdtemp(join(tmpdir(), "invocation-evidence-"));
+  const writer = new EvidenceWriter(directory);
+  const index = await writer.index("", { changedPaths: 0 });
+  const evidence = {
+    index: index.path,
+    identity: index.sha256,
+    files: writer.files,
+    changedPaths: 0,
+    base: "base",
+  };
+  for (const name of ["publication", "review"] as const) {
+    const calls: AgentInvocation[] = [];
+    const setup = await fixture(async (invocation) => {
+      calls.push(invocation);
+      return '{"result":"ok"}';
+    });
+    setup.input.name = name;
+    setup.input.task.evidence = evidence;
+    setup.input.dependencies.project.agent.provider = "copilot";
+    setup.input.dependencies.agents.copilot =
+      setup.input.dependencies.agents.codex!;
+    assert.equal(await invokeStage(setup.input), '{"result":"ok"}');
+    assert.equal(calls[0]!.evidence, evidence);
+    assert.match(calls[0]!.prompt, /evidence_list_changes/);
+    assert.match(calls[0]!.prompt, /Do not request shell or write permission/);
+    if (name === "review") {
+      let registeredTools: string[] | undefined;
+      await runCopilot(
+        {
+          async start() {},
+          async listModels() {
+            return [];
+          },
+          async createSession(options) {
+            registeredTools = options.tools?.map((tool) => tool.name);
+            return {
+              sessionId: "review-session",
+              on() {},
+              async sendAndWait() {
+                return { data: { content: "{}" } };
+              },
+              async disconnect() {},
+            };
+          },
+          async stop() {
+            return [];
+          },
+          async forceStop() {},
+        },
+        {
+          provider: "copilot",
+          operation: "invoke",
+          id: calls[0]!.id,
+          cwd: calls[0]!.cwd,
+          prompt: calls[0]!.prompt,
+          profile: calls[0]!.profile,
+          readOnly: calls[0]!.readOnly,
+          evidence: calls[0]!.evidence,
+        },
+        () => {},
+      );
+      assert.deepEqual(registeredTools, [
+        "evidence_list_changes",
+        "evidence_read_change",
+        "evidence_search",
+      ]);
+    }
+  }
+
+  const codexCalls: AgentInvocation[] = [];
+  const codex = await fixture(async (invocation) => {
+    codexCalls.push(invocation);
+    return '{"result":"ok"}';
+  });
+  codex.input.name = "publication";
+  codex.input.task.evidence = evidence;
+  assert.equal(await invokeStage(codex.input), '{"result":"ok"}');
+  assert.equal(codexCalls[0]!.evidence, undefined);
+  assert.doesNotMatch(codexCalls[0]!.prompt, /evidence_list_changes/);
+
+  const implementationCalls: AgentInvocation[] = [];
+  const implementation = await fixture(async (invocation) => {
+    implementationCalls.push(invocation);
+    return '{"result":"ok"}';
+  });
+  implementation.input.name = "implementation";
+  implementation.input.task.evidence = evidence;
+  implementation.input.dependencies.project.agent.provider = "copilot";
+  implementation.input.dependencies.agents.copilot =
+    implementation.input.dependencies.agents.codex!;
+  assert.equal(await invokeStage(implementation.input), '{"result":"ok"}');
+  assert.equal(implementationCalls[0]!.evidence, undefined);
+  assert.doesNotMatch(implementationCalls[0]!.prompt, /evidence_list_changes/);
+});
+
+test("a Copilot publication invocation navigates multi-chunk evidence and returns valid JSON without shell approval", async () => {
+  const { root, project } = await repository();
+  await writeFile(
+    join(root, "large.txt"),
+    `${"context line\n".repeat(7_000)}publication needle\n`,
+  );
+  const evidence = await captureEvidence({
+    project,
+    directory: await mkdtemp(join(tmpdir(), "publication-evidence-")),
+    snapshot: await new ExistingCheckout().inspect(project),
+  });
+  let sessions = 0;
+  let inspectedChunks = 0;
+  const output = JSON.stringify({
+    commitMessage: "feat: describe captured change",
+    title: "Describe captured change",
+    description:
+      "Inspected all captured chunks and found the publication needle.",
+  });
+  const setup = await fixture(async (invocation) => {
+    const pending: Promise<void>[] = [];
+    let result = "";
+    await runCopilot(
+      {
+        async start() {},
+        async listModels() {
+          return [];
+        },
+        async createSession(options: SessionConfig) {
+          sessions++;
+          assert.deepEqual(
+            options.tools?.map((tool) => tool.name),
+            [
+              "evidence_list_changes",
+              "evidence_read_change",
+              "evidence_search",
+            ],
+          );
+          assert.ok(options.tools?.every((tool) => tool.skipPermission));
+          const tools = options.tools!;
+          const call = async (index: number, args: Record<string, unknown>) =>
+            tools[index]!.handler!(args, {
+              sessionId: "publication-session",
+              toolCallId: `call-${index}-${inspectedChunks}`,
+              toolName: tools[index]!.name,
+              arguments: args,
+            });
+          return {
+            sessionId: "publication-session",
+            on() {},
+            async sendAndWait() {
+              const listed = (await call(0, { page: 1 })) as {
+                changes: Array<{
+                  reference: string;
+                  chunks: Array<{ ordinal: number }>;
+                }>;
+              };
+              assert.equal(listed.changes.length, 1);
+              assert.ok(listed.changes[0]!.chunks.length > 1);
+              const found = (await call(2, { term: "publication needle" })) as {
+                matches: Array<{ reference: string }>;
+              };
+              assert.equal(
+                found.matches[0]?.reference,
+                listed.changes[0]!.reference,
+              );
+              for (const chunk of listed.changes[0]!.chunks) {
+                const read = (await call(1, {
+                  reference: listed.changes[0]!.reference,
+                  chunk: chunk.ordinal,
+                })) as { text: string; remainingUnreadChunks: number };
+                inspectedChunks++;
+                if (inspectedChunks === listed.changes[0]!.chunks.length)
+                  assert.equal(read.remainingUnreadChunks, 0);
+              }
+              const permission = await options.onPermissionRequest!(
+                {
+                  kind: "shell",
+                  fullCommandText: "git diff",
+                  commands: [],
+                  possiblePaths: [],
+                  possibleUrls: [],
+                  hasWriteFileRedirection: false,
+                  intention: "inspect",
+                  canOfferSessionApproval: false,
+                },
+                { sessionId: "publication-session" },
+              );
+              assert.equal(permission.kind, "reject");
+              return { data: { content: output } };
+            },
+            async disconnect() {},
+          };
+        },
+        async stop() {
+          return [];
+        },
+        async forceStop() {},
+      },
+      {
+        provider: "copilot",
+        operation: "invoke",
+        id: invocation.id,
+        cwd: invocation.cwd,
+        prompt: invocation.prompt,
+        profile: invocation.profile,
+        readOnly: invocation.readOnly,
+        evidence: invocation.evidence,
+        outputSchema: invocation.outputSchema,
+      },
+      (type, value) => {
+        if (type === "result") result = value as string;
+        if (type === "session")
+          pending.push(invocation.session(value as string));
+        if (type === "event") pending.push(invocation.event(value));
+      },
+    );
+    await Promise.all(pending);
+    return result;
+  });
+  setup.input.name = "publication";
+  setup.input.task.evidence = evidence;
+  setup.input.task.outputContract = publicationSchema;
+  setup.input.dependencies.project.agent.provider = "copilot";
+  setup.input.dependencies.agents.copilot =
+    setup.input.dependencies.agents.codex!;
+  const result = await invokeStage(setup.input);
+  assert.deepEqual(
+    publicationSchema.parse(JSON.parse(result)),
+    JSON.parse(output),
+  );
+  assert.equal(sessions, 1);
+  assert.ok(inspectedChunks > 1);
 });
 
 for (const response of ["valid", "invalid", "throws"] as const)

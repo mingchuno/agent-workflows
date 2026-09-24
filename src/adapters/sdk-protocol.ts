@@ -6,6 +6,8 @@ import type {
 } from "@openai/codex-sdk";
 import type { AgentProfile } from "../config.js";
 import { defaultStageTimeoutMs } from "../defaults.js";
+import type { ChangeEvidence } from "../evidence.js";
+import { createEvidenceTools } from "./evidence-tools.js";
 
 export interface WorkerInput {
   provider: "codex" | "copilot";
@@ -18,6 +20,7 @@ export interface WorkerInput {
   readOnly: boolean;
   processFile?: string;
   timeoutMs?: number;
+  evidence?: ChangeEvidence;
 }
 export type Emit = (type: string, value: unknown) => void;
 export interface CodexClient {
@@ -104,6 +107,10 @@ export async function runCopilot(
       infiniteSessions: input.profile.context
         ? { enabled: true, ...input.profile.context }
         : undefined,
+      tools:
+        input.readOnly && input.evidence
+          ? createEvidenceTools(input.evidence, emit)
+          : undefined,
       onPermissionRequest: async (request) =>
         request.managedApprovalRequired ||
         (input.readOnly && request.kind !== "read")
