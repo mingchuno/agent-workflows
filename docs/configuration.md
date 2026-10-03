@@ -359,9 +359,8 @@ files only.
 }
 ```
 
-`writing` is now `publication`; `skills` was removed. Both old keys are rejected
-without aliases. Configure skills in the selected agent runtime and request them
-in task text. Old invocation records and skill snapshots remain readable.
+Configure skills in the selected agent runtime and request them in task text.
+Configuration accepts only the documented keys.
 
 ## Git identity and agent attribution
 

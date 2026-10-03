@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Pool } from "pg";
@@ -25,14 +25,17 @@ for (const required of [
 ])
   assert.ok(files.includes(required), `Missing package file: ${required}`);
 assert.ok(files.some((file) => /^dist\/drizzle\/.*\.sql$/.test(file)));
-assert.ok(
-  files.every(
-    (file) =>
-      !/^dist\/src\/(evidence(?:-query)?\.|adapters\/evidence-tools\.)/.test(
-        file,
-      ),
-  ),
-  "Removed evidence modules must not remain in the package",
+const sourceFiles = await readdir("src", { recursive: true });
+const runtimeFiles = sourceFiles
+  .filter((file) => /\.tsx?$/.test(file))
+  .flatMap((file) => {
+    const stem = file.replace(/\.tsx?$/, "");
+    return [`dist/src/${stem}.js`, `dist/src/${stem}.d.ts`];
+  });
+assert.deepEqual(
+  files.filter((file) => file.startsWith("dist/src/")).sort(),
+  runtimeFiles.sort(),
+  "Packed runtime must match the current source modules and declarations",
 );
 assert.ok(
   files.every((file) =>

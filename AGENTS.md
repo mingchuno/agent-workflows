@@ -1,3 +1,5 @@
+- No need to handle compatibility. Project is in the alpha stage. Feel free to change the public API or interface.
+
 ## Agent skills
 
 ### Issue tracker

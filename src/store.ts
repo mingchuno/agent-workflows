@@ -239,6 +239,11 @@ export class Store {
         )
       )
         throw new Error("This task already has a queued or active retry");
+      if (
+        previous.subject.kind === "change-request" &&
+        !previous.reviewPublicationId
+      )
+        throw new Error("Review run is missing its publication identity");
       const target = await admission.checkSafety(previous);
       const attempt = Math.max(...history.map((row) => row.attempt)) + 1;
       const id = admission.commandId ?? randomUUID();
@@ -259,7 +264,7 @@ export class Store {
           ? createQueuedReviewRun({ ...input, request: previous.subject })
           : createQueuedRun(input);
       if (previous.subject.kind === "change-request") {
-        retry.reviewPublicationId = previous.reviewPublicationId ?? previous.id;
+        retry.reviewPublicationId = previous.reviewPublicationId;
         retry.review = previous.review;
         retry.reviewHead = previous.reviewHead;
       }

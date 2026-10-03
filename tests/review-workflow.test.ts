@@ -190,6 +190,30 @@ test("a push during review supersedes findings without blocking the project", {
   }
 });
 
+test("review publication rejects a missing identity before hosting effects", {
+  skip: !databaseUrl,
+}, async () => {
+  const fixture = await setup({
+    validate: agent.validate,
+    async invoke(input) {
+      await fixture.runner.store.pool.query(
+        "UPDATE agent_workflows.runs SET record = record - 'reviewPublicationId' WHERE id = $1",
+        [input.runId],
+      );
+      return agent.invoke(input);
+    },
+  });
+  try {
+    await fixture.runner.start();
+    const [run] = await finished(fixture.runner);
+    assert.equal(run!.outcome, "blocked");
+    assert.match(run!.error!, /Review run is missing its publication identity/);
+    assert.equal(fixture.hosting.reviews.length, 0);
+  } finally {
+    await fixture.runner.shutdown();
+  }
+});
+
 test("review publication retry reuses retained output and reconciles response loss", {
   skip: !databaseUrl,
 }, async () => {
@@ -213,6 +237,19 @@ test("review publication retry reuses retained output and reconciles response lo
     assert.equal(hosting.reviews.length, 1);
     await assert.rejects(runner.recover(failed!.id), /use retry/);
     hosting.publishReview = publish;
+    // Inject a malformed persisted record; normal creation always sets this field.
+    await runner.store.pool.query(
+      "UPDATE agent_workflows.runs SET record = record - 'reviewPublicationId' WHERE id = $1",
+      [failed!.id],
+    );
+    await assert.rejects(
+      runner.retry(failed!.id),
+      /Review run is missing its publication identity/,
+    );
+    assert.equal((await runner.store.runs()).length, 1);
+    await runner.store.patchRun(failed!.id, {
+      reviewPublicationId: failed!.reviewPublicationId,
+    });
     await runner.retry(failed!.id);
     const runs = await finished(runner, 2);
     assert.equal(runs.find((run) => run.retryOf)!.outcome, "completed");

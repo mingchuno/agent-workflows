@@ -13,7 +13,7 @@ Do not edit applied migration files or use schema push against existing data. Ad
 
 `Store.initialize()` also applies pending migrations, preserving automatic startup setup. A dedicated PostgreSQL advisory lock serializes migration attempts across processes. Build copies migrations into `dist/drizzle`, so the built runtime works outside the repository working directory; ship the whole `dist` directory.
 
-The initial migration adopts the original application's identical tables using `IF NOT EXISTS`, preserving records and constraints. This supports the original schema, not arbitrary manually altered schemas; inspect and reconcile any local schema changes first.
+The initial migration creates application tables in a fresh database. Databases with pre-Drizzle application tables are unsupported; use a fresh database. Databases with recorded Drizzle migration history continue to apply only pending migrations.
 
 The persistence and locking rationale is recorded in
 [ADR 0005](adr/0005-postgresql-persistence-boundary.md).

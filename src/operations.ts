@@ -470,6 +470,14 @@ export class Operations {
   async publishReview(): Promise<void> {
     await this.step("review-publication", async (run) => {
       const { hosting, project } = this.dependencies;
+      const publicationId =
+        run.subject.kind === "change-request"
+          ? run.reviewPublicationId
+          : run.id;
+      if (!publicationId)
+        throw new BlockedError(
+          "Review run is missing its publication identity",
+        );
       if (!run.change || !run.review || !run.reviewHead || !run.base)
         throw new Error("Missing review");
       if (run.review.complete !== true)
@@ -547,7 +555,7 @@ export class Operations {
         change: run.change,
         head: run.reviewHead,
         review: run.review,
-        runId: run.reviewPublicationId ?? run.id,
+        runId: publicationId,
         diff,
         ...(run.subject.kind === "change-request"
           ? {

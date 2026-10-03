@@ -17,29 +17,21 @@ export const profileSchema = z.strictObject({
 });
 export type AgentProfile = z.infer<typeof profileSchema>;
 export const stageSchema = z
-  .strictObject(
-    {
-      profile: profileSchema.partial().optional(),
-      prompt: z
-        .string()
-        .refine((text) => text.trim().length > 0, "Prompt must be nonblank")
-        .optional(),
-      promptFile: z
-        .string()
-        .refine(
-          (text) => text.trim().length > 0,
-          "Prompt file path must be nonblank",
-        )
-        .optional(),
-      timeoutMs: z.number().int().positive().default(defaultStageTimeoutMs),
-    },
-    {
-      error: (issue) =>
-        issue.code === "unrecognized_keys" && issue.keys.includes("skills")
-          ? "Stage skills was removed; configure skills in your agent runtime and request them in prompt"
-          : undefined,
-    },
-  )
+  .strictObject({
+    profile: profileSchema.partial().optional(),
+    prompt: z
+      .string()
+      .refine((text) => text.trim().length > 0, "Prompt must be nonblank")
+      .optional(),
+    promptFile: z
+      .string()
+      .refine(
+        (text) => text.trim().length > 0,
+        "Prompt file path must be nonblank",
+      )
+      .optional(),
+    timeoutMs: z.number().int().positive().default(defaultStageTimeoutMs),
+  })
   .refine(
     (stage) => stage.prompt === undefined || stage.promptFile === undefined,
     "Specify either prompt or promptFile, never both",
@@ -105,19 +97,11 @@ export const projectSchema = z
     includeAgentCoAuthors: z.boolean().default(true),
     agent: profileSchema,
     stages: z
-      .strictObject(
-        {
-          implementation: stageSchema.prefault({}),
-          publication: publicationStageSchema.prefault({}),
-          review: stageSchema.prefault({}),
-        },
-        {
-          error: (issue) =>
-            issue.code === "unrecognized_keys" && issue.keys.includes("writing")
-              ? "Stage writing was renamed to publication; update projects.stages.writing"
-              : undefined,
-        },
-      )
+      .strictObject({
+        implementation: stageSchema.prefault({}),
+        publication: publicationStageSchema.prefault({}),
+        review: stageSchema.prefault({}),
+      })
       .prefault({}),
   })
   .refine(

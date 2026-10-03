@@ -94,8 +94,8 @@ test("project stage defaults are independent between registrations", async () =>
   first.stages.review.profile = { provider: "copilot" };
   assert.equal(second.stages.review.profile, undefined);
   assert.throws(
-    () => projectSchema.parse({ ...input, stages: { writing: {} } }),
-    /renamed to publication/,
+    () => projectSchema.parse({ ...input, stages: { unknownStage: {} } }),
+    /Unrecognized key/,
   );
   assert.equal(
     projectSchema.safeParse({
@@ -112,13 +112,13 @@ test("project stage defaults are independent between registrations", async () =>
     assert.equal(prompts[name]!.content, text);
 });
 
-test("stage prompts reject ambiguous and blank overrides and removed skills", async () => {
+test("stage prompts reject ambiguous, blank and unknown options", async () => {
   const { stageSchema } = await import("../src/config.js");
   for (const value of [
     { prompt: " " },
     { promptFile: " " },
     { prompt: "x", promptFile: "x" },
-    { skills: [] },
+    { unknownOption: [] },
   ]) {
     assert.equal(stageSchema.safeParse(value).success, false);
   }

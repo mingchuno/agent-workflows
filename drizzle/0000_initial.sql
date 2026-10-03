@@ -1,7 +1,6 @@
--- Bootstrap also adopts the identical pre-Drizzle schema without replacing data.
 CREATE SCHEMA IF NOT EXISTS "agent_workflows";
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "agent_workflows"."commands" (
+CREATE TABLE "agent_workflows"."commands" (
 	"id" text PRIMARY KEY NOT NULL,
 	"scope" text NOT NULL,
 	"kind" text NOT NULL,
@@ -11,7 +10,7 @@ CREATE TABLE IF NOT EXISTS "agent_workflows"."commands" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "agent_workflows"."events" (
+CREATE TABLE "agent_workflows"."events" (
 	"sequence" bigserial PRIMARY KEY NOT NULL,
 	"scope" text NOT NULL,
 	"run_id" text,
@@ -20,14 +19,14 @@ CREATE TABLE IF NOT EXISTS "agent_workflows"."events" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "agent_workflows"."invocations" (
+CREATE TABLE "agent_workflows"."invocations" (
 	"scope" text NOT NULL,
 	"id" text PRIMARY KEY NOT NULL,
 	"run_id" text NOT NULL,
 	"record" jsonb NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "agent_workflows"."projects" (
+CREATE TABLE "agent_workflows"."projects" (
 	"scope" text NOT NULL,
 	"id" text NOT NULL,
 	"paused" boolean DEFAULT false NOT NULL,
@@ -35,7 +34,7 @@ CREATE TABLE IF NOT EXISTS "agent_workflows"."projects" (
 	CONSTRAINT "projects_pkey" PRIMARY KEY("scope","id")
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "agent_workflows"."runs" (
+CREATE TABLE "agent_workflows"."runs" (
 	"scope" text NOT NULL,
 	"id" text PRIMARY KEY NOT NULL,
 	"task_key" text NOT NULL,
