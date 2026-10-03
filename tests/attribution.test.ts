@@ -22,7 +22,6 @@ const snapshot = (files: Snapshot["files"]): Snapshot => ({
   branch: "agent/1",
   head: "base",
   fingerprint: JSON.stringify(files),
-  diff: "",
   paths: Object.keys(files),
   files,
 });

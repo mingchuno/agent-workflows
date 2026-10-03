@@ -60,7 +60,7 @@ export const agent: AgentAdapter = {
     };
   },
   async invoke(invocation) {
-    await invocation.session(randomUUID());
+    await invocation.session(invocation.resumeSessionId ?? randomUUID());
     if (invocation.step === "implementation") {
       await writeFile(join(invocation.cwd, "implemented.txt"), "implemented\n");
       return "done";

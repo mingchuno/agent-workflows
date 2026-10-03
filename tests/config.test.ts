@@ -1,6 +1,55 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { profileSchema, resolveProfile } from "../src/config.js";
+import { profileSchema, projectSchema, resolveProfile } from "../src/config.js";
+
+test("publication resumes by default and requires the implementation provider", () => {
+  const input = {
+    id: "sessions",
+    checkout: "/tmp",
+    hosting: {
+      provider: "github",
+      origin: "https://github.com",
+      repository: "a/b",
+      tokenEnv: "TOKEN",
+    },
+    agent: { provider: "codex" },
+  };
+  assert.equal(
+    projectSchema.parse(input).stages.publication.useNewSession,
+    false,
+  );
+  assert.throws(
+    () =>
+      projectSchema.parse({
+        ...input,
+        stages: { publication: { profile: { provider: "copilot" } } },
+      }),
+    /useNewSession/,
+  );
+  const fresh = projectSchema.parse({
+    ...input,
+    stages: {
+      publication: { useNewSession: true, profile: { provider: "copilot" } },
+    },
+  });
+  assert.equal(fresh.stages.publication.useNewSession, true);
+  assert.throws(
+    () =>
+      projectSchema.parse({
+        ...input,
+        stages: { review: { useNewSession: true } },
+      }),
+    /Unrecognized key/,
+  );
+  assert.throws(
+    () =>
+      projectSchema.parse({
+        ...input,
+        stages: { implementation: { profile: { provider: "copilot" } } },
+      }),
+    /useNewSession/,
+  );
+});
 
 test("stage provider overrides do not inherit incompatible provider settings", () => {
   assert.deepEqual(

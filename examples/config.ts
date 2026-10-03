@@ -24,6 +24,7 @@ export const configuration = configSchema.parse({
           prompt: "Implement the issue and follow repository guidance.",
         },
         publication: {
+          useNewSession: true, // Required when switching provider for publication.
           profile: { provider: "copilot" },
           prompt:
             "Write concise publication text from the diff and validation evidence.",

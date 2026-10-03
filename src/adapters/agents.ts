@@ -19,7 +19,7 @@ interface ModelCapability {
 export interface SDKAgentOptions {
   models?: ModelCapability[];
 }
-/** Runs each SDK invocation in an owned process group; no cross-stage session reuse. */
+/** Runs each SDK invocation in an owned process group, optionally resuming a persisted session. */
 export class SDKAgent implements AgentAdapter {
   constructor(
     readonly provider: "codex" | "copilot",
@@ -118,7 +118,7 @@ export class SDKAgent implements AgentAdapter {
         prompt: invocation.prompt,
         profile: invocation.profile,
         outputSchema: invocation.outputSchema,
-        readOnly: invocation.readOnly,
+        resumeSessionId: invocation.resumeSessionId,
         timeoutMs: invocation.timeoutMs ?? defaultStageTimeoutMs,
       },
       invocation,

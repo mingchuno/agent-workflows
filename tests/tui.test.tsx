@@ -829,7 +829,6 @@ test("80-column details keep every active control visible", async () => {
     branch: run.branch,
     head: "head",
     fingerprint: "fingerprint",
-    diff: "diff",
     paths: [],
     files: {},
   };

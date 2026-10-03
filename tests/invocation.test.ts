@@ -51,7 +51,7 @@ async function fixture(invoke: AgentAdapter["invoke"], timeoutMs = 5000) {
     task: {
       defaultPrompt: "Default task",
       context: () => "Fixed issue evidence",
-      readOnly: true,
+      preserveCheckout: true,
       outputContract: z.strictObject({ result: z.string() }),
     },
     stepId: 1,
@@ -125,7 +125,7 @@ test("custom prompt overrides task only, context is frozen across response attem
   const calls: AgentInvocation[] = [];
   const { input, records } = await fixture(async (invocation) => {
     calls.push(invocation);
-    await invocation.session(`session-${calls.length}`);
+    await invocation.session(invocation.resumeSessionId ?? "session-1");
     return calls.length === 1 ? "bad" : '{"result":"ok"}';
   });
   input.stage.prompt = "Custom task";
@@ -141,8 +141,11 @@ test("custom prompt overrides task only, context is frozen across response attem
   }
   assert.deepEqual(
     records.map((record) => record.sessionId),
-    ["session-1", "session-2"],
+    ["session-1", "session-1"],
   );
+  assert.equal(calls[0]!.resumeSessionId, undefined);
+  assert.equal(calls[1]!.resumeSessionId, "session-1");
+  assert.equal(records[1]!.resumedFrom, "session-1");
   await assert.rejects(invokeStage(input), /Interrupted agent stage/);
   assert.equal(calls.length, 2);
 });
@@ -178,10 +181,13 @@ for (const response of ["valid", "invalid", "throws"] as const)
     assert.equal(records[0]?.finishedAt, undefined);
   });
 
-test("a writable stage retains its contribution through read-only format correction", async () => {
+test("a writable stage retains its contribution through correction in the same session", async () => {
   const calls: AgentInvocation[] = [];
   const { input, records } = await fixture(async (invocation) => {
     calls.push(invocation);
+    await invocation.session(
+      invocation.resumeSessionId ?? "implementation-session",
+    );
     if (calls.length === 1) {
       await writeFile(
         join(invocation.cwd, "contribution.txt"),
@@ -192,12 +198,9 @@ test("a writable stage retains its contribution through read-only format correct
     assert.equal(input.run.contributionCandidates, undefined);
     return '{"result":"ok"}';
   });
-  input.task.readOnly = false;
+  input.task.preserveCheckout = false;
   assert.equal(await invokeStage(input), '{"result":"ok"}');
-  assert.deepEqual(
-    calls.map((call) => call.readOnly),
-    [false, true],
-  );
+  assert.equal(calls[1]!.resumeSessionId, "implementation-session");
   assert.equal(calls[0]!.signal, calls[1]!.signal);
   assert.ok(calls[1]!.timeoutMs! <= calls[0]!.timeoutMs!);
   assert.equal(input.run.contributionCandidates?.length, 1);
@@ -212,4 +215,40 @@ test("a writable stage retains its contribution through read-only format correct
     records.map((record) => record.outcome),
     ["invalid-output", "completed"],
   );
+});
+
+test("inspection stages can invoke commands but reject checkout changes before format correction", async () => {
+  let calls = 0;
+  const { input, records } = await fixture(async (invocation) => {
+    calls++;
+    await invocation.session("publication-session");
+    await writeFile(join(invocation.cwd, "unexpected.txt"), "mutation");
+    return "invalid JSON";
+  });
+  await assert.rejects(invokeStage(input), /Unexpected checkout mutation/);
+  assert.equal(calls, 1);
+  assert.equal(records[0]!.outcome, "failed");
+});
+
+test("a requested resume fails without silently starting another session", async () => {
+  let calls = 0;
+  const { input, records } = await fixture(async (invocation) => {
+    calls++;
+    assert.equal(invocation.resumeSessionId, "missing-session");
+    throw new Error("Session not found");
+  });
+  input.task.resumeSessionId = "missing-session";
+  await assert.rejects(invokeStage(input), /Session not found/);
+  assert.equal(calls, 1);
+  assert.equal(records[0]!.resumedFrom, "missing-session");
+});
+
+test("format correction requires the returned session identity", async () => {
+  let calls = 0;
+  const { input } = await fixture(async () => {
+    calls++;
+    return "invalid JSON";
+  });
+  await assert.rejects(invokeStage(input), /session.*unavailable/i);
+  assert.equal(calls, 1);
 });

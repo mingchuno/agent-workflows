@@ -31,15 +31,13 @@ export interface InvocationRecord {
   attempt: number;
   provider: string;
   sessionId: string | null;
+  resumedFrom?: string;
   sessionState: "pending" | "available" | "unavailable";
   requested: unknown;
   effective: unknown;
   prompt: string;
-  /** Historical records only. New stages use runtime-managed skills. */
-  skills?: unknown;
   taskPrompt?: import("./prompts.js").ResolvedPrompt;
   outputContract?: string;
-  evidence?: import("./evidence.js").ChangeEvidence;
   validationError?: string;
   outcome: string;
   startedAt: string;

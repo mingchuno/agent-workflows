@@ -1,4 +1,8 @@
-import type { ModelInfo, SessionConfig } from "@github/copilot-sdk";
+import type {
+  ModelInfo,
+  ResumeSessionConfig,
+  SessionConfig,
+} from "@github/copilot-sdk";
 import type {
   ThreadEvent,
   ThreadOptions,
@@ -15,32 +19,38 @@ export interface WorkerInput {
   prompt: string;
   profile: AgentProfile;
   outputSchema?: unknown;
-  readOnly: boolean;
+  resumeSessionId?: string;
   processFile?: string;
   timeoutMs?: number;
 }
 export type Emit = (type: string, value: unknown) => void;
+interface CodexThread {
+  runStreamed(
+    prompt: string,
+    options?: TurnOptions,
+  ): Promise<{ events: AsyncIterable<ThreadEvent> }>;
+}
 export interface CodexClient {
-  startThread(options: ThreadOptions): {
-    runStreamed(
-      prompt: string,
-      options?: TurnOptions,
-    ): Promise<{ events: AsyncIterable<ThreadEvent> }>;
-  };
+  startThread(options: ThreadOptions): CodexThread;
+  resumeThread(id: string, options: ThreadOptions): CodexThread;
 }
 export async function runCodex(
   client: CodexClient,
   input: WorkerInput,
   emit: Emit,
 ): Promise<void> {
-  const thread = client.startThread({
+  const options: ThreadOptions = {
     workingDirectory: input.cwd,
     model: input.profile.model,
     modelReasoningEffort: input.profile
       .reasoningEffort as ThreadOptions["modelReasoningEffort"],
-    sandboxMode: input.readOnly ? "read-only" : "workspace-write",
+    sandboxMode: "workspace-write",
     approvalPolicy: "never",
-  });
+  };
+  const thread = input.resumeSessionId
+    ? client.resumeThread(input.resumeSessionId, options)
+    : client.startThread(options);
+  if (input.resumeSessionId) emit("session", input.resumeSessionId);
   const turn = await thread.runStreamed(input.prompt, {
     outputSchema: input.outputSchema,
   });
@@ -71,6 +81,10 @@ export interface CopilotClientContract {
   start(): Promise<void>;
   listModels(): Promise<ModelInfo[]>;
   createSession(options: SessionConfig): Promise<CopilotSessionClient>;
+  resumeSession(
+    id: string,
+    options: ResumeSessionConfig,
+  ): Promise<CopilotSessionClient>;
   stop(): Promise<Error[]>;
   forceStop(): Promise<void>;
 }
@@ -95,8 +109,7 @@ export async function runCopilot(
       );
       return;
     }
-    const session = await client.createSession({
-      sessionId: input.id,
+    const options: SessionConfig = {
       model: input.profile.model,
       reasoningEffort: input.profile
         .reasoningEffort as SessionConfig["reasoningEffort"],
@@ -105,11 +118,16 @@ export async function runCopilot(
         ? { enabled: true, ...input.profile.context }
         : undefined,
       onPermissionRequest: async (request) =>
-        request.managedApprovalRequired ||
-        (input.readOnly && request.kind !== "read")
+        request.managedApprovalRequired
           ? { kind: "reject" }
           : { kind: "approve-once" },
-    });
+    };
+    const session = input.resumeSessionId
+      ? await client.resumeSession(input.resumeSessionId, {
+          ...options,
+          continuePendingWork: false,
+        })
+      : await client.createSession({ ...options, sessionId: input.id });
     emit("session", session.sessionId);
     session.on((event) => emit("event", event));
     const response = await session.sendAndWait(

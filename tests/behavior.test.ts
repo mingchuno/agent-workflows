@@ -264,11 +264,11 @@ test("custom agent steps keep multiple invocations and query events survive rest
     await operations.prepare();
     await operations.invoke("custom-report", project.stages.publication, {
       defaultPrompt: "Return a report",
-      readOnly: true,
+      preserveCheckout: true,
     });
     await operations.invoke("custom-report", project.stages.publication, {
       defaultPrompt: "Return a second report",
-      readOnly: true,
+      preserveCheckout: true,
     });
     await operations.complete("no-change");
   };
@@ -302,6 +302,7 @@ test("custom writable stages attribute retained providers in first-contribution 
   skip: !databaseUrl,
 }, async () => {
   const { project, git } = await repository();
+  project.stages.publication.useNewSession = true;
   const controlled: AgentAdapter = {
     validate: agent.validate,
     async invoke(input) {
@@ -380,12 +381,13 @@ test("caught failed writable stages do not receive contribution credit", {
   skip: !databaseUrl,
 }, async () => {
   const { project, git } = await repository();
+  project.stages.publication.useNewSession = true;
   const controlled: AgentAdapter = {
     validate: agent.validate,
     async invoke(input) {
       if (input.step !== "failing-change") return agent.invoke(input);
-      if (!input.readOnly)
-        await writeFile(join(input.cwd, "failed.txt"), "retained change\n");
+      await input.session(input.resumeSessionId ?? "failed-session");
+      await writeFile(join(input.cwd, "failed.txt"), "retained change\n");
       return "invalid output";
     },
   };
@@ -722,7 +724,7 @@ for (const failure of [
         project.stages.implementation,
         {
           defaultPrompt: "Exercise invocation boundary",
-          readOnly: failure === "read-only",
+          preserveCheckout: failure === "read-only",
         },
       );
       await operations.complete();
@@ -813,12 +815,14 @@ for (const scenario of [
       async invoke(input) {
         if (input.step === "publication") {
           calls.push(input);
+          await input.session(input.resumeSessionId!);
           assert.match(input.prompt, /Custom publication task/);
           assert.match(input.prompt, /Issue:/);
-          assert.match(input.prompt, /Change evidence index:/);
+          assert.match(input.prompt, /Validated snapshot:/);
+          assert.doesNotMatch(input.prompt, /Change evidence index:/);
           assert.doesNotMatch(input.prompt, /Prepare a Git commit message/);
           assert.ok(input.outputSchema);
-          assert.equal(input.readOnly, true);
+          assert.equal("readOnly" in input, false);
           if (scenario === "provider-failure")
             throw new Error("provider failed");
           if (scenario === "mutation")

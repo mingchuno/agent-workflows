@@ -6,16 +6,17 @@ Authenticate the selected local agent runtime before starting. Codex SDK uses th
 
 | Capability                                  | Codex                                                                | Copilot                                                           |
 | ------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Implementation, publication, independent review | SDK fresh thread                                                     | SDK fresh session                                                 |
+| Implementation and independent review | SDK fresh thread | SDK fresh session |
+| Publication | Resume implementation thread; `useNewSession` starts fresh | Resume implementation session; `useNewSession` starts fresh |
 | Explicit model/effort validation            | Runtime model cache or injected catalog                              | SDK model catalog or injected catalog                             |
 | Runtime context controls                    | Rejected                                                             | Compaction/exhaustion utilization fractions                       |
 | Structured publication/review               | Application JSON schema validation                                   | Application JSON schema validation                                |
 | Session ID                                  | `thread.started` event                                               | Session creation response                                         |
-| Read-only stages                            | Read-only sandbox                                                    | Read permissions only; shell/write permission denied              |
+| All stage permissions | Workspace-write sandbox; approval policy `never` | Implementation permission handler; reads, shell and writes approved except managed approvals |
 | Cancellation                                | Owned worker process group, TERM then KILL                           | Owned worker process group, TERM then KILL                        |
 | Inspection/resumption                       | Saved thread ID; SDK `resumeThread` supports local persisted threads | Saved session ID; SDK `resumeSession` supports persisted sessions |
 
-Codex implementation uses its workspace-write sandbox. Copilot implementation approves runtime permission requests and is not an operating-system sandbox; its read-only stages deny non-read permissions. Run selected issues and skills with the permissions of the local runtime account. Checkout checks detect unexpected changes at phase boundaries.
+All stages use implementation-level permissions. Copilot permission approvals are not an operating-system sandbox. Publication, review and format correction are instructed to preserve source, index, branch and revision; checkout checks reject mutation after invocation. Use runtime-writable scratch directories or ignored paths for temporary command output. Run selected issues and skills with the permissions of the local runtime account.
 
 The runner deliberately does not automatically resume interrupted agent work. Runtime session existence does not establish whether old processes are still writing. Use runtime-specific tools/SDKs to inspect sessions after stopping the runner and establishing ownership; there is no universal session-opening command.
 
@@ -87,19 +88,22 @@ Draft MRs use the supported `Draft:` title prefix. Revision-bound inline discuss
 
 Real-provider smoke tests are opt-in manual runs: configure a disposable repository/issue, authenticated agent, hosting token, Git push access and validation; run one project; inspect the draft request, exact-head review and session records. This performs paid agent usage and real remote writes. The automated acceptance evidence is fixture-based, not a claim of live-provider compatibility or account access.
 
-## Structured output and evidence access
+## Structured output and command access
 
 Codex receives the application output schema through `runStreamed` options.
-Copilot receives generated JSON instructions; common strict validation gates both
-providers. Stage task text cannot remove those checks. Both retain their existing
-inspection permissions: Codex's read-only sandbox and Copilot's read-only
-permission handler (`approve-once` for reads, `reject` for non-read requests).
-Managed human-approval requirements remain denied. No shell permission is added
-for Copilot.
+Copilot receives generated JSON instructions; strict validation gates both providers.
+Stage task text cannot remove the output contract or checkout checks.
 
-Evidence indexes use absolute paths outside the checkout. Controlled tests check
-schema mapping, outside-directory reads and denied write/shell requests. The
-optional `AGENT_WORKFLOWS_LIVE_AGENTS=codex,copilot` test checks actual runtime
-file-reader access using the authenticated local providers; it is separate from
-local fixture acceptance. Missing runtime authentication is a live-test failure,
-not evidence of successful provider access.
+Publication resumes a completed implementation session by default, after validation,
+using a new owned worker process. Review starts independently. Model and effort
+overrides apply on resume; switching publication provider requires `useNewSession`.
+Session unavailability fails explicitly. Interrupted work is never automatically
+resumed. Format correction continues its current session within the remaining deadline.
+
+Agents inspect the checkout and pinned revisions through ordinary commands and
+file tools. The runner provides metadata and validation results rather than patch
+artifacts or custom evidence tools. Controlled tests cover session selection,
+permissions, command inspection and mutation rejection. Optional
+`AGENT_WORKFLOWS_LIVE_AGENTS=codex,copilot` tests exercise actual runtime command
+access and persisted continuation; they require local authentication and paid
+agent usage, separate from fixture acceptance.

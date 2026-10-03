@@ -108,6 +108,7 @@ stage accepts:
 | `prompt` | nonblank string | Installed stage prompt | Literal task instructions. |
 | `promptFile` | nonblank path string | Installed stage prompt | UTF-8 task instructions read at runner construction. |
 | `timeoutMs` | positive integer | `1800000` | Entire stage deadline, including profile validation and format correction. |
+| `useNewSession` | boolean, publication only | `false` | Start publication in a fresh session instead of resuming implementation. |
 
 Set at most one of `prompt` and `promptFile`. An omitted stage uses its installed
 prompt and the project agent. See [stage prompts](#stage-prompts) for override
@@ -240,7 +241,7 @@ CLI process.
 
 ## Profiles
 
-A profile has `provider`, optional `model`, optional `reasoningEffort`, and optional `context`. Each stage merges its profile over project defaults. Switching provider discards the old provider's settings, so incompatible defaults cannot leak between providers. Each invocation starts a fresh session, including repeated custom steps.
+A profile has `provider`, optional `model`, optional `reasoningEffort`, and optional `context`. Each stage merges its profile over project defaults. Switching provider discards the old provider's settings, so incompatible defaults cannot leak between providers. Implementation and review start fresh sessions. Publication resumes the successful implementation session after validation by default. Set `stages.publication.useNewSession: true` to start fresh; this is required when publication uses a different provider. Model, effort and context overrides apply on resume. A missing or rejected resume fails explicitly without a fresh-session fallback. Custom steps start fresh unless `resumeSessionId` is supplied.
 
 Codex rejects `context`: its TypeScript SDK exposes no runtime context-budget/compaction controls. Explicit Codex model/effort settings are checked against the local runtime's `models_cache.json`, or a supplied `new SDKAgent("codex", {models})` catalog. A missing catalog fails clearly; omitted settings use runtime defaults and remain `unknown` in effective-profile records. The cache can be stale; refresh it using the authenticated Codex runtime when a newly available model is rejected.
 
@@ -252,7 +253,7 @@ See [checked examples](../examples/config.ts). Model IDs in `modelOverrides` are
 
 Omit `prompt` and `promptFile` to use the installed defaults. `init` leaves both
 out so package upgrades update default task instructions. An override replaces
-only task instructions; issue context, captured change evidence, permission rules
+only task instructions; issue context, checkout/revision identities, permission rules
 and output contracts remain application-owned.
 
 ### Default stage prompts
@@ -279,7 +280,7 @@ Review:
 
 ```text
 Independently review the supplied published changes against the issue's
-requirements and repository conventions. Inspect the change artifacts and
+requirements and repository conventions. Use Git commands and inspect
 relevant source for correctness, regressions, and missing validation. Report
 actionable findings with supporting locations where possible. State any gaps
 in inspection explicitly; do not present an incomplete review as a clean review.
@@ -298,7 +299,7 @@ files only.
 ```json
 "stages": {
   "implementation": {},
-  "publication": { "promptFile": "prompts/publication.md" },
+  "publication": { "promptFile": "prompts/publication.md", "useNewSession": false },
   "review": { "prompt": "Review correctness and missing regression tests." }
 }
 ```
@@ -324,34 +325,45 @@ successful writable invocation that produced a retained change:
 - `Copilot <223556219+Copilot@users.noreply.github.com>` (GitHub's current
   first-party convention, not a stable product API guarantee)
 
-Read-only publication/review invocations and writable invocations with no
-accepted retained change are not attributed. Existing trailers are preserved,
+Publication/review invocations and implementation invocations with no accepted
+retained change are not attributed. Existing trailers are preserved,
 matching agent trailers are deduplicated, and exactly one
 `Agent-Workflows-Run` trailer remains. Set `includeAgentCoAuthors: false` per
 project to disable injection; existing publication trailers are not removed.
 
 Stage timeout defaults to 30 minutes, including profile validation and at most
-one format-correction attempt. Correction uses a fresh inspection-only session
-and only the remaining deadline. Provider failures, cancellation, timeout and
+one format-correction attempt. Correction resumes the same session with the same
+provider permissions and only the remaining deadline. It must preserve the checkout;
+an unavailable session prevents correction. Provider failures, cancellation, timeout and
 workspace mutation never trigger correction. Custom text-only stages do not
 receive format correction. Credentials belong in environment variables or
 runtime authentication stores, not prompts.
 
-## Change evidence
+## Change inspection
 
 Use a `stateDirectory` outside every managed checkout. `init` chooses a sibling
-`<checkout-name>.agent-workflows` directory. Publication and review receive a
-small overview and an absolute index path, then read ordered artifact chunks.
-Publication captures staged, unstaged and untracked changes. Review captures the
-exact base and published head. Hash checks reject missing or modified evidence.
+`<checkout-name>.agent-workflows` directory for logs and process records. The runner
+stores checkout fingerprints and file metadata, and creates no patch files or
+change-evidence indexes.
 
-Text chunks are at most 64 KiB; total text evidence, including indexes, is at most
-32 MiB per stage. Capture fails explicitly above the limit. Large indexes have
-bounded pages; binary changes contain metadata instead of encoded content.
-These are internal limits, not configurable model context limits.
+Publication receives the checkout, base revision, changed paths, validated snapshot
+identity and recorded validation. Inspect tracked changes with `git diff` and
+`git diff --cached`; discover untracked files with
+`git ls-files --others --exclude-standard` and inspect their content separately.
+Review receives the exact base and published head; use `git diff BASE HEAD`,
+`git show` and source search. Inspect selected paths and ranges for large changes.
+There is no total evidence capture limit. Agent commands remain subject to runtime
+output/context limits and the stage deadline.
+
+All three stages use implementation-level permissions: Codex `workspace-write`
+with approval policy `never`; Copilot approves runtime requests except managed
+human approvals. Publication, review and format correction must preserve the
+source, index, branch and revision. Checkout checks reject unexpected mutation
+and preserve the files for inspection; scratch output should stay outside the
+checkout or in ignored paths. Permissions allow writes, so these checks detect
+source mutation rather than preventing command side effects.
 
 Review output includes `complete` and `limitations`. Incomplete reviews preserve
-partial findings locally and block normal review publication. Prompt content,
-output contract and evidence identities are retained with each response attempt.
-Changed effective prompts, including upgraded defaults, block recovery with
-fresh-retry guidance; file edits do not change an already running instance.
+partial findings locally and block normal review publication. Invocation records
+retain prompts, contracts, session IDs and resume origins. Changed effective
+prompts block publication recovery; file edits do not alter a running instance.

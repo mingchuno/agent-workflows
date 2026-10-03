@@ -8,7 +8,6 @@ import {
   type RunRecord,
   type Workspace,
 } from "./domain.js";
-import { verifyEvidence } from "./evidence.js";
 import { projectPrompts } from "./prompts.js";
 import { assertProcessesStopped } from "./runtime/ownership.js";
 import { command } from "./runtime/process.js";
@@ -231,9 +230,6 @@ async function verifyPublicationRecovery(
     signal,
   });
   const invocations = await store.invocations(run.id);
-  for (const invocation of invocations) {
-    if (invocation.evidence) await verifyEvidence(invocation.evidence);
-  }
   for (const path of [
     ...invocations.map((item) => item.log),
     ...(run.validation ?? []).map((item) => item.log),

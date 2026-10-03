@@ -123,19 +123,21 @@ see [recovery rules](operations.md#publication-recovery) and
 | `eligible()`                             | Re-fetch issue; true only if open and still labelled                         |
 | `prepare()`                              | Require clean Git state; fetch base and create unique branch                 |
 | `implement()`                            | Fresh implementation session; reject unexpected commits or branch changes    |
-| `validate()`                             | Run commands and verify unchanged diff; false means no change                |
-| `writePublication()`                     | Validate text; finalize persisted run/co-author trailers from retained changes |
+| `validate()`                             | Run commands and verify unchanged checkout; false means no change                |
+| `writePublication()`                     | Resume implementation unless `useNewSession`; validate text and finalize run/co-author trailers |
 | `commit()` / `push()`                    | Separate reconciled Git effects using the verified change set                |
 | `publish()`                              | Find existing request by branch before creating a draft                      |
-| `review()`                               | Fresh read-only reviewer; exact published diff, head and validation evidence |
+| `review()`                               | Fresh reviewer with implementation permissions; inspect exact base/head and preserve checkout |
 | `publishReview()`                        | Reject stale head; reconcile review marker; map valid added-line findings    |
 | `complete(outcome?)`                     | Require clean checkout and persist terminal outcome                          |
 | `step(name, operation)`                  | Custom durable operation receiving current `RunRecord`                       |
 | `invoke(name, stage, task)` | Custom agentic step with profile resolution and session history              |
 
 `task` separates `defaultPrompt` from an optional `context(run)` supplier.
-Optional `readOnly`, Zod `outputContract`, and captured `evidence` control runtime
-checks. Stage overrides replace only `defaultPrompt`. Custom stages have no
+Optional `preserveCheckout` rejects source/index/branch/revision mutation after
+the invocation; it does not restrict tool permissions. `resumeSessionId` selects
+a persisted session; omission starts fresh. Zod `outputContract` validates the
+response. Stage overrides replace only `defaultPrompt`. Custom stages have no
 inferred built-in default; resolve file-based custom stages before invocation
 with `resolveStagePrompt(stage, defaultPrompt, baseDirectory)` if they must be
 frozen alongside startup configuration. The runner resolves built-in prompt files
@@ -145,13 +147,16 @@ at construction using `promptBaseDirectory ?? pathBaseDirectory ?? process.cwd()
 await operations.invoke("report", stage, {
   defaultPrompt: "Summarize the recorded validation.",
   context: (run) => JSON.stringify(run.validation ?? []),
-  readOnly: true,
+  preserveCheckout: true,
 });
 ```
 
 An output contract enables strict response validation and one format correction
-within the original deadline. Both attempts retain separate invocation/session
-records under the same durable step. The returned string is validated JSON when
+within the original deadline. Correction resumes the same session with unchanged provider permissions. Both
+attempts retain separate invocation records under the same durable step. A missing
+session prevents correction. Custom workflows without a successful `implementation`
+step must set `stages.publication.useNewSession: true` before calling
+`writePublication()`. The returned string is validated JSON when
 a contract is supplied. Codex output contracts must use its supported JSON-schema
 subset: every property is required; use nullable defaults for optional locations.
 Built-in review parsing accepts omitted locations and normalizes them to `null`. Interrupted calls are never automatically replayed.
@@ -230,11 +235,11 @@ Caveats:
 
 ## Extension contracts
 
-`Workspace` separates `check`, `prepare`, `inspect`, `verify`, `commit`, `push` and `release`. `Snapshot` contains branch/head, changed paths, diff and a content fingerprint. `commit` receives the already-finalized message, including attribution and run marker, and must preserve native Git identity selection. Never implement release by discarding files. A future isolated workspace implementation can replace this interface without changing workflow composition.
+`Workspace` separates `check`, `prepare`, `inspect`, `verify`, `commit`, `push` and `release`. `Snapshot` contains branch/head, changed paths, per-file digests and a checkout fingerprint; it contains no patch text. `commit` receives the already-finalized message, including attribution and run marker, and must preserve native Git identity selection. Never implement release by discarding files. A future isolated workspace implementation can replace this interface without changing workflow composition.
 
 `prepare`, `commit` and `push` receive an optional final `AbortSignal`. Custom workspaces must stop their subprocesses before settling a cancelled operation. The existing-checkout strategy journals Git processes under the Git directory; ownership acquisition rejects surviving process groups after a runner crash.
 
-`AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)` receives working directory, prompt, optional application-owned `outputSchema`, read-only intent, abort signal, stage `timeoutMs` and session/event callbacks. The abort signal also covers cancellation and time spent validating the profile. Call `session(id)` immediately when available. Await event persistence; invocation must not settle until its work has stopped. SDK adapters enforce process-group lifecycle; custom adapters must uphold the same contract. `processFile` is available for controlled subprocess ownership.
+`AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)` receives working directory, prompt, optional application-owned `outputSchema`, optional `resumeSessionId`, abort signal, stage `timeoutMs` and session/event callbacks. All invocations receive implementation-level permissions. The abort signal also covers cancellation and time spent validating the profile. Honor `resumeSessionId` without silently creating a new session. Call `session(id)` immediately when available, using the requested ID when resuming. Await event persistence; invocation must not settle until its work has stopped. SDK adapters enforce process-group lifecycle; custom adapters must uphold the same contract. `processFile` is available for controlled subprocess ownership.
 
 `HostingAdapter` provides issue pagination/revalidation, instance-qualified `identity`, change-request lookup/create, remote head, and idempotent review publication. `preflight` is optional. Reconciliation keys must be stable across response loss; providers must never infer successful publication from agent prose.
 
@@ -278,8 +283,8 @@ methods so checkout and process safety checks run.
 
 Invocation records include project/run IDs, stable DBOS step ID and name,
 invocation ID, attempt, timestamps, requested/effective profile, provider,
-effective task prompt/source/hash, output-contract and evidence identities,
-artifact path, and session state (`pending`, `available`, `unavailable`). A retry
+effective task prompt/source/hash, output-contract identity, resume origin
+(`resumedFrom`), log path, and session state (`pending`, `available`, `unavailable`). A retry
 has a separate run record linked to its predecessor. The run also retains
 before/after evidence for writable invocations; publication finalization records
 contributing provider identities in first-contribution order.

@@ -9,6 +9,7 @@ documentation.
 - [0003: Separate runs from durable executions](0003-run-and-execution-identity.md)
 - [0004: Ship the SDK, CLI, and TUI as one package](0004-single-package-boundary.md)
 - [0005: Persist application state in PostgreSQL beside DBOS](0005-postgresql-persistence-boundary.md)
+- [0006: Continue publication in the implementation session and inspect through commands](0006-agent-sessions-and-command-inspection.md)
 
 For observable behavior, see the [public SDK API](../api.md),
 [configuration reference](../configuration.md), and [operator guide](../operations.md).

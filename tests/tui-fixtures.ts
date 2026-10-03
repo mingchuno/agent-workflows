@@ -51,7 +51,6 @@ export function monitorFixture() {
       requested: { model: "requested" },
       effective: { model: "effective" },
       prompt: "",
-      skills: [],
       outcome: "running",
       startedAt: "2026-09-20T10:00:01Z",
       log: "/missing/fixture.log",

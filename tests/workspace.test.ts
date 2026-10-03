@@ -27,6 +27,30 @@ test("workspace file states distinguish mode-only changes", async () => {
   const secondMode = await workspace.inspect(project);
   assert.notEqual(firstMode.files["file.txt"], secondMode.files["file.txt"]);
 });
+
+test("workspace verifies index and untracked content without saving patch text", async () => {
+  const { root, project, git } = await repository();
+  const workspace = new ExistingCheckout();
+  await writeFile(join(root, "file.txt"), "staged\n");
+  await git("add", "file.txt");
+  await writeFile(join(root, "file.txt"), "unstaged\n");
+  await writeFile(join(root, "new.txt"), "untracked\n");
+  const snapshot = await workspace.inspect(project);
+  assert.deepEqual(snapshot.paths, ["file.txt", "new.txt"]);
+  assert.equal("diff" in snapshot, false);
+  await workspace.verify(project, snapshot);
+  await git("add", "file.txt");
+  await assert.rejects(
+    workspace.verify(project, snapshot),
+    /Unexpected checkout mutation/,
+  );
+  const staged = await workspace.inspect(project);
+  await writeFile(join(root, "new.txt"), "changed untracked\n");
+  await assert.rejects(
+    workspace.verify(project, staged),
+    /Unexpected checkout mutation/,
+  );
+});
 test("verified commit uses generated text and next branch starts at configured base", async () => {
   const { root, project, git } = await repository();
   const workspace = new ExistingCheckout();

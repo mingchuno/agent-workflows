@@ -1,9 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { DBOS } from "@dbos-inc/dbos-sdk";
 import { contributingProviders, finalizeCommitMessage } from "./attribution.js";
-import type { Project, Stage } from "./config.js";
+import { type Project, resolveProfile, type Stage } from "./config.js";
 import {
   type AgentAdapter,
   BlockedError,
@@ -15,11 +14,6 @@ import {
   type ValidationResult,
   type Workspace,
 } from "./domain.js";
-import {
-  type ChangeEvidence,
-  captureEvidence,
-  evidenceContext,
-} from "./evidence.js";
 import { type InvocationTask, invokeStage } from "./invocation.js";
 import { defaultStagePrompts } from "./prompts.js";
 import { publicationSteps } from "./recovery.js";
@@ -245,39 +239,46 @@ export class Operations {
     validation.push(result);
     await this.dependencies.store.patchRun(runId, { validation });
   }
-  private async prepareEvidence(
-    name: string,
-    published = false,
-  ): Promise<ChangeEvidence> {
-    return this.step(name, async (run) => {
-      const { project, workspace, artifacts, signal } = this.dependencies;
-      if (!run.snapshot) throw new BlockedError("Missing workspace snapshot");
-      if (published && (!run.base || !run.head))
-        throw new BlockedError("Missing published revisions");
-      await workspace.verify(project, run.snapshot);
-      const evidence = await captureEvidence({
-        project,
-        snapshot: run.snapshot,
-        directory: join(artifacts, run.id, `${name}-${randomUUID()}`),
-        signal,
-        revisions: published ? { base: run.base!, head: run.head! } : undefined,
-      });
-      await workspace.verify(project, run.snapshot);
-      return evidence;
+  private async publicationSession(): Promise<string | undefined> {
+    const { project, store } = this.dependencies;
+    if (project.stages.publication.useNewSession) return undefined;
+    return this.step("publication-session", async () => {
+      const implementation = (await store.invocations(this.runId))
+        .filter(
+          (record) =>
+            record.step === "implementation" && record.outcome === "completed",
+        )
+        .at(-1);
+      const provider = resolveProfile(
+        project.agent,
+        project.stages.publication.profile,
+      ).provider;
+      if (
+        !implementation?.sessionId ||
+        implementation.sessionState !== "available"
+      )
+        throw new BlockedError(
+          "Implementation session unavailable; set stages.publication.useNewSession=true for a fresh session",
+        );
+      if (implementation.provider !== provider)
+        throw new BlockedError(
+          "Publication cannot resume a different provider; set stages.publication.useNewSession=true",
+        );
+      return implementation.sessionId;
     });
   }
   async writePublication(): Promise<void> {
-    const evidence = await this.prepareEvidence("publication-input");
+    const resumeSessionId = await this.publicationSession();
     const output = await this.invoke(
       "publication",
       this.dependencies.project.stages.publication,
       {
         defaultPrompt: defaultStagePrompts.publication,
-        readOnly: true,
+        preserveCheckout: true,
+        resumeSessionId,
         outputContract: publicationSchema,
-        evidence,
         context: (run) =>
-          `${evidenceContext(evidence)}\nIssue: ${JSON.stringify(run.issue)}\nValidation: ${JSON.stringify(run.validation ?? [])}`,
+          `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nValidated snapshot: ${run.snapshot?.fingerprint}\nChanged paths: ${JSON.stringify(run.snapshot?.paths)}\nInspect staged and unstaged changes with git diff and git diff --cached. Use git ls-files --others --exclude-standard and file tools for untracked changes. Inspect by path and search as needed; do not assume git diff includes untracked files.\nIssue: ${JSON.stringify(run.issue)}\nValidation: ${JSON.stringify(run.validation ?? [])}`,
       },
     );
     await this.step("publication-content", async (run) => {
@@ -352,17 +353,18 @@ export class Operations {
     });
   }
   async review(): Promise<void> {
-    const evidence = await this.prepareEvidence("review-input", true);
     const output = await this.invoke(
       "review",
       this.dependencies.project.stages.review,
       {
         defaultPrompt: defaultStagePrompts.review,
-        readOnly: true,
+        preserveCheckout: true,
         outputContract: reviewSchema,
-        evidence,
-        context: (run) =>
-          `${evidenceContext(evidence)}\nIssue: ${JSON.stringify(run.issue)}\nValidation: ${JSON.stringify(run.validation ?? [])}\nSet complete=false with limitations if any required evidence cannot be inspected. Never report an incomplete review as clean. Use null for finding path/line where no valid added-line location exists.`,
+        context: (run) => {
+          if (!run.base || !run.head)
+            throw new BlockedError("Missing published revisions");
+          return `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nPublished revision: ${run.head}\nInspect the exact revision pair with git diff ${run.base} ${run.head}, starting with --stat or --name-status and reading selected paths. Use git show and source search for context.\nIssue: ${JSON.stringify(run.issue)}\nValidation: ${JSON.stringify(run.validation ?? [])}\nSet complete=false with limitations if required changes or source cannot be inspected. Never report an incomplete review as clean. Use null for finding path/line where no valid added-line location exists.`;
+        },
       },
     );
     await this.step("review-content", async (run) => {
@@ -384,17 +386,36 @@ export class Operations {
         throw new Error("Missing review");
       if (run.review.complete !== true)
         throw new BlockedError(
-          "Incomplete or historical review; use retry for a fresh inspection",
+          "Incomplete review; use retry for a fresh inspection",
         );
       if ((await hosting.head(run.change)) !== run.reviewHead)
         throw new BlockedError("Review stale: remote head changed");
-      const diff = (
-        await command(
-          "git",
-          ["diff", "--unified=0", run.base, run.reviewHead],
-          { cwd: project.checkout },
-        )
-      ).stdout;
+      const paths = [
+        ...new Set(
+          run.review.findings
+            .filter((finding) => finding.path && finding.line)
+            .map((finding) => finding.path!),
+        ),
+      ];
+      const diff = paths.length
+        ? (
+            await command(
+              "git",
+              [
+                "--literal-pathspecs",
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--unified=0",
+                run.base,
+                run.reviewHead,
+                "--",
+                ...paths,
+              ],
+              { cwd: project.checkout, signal: this.dependencies.signal },
+            )
+          ).stdout
+        : "";
       await hosting.publishReview({
         change: run.change,
         head: run.reviewHead,

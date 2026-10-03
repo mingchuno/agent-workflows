@@ -33,7 +33,7 @@
     "agent-workflows": "./dist/src/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
+    "build": "node scripts/clean-build.mjs && tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "check": "tsc --noEmit",
     "test": "pnpm build && node --test scripts/*.test.mjs && node scripts/test.mjs",
     "verify": "pnpm check && pnpm lint && pnpm test",

@@ -57,7 +57,6 @@ test("recovery explanation preserves domain, project and supersession precedence
     branch: run.branch,
     head: "head",
     fingerprint: "fingerprint",
-    diff: "diff",
     paths: [],
     files: {},
   };

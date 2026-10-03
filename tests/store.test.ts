@@ -86,7 +86,6 @@ test("store preserves scoped records, uniqueness, numeric ordering and concurren
       requested: {},
       effective: {},
       prompt: "secret",
-      skills: [],
       outcome: "running",
       startedAt: two.createdAt,
       log: "fixture",

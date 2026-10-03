@@ -51,7 +51,6 @@ export interface Snapshot {
   branch: string;
   head: string;
   fingerprint: string;
-  diff: string;
   paths: string[];
   files: Record<string, string | null>;
 }
@@ -116,7 +115,7 @@ export interface AgentInvocation {
   profile: AgentProfile;
   outputSchema?: unknown;
   processFile?: string;
-  readOnly: boolean;
+  resumeSessionId?: string;
   signal: AbortSignal;
   timeoutMs?: number;
   session: (id: string) => Promise<void>;

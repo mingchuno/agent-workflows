@@ -13,7 +13,6 @@ import {
   type RunRecord,
   type Workspace,
 } from "./domain.js";
-import { assertEvidenceDirectory } from "./evidence.js";
 import { defaultWorkflow, Operations } from "./operations.js";
 import { projectPrompts } from "./prompts.js";
 import {
@@ -26,6 +25,7 @@ import {
   assertProcessesStopped,
   CheckoutOwnership,
 } from "./runtime/ownership.js";
+import { assertStateDirectory } from "./runtime/paths.js";
 import { createRedactor, runtimeLogger } from "./runtime/redaction.js";
 import { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
@@ -94,7 +94,7 @@ export class Runner {
     const ids = new Set<string>();
     for (const project of this.config.projects) {
       project.checkout = await realpath(project.checkout);
-      this.config.stateDirectory = await assertEvidenceDirectory(
+      this.config.stateDirectory = await assertStateDirectory(
         project.checkout,
         this.config.stateDirectory,
       );
@@ -129,7 +129,7 @@ export class Runner {
     DBOS.setConfig({
       name: `agent-workflows-${this.config.id}`,
       systemDatabaseUrl: this.options.databaseUrl,
-      applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v2"}`,
+      applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v3"}`,
       executorID: this.config.id,
       listenQueues: this.config.projects.map((p) => this.queue(p.id)),
       logger: runtimeLogger(this.redact),
@@ -283,7 +283,7 @@ export class Runner {
       return DBOS.forkWorkflow(execution.recoveryOf, execution.startStep!, {
         newWorkflowID: execution.id,
         queueName: this.queue(project.id),
-        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v2"}`,
+        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v3"}`,
       });
     }
     return DBOS.startWorkflow(this.workflow, {
@@ -351,7 +351,7 @@ export class Runner {
       executionFingerprint: () =>
         executionFingerprint(
           project,
-          this.options.workflowVersion ?? "phase1-v2",
+          this.options.workflowVersion ?? "phase1-v3",
           controller.signal,
         ),
       beforeStep: async () => {
@@ -417,7 +417,7 @@ export class Runner {
       workspace: this.options.workspace ?? new ExistingCheckout(),
       hosting: this.hosting.get(project.id)!,
       stateDirectory: this.config.stateDirectory,
-      workflowVersion: this.options.workflowVersion ?? "phase1-v2",
+      workflowVersion: this.options.workflowVersion ?? "phase1-v3",
     });
   }
   private async recordExecutionFailure(
@@ -561,7 +561,7 @@ export class Runner {
           {
             status,
             steps,
-            applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v2"}`,
+            applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v3"}`,
           },
           {
             project,
@@ -569,7 +569,7 @@ export class Runner {
             workspace: this.options.workspace ?? new ExistingCheckout(),
             hosting: this.hosting.get(project.id)!,
             stateDirectory: this.config.stateDirectory,
-            workflowVersion: this.options.workflowVersion ?? "phase1-v2",
+            workflowVersion: this.options.workflowVersion ?? "phase1-v3",
           },
         );
       },

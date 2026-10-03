@@ -125,18 +125,14 @@ export class ExistingCheckout implements Workspace {
       "-z",
       "--untracked-files=all",
     );
-    const diff = await this.git(
-      project,
-      "diff",
-      "HEAD",
-      "--binary",
-      "--no-ext-diff",
-    );
+    const index = await this.git(project, "ls-files", "--stage", "-z");
     const tracked = await this.git(
       project,
       "diff",
       "HEAD",
       "--no-renames",
+      "--no-ext-diff",
+      "--no-textconv",
       "--name-only",
       "-z",
     );
@@ -155,8 +151,7 @@ export class ExistingCheckout implements Workspace {
       .update(head)
       .update(branch)
       .update(status)
-      .update(diff);
-    let fullDiff = diff;
+      .update(index);
     const files: Record<string, string | null> = {};
     for (const path of paths) {
       const absolute = join(project.checkout, path);
@@ -169,8 +164,6 @@ export class ExistingCheckout implements Workspace {
         const content = await readFile(absolute);
         files[path] = fileStateDigest(content, stat.mode);
         hash.update(path).update(content).update(String(stat.mode));
-        if (untrackedPaths.has(path))
-          fullDiff += `\n--- /dev/null\n+++ b/${path}\n${content.toString()}`;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         hash.update(`deleted:${path}`);
@@ -181,7 +174,6 @@ export class ExistingCheckout implements Workspace {
       branch,
       head,
       fingerprint: hash.digest("hex"),
-      diff: fullDiff,
       paths,
       files,
     };

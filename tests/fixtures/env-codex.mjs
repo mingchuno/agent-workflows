@@ -10,7 +10,7 @@ const values = await snapshot(publication ? "publication" : "implementation");
 const emit = (value) => console.log(JSON.stringify(value));
 emit({
   type: "thread.started",
-  thread_id: publication ? "publication" : "implementation",
+  thread_id: "implementation",
 });
 if (publication) {
   // Stop before publication, exercising persisted error redaction as well.

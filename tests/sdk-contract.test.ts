@@ -16,12 +16,130 @@ const input: WorkerInput = {
   cwd: "/workspace",
   prompt: "Task",
   profile: { provider: "codex", model: "model", reasoningEffort: "high" },
-  readOnly: true,
 };
+
+test("Codex resumes the supplied thread with implementation permissions and stage settings", async () => {
+  const messages: Array<[string, unknown]> = [];
+  await runCodex(
+    {
+      startThread() {
+        throw new Error("must resume");
+      },
+      resumeThread(id, options) {
+        assert.equal(id, "implementation-thread");
+        assert.equal(options.model, "model");
+        assert.equal(options.modelReasoningEffort, "high");
+        assert.equal(options.sandboxMode, "workspace-write");
+        assert.equal(options.approvalPolicy, "never");
+        return {
+          async runStreamed() {
+            return {
+              events: (async function* (): AsyncGenerator<ThreadEvent> {
+                yield {
+                  type: "turn.completed",
+                  usage: {
+                    input_tokens: 0,
+                    cached_input_tokens: 0,
+                    cache_write_input_tokens: 0,
+                    output_tokens: 0,
+                    reasoning_output_tokens: 0,
+                  },
+                };
+              })(),
+            };
+          },
+        };
+      },
+    },
+    { ...input, resumeSessionId: "implementation-thread" },
+    (type, value) => messages.push([type, value]),
+  );
+  assert.deepEqual(messages[0], ["session", "implementation-thread"]);
+});
+
+test("Copilot resumes the supplied session and reinstalls implementation permissions", async () => {
+  const messages: Array<[string, unknown]> = [];
+  await runCopilot(
+    {
+      async start() {},
+      async listModels() {
+        return [];
+      },
+      async createSession() {
+        throw new Error("must resume");
+      },
+      async resumeSession(id, options) {
+        assert.equal(id, "implementation-session");
+        assert.equal(options.model, "model");
+        assert.equal(options.workingDirectory, input.cwd);
+        assert.equal(options.continuePendingWork, false);
+        const permission = options.onPermissionRequest!;
+        const request = {
+          kind: "shell",
+          fullCommandText: "git diff",
+          commands: [],
+          possiblePaths: [],
+          possibleUrls: [],
+          hasWriteFileRedirection: false,
+          intention: "inspect",
+          canOfferSessionApproval: false,
+        } as const;
+        assert.equal(
+          (
+            await permission(
+              { ...request, commands: [], possiblePaths: [], possibleUrls: [] },
+              { sessionId: id },
+            )
+          ).kind,
+          "approve-once",
+        );
+        assert.equal(
+          (
+            await permission(
+              {
+                ...request,
+                commands: [],
+                possiblePaths: [],
+                possibleUrls: [],
+                managedApprovalRequired: true,
+              },
+              { sessionId: id },
+            )
+          ).kind,
+          "reject",
+        );
+        return {
+          sessionId: id,
+          on() {},
+          async sendAndWait() {
+            return { data: { content: "publication" } };
+          },
+          async disconnect() {},
+        };
+      },
+      async stop() {
+        return [];
+      },
+      async forceStop() {},
+    },
+    {
+      ...input,
+      provider: "copilot",
+      profile: { ...input.profile, provider: "copilot" },
+      resumeSessionId: "implementation-session",
+    },
+    (type, value) => messages.push([type, value]),
+  );
+  assert.deepEqual(messages[0], ["session", "implementation-session"]);
+  assert.deepEqual(messages.at(-1), ["result", "publication"]);
+});
 test("Codex contract passes requested profile and emits thread ID before a failed turn", async () => {
   let options: ThreadOptions | undefined;
   const messages: Array<[string, unknown]> = [];
   const client = {
+    resumeThread() {
+      throw new Error("unexpected resume");
+    },
     startThread(value: ThreadOptions) {
       options = value;
       return {
@@ -45,7 +163,7 @@ test("Codex contract passes requested profile and emits thread ID before a faile
   );
   assert.equal(options?.model, "model");
   assert.equal(options?.modelReasoningEffort, "high");
-  assert.equal(options?.sandboxMode, "read-only");
+  assert.equal(options?.sandboxMode, "workspace-write");
   assert.deepEqual(messages[0], ["session", "thread-123"]);
 });
 test("Codex rejects a stream that ends before turn completion", async () => {
@@ -53,6 +171,9 @@ test("Codex rejects a stream that ends before turn completion", async () => {
   await assert.rejects(
     runCodex(
       {
+        resumeThread() {
+          throw new Error("unexpected resume");
+        },
         startThread() {
           return {
             async runStreamed() {
@@ -91,6 +212,9 @@ test("Copilot contract starts fresh sessions with context controls and stops on 
     async start() {},
     async listModels() {
       return [];
+    },
+    async resumeSession() {
+      throw new Error("unexpected resume");
     },
     async createSession(value: SessionConfig) {
       options = value;
@@ -155,6 +279,9 @@ test("Copilot model discovery connects before listing and closes afterward", asy
           },
         ] as Awaited<ReturnType<CopilotClientContract["listModels"]>>;
       },
+      async resumeSession() {
+        throw new Error("unexpected resume");
+      },
       async createSession() {
         throw new Error("model discovery must not create a session");
       },
@@ -180,6 +307,9 @@ test("Copilot honors a configured timeout longer than the default", async () => 
       async start() {},
       async listModels() {
         return [];
+      },
+      async resumeSession() {
+        throw new Error("unexpected resume");
       },
       async createSession() {
         return {
@@ -213,8 +343,11 @@ test("Codex forwards the output contract independently of task text", async () =
   let received: unknown;
   await runCodex(
     {
+      resumeThread() {
+        throw new Error("unexpected resume");
+      },
       startThread(options) {
-        assert.equal(options.sandboxMode, "read-only");
+        assert.equal(options.sandboxMode, "workspace-write");
         return {
           async runStreamed(_prompt, turnOptions) {
             received = turnOptions?.outputSchema;
@@ -243,7 +376,7 @@ test("Codex forwards the output contract independently of task text", async () =
   assert.deepEqual(received, schema);
 });
 
-test("Copilot permits outside-checkout file reads while denying shell and writes", async () => {
+test("Copilot approves reads, shell and writes with implementation permissions", async () => {
   const { mkdtemp, readFile, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -256,6 +389,9 @@ test("Copilot permits outside-checkout file reads while denying shell and writes
       async start() {},
       async listModels() {
         return [];
+      },
+      async resumeSession() {
+        throw new Error("unexpected resume");
       },
       async createSession(options) {
         const permission = options.onPermissionRequest!;
@@ -274,7 +410,7 @@ test("Copilot permits outside-checkout file reads while denying shell and writes
           },
           { sessionId: "test" },
         );
-        assert.notEqual(denied.kind, "approve-once");
+        assert.equal(denied.kind, "approve-once");
         const shell = await permission(
           {
             kind: "shell",
@@ -288,7 +424,7 @@ test("Copilot permits outside-checkout file reads while denying shell and writes
           },
           { sessionId: "test" },
         );
-        assert.notEqual(shell.kind, "approve-once");
+        assert.equal(shell.kind, "approve-once");
         return {
           sessionId: "test",
           on() {},

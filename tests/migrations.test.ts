@@ -57,7 +57,6 @@ for (const legacy of [false, true]) {
       requested: {},
       effective: {},
       prompt: "preserve",
-      skills: [],
       outcome: "running",
       startedAt: existingRun.createdAt,
       log: "legacy.log",

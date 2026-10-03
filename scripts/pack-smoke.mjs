@@ -26,6 +26,15 @@ for (const required of [
   assert.ok(files.includes(required), `Missing package file: ${required}`);
 assert.ok(files.some((file) => /^dist\/drizzle\/.*\.sql$/.test(file)));
 assert.ok(
+  files.every(
+    (file) =>
+      !/^dist\/src\/(evidence(?:-query)?\.|adapters\/evidence-tools\.)/.test(
+        file,
+      ),
+  ),
+  "Removed evidence modules must not remain in the package",
+);
+assert.ok(
   files.every((file) =>
     /^(dist\/(src|drizzle)\/|docs\/|examples\/|package\.json$|README\.md$|LICENCE$)/.test(
       file,
@@ -121,14 +130,16 @@ try {
   await writeFile(
     join(consumer, "consumer.ts"),
     `
-    import { Runner, Store, createAgents, type Configuration } from '@mingchuno/agent-workflows';
+    import { Runner, Store, createAgents, type Configuration, type InvocationTask, type AgentInvocation } from '@mingchuno/agent-workflows';
     const agents: ReturnType<typeof createAgents> = createAgents();
     const store: Store = new Store('postgresql://unused', 'consumer');
     const runner: typeof Runner = Runner;
     export type ConsumerConfiguration = Configuration;
+    const task: InvocationTask = { defaultPrompt: 'Inspect', preserveCheckout: true, resumeSessionId: 'saved' };
+    const session: Pick<AgentInvocation, 'resumeSessionId'> = { resumeSessionId: 'saved' };
     // @ts-expect-error Public PostgreSQL types must not degrade to any.
     store.pool.notAnActualPoolMethod();
-    void [agents, store, runner];
+    void [agents, store, runner, task, session];
   `,
   );
   run(

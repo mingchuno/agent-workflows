@@ -9,7 +9,6 @@ import {
   type RunRecord,
   type Snapshot,
 } from "./domain.js";
-import { type ChangeEvidence, verifyEvidence } from "./evidence.js";
 import type { OperationDependencies } from "./operations.js";
 import { resolveStagePrompt, sha256 } from "./prompts.js";
 import type { InvocationRecord } from "./store.js";
@@ -19,9 +18,9 @@ const maxInvocationAttempts = 2;
 export interface InvocationTask {
   defaultPrompt: string;
   context?: (run: RunRecord) => string;
-  readOnly?: boolean;
+  preserveCheckout?: boolean;
+  resumeSessionId?: string;
   outputContract?: z.ZodType;
-  evidence?: ChangeEvidence;
 }
 
 interface StageExecution {
@@ -36,6 +35,7 @@ interface AttemptInput {
   number: number;
   correction: string;
   contribution?: ContributionCandidate;
+  resumeSessionId?: string;
 }
 type AttemptResult =
   | { kind: "completed"; output: string }
@@ -43,6 +43,7 @@ type AttemptResult =
       kind: "correction";
       correction: string;
       contribution?: ContributionCandidate;
+      resumeSessionId: string;
     };
 
 /** One logical stage; only returned format errors admit a second response attempt. */
@@ -70,7 +71,11 @@ export async function invokeStage(execution: StageExecution): Promise<string> {
     await note(`Preparing ${name} agent stage`);
     const prepared = await prepareStage(execution, note);
     await note(`Agent preflight passed: ${prepared.profile.provider}`);
-    let attempt: AttemptInput = { number: 1, correction: "" };
+    let attempt: AttemptInput = {
+      number: 1,
+      correction: "",
+      resumeSessionId: execution.task.resumeSessionId,
+    };
     while (attempt.number <= maxInvocationAttempts) {
       await note(`Starting invocation ${attempt.number}`);
       const result = await invokeAttempt(execution, prepared, attempt);
@@ -82,6 +87,7 @@ export async function invokeStage(execution: StageExecution): Promise<string> {
         number: attempt.number + 1,
         correction: result.correction,
         contribution: result.contribution,
+        resumeSessionId: result.resumeSessionId,
       };
     }
     throw new Error("Format correction exhausted");
@@ -134,8 +140,8 @@ function prepareRequest(execution: StageExecution) {
   const fullPrompt = [
     resolved.content,
     `Run context:\n${task.context?.(run) ?? ""}`,
-    task.readOnly
-      ? "Inspection only. Do not modify files, commit, push, or publish."
+    task.preserveCheckout
+      ? "Use commands and file tools to inspect the checkout. Preserve source files, Git index, branch and revision. Do not commit, push, or publish."
       : "Do not commit, push, or publish.",
     contract,
   ].join("\n\n");
@@ -147,12 +153,11 @@ async function prepareStage(
   execution: StageExecution,
   note: (message: string) => Promise<void>,
 ) {
-  const { run, stage, task, dependencies } = execution;
+  const { run, stage, dependencies } = execution;
   const { project, agents, signal, workspace } = dependencies;
   await refusePreviousInvocations(execution);
   if (!run.snapshot) throw new BlockedError("Missing workspace snapshot");
   await workspace.verify(project, run.snapshot);
-  if (task.evidence) await verifyEvidence(task.evidence);
   const request = prepareRequest(execution);
   const { profile } = request;
   const adapter = agents[profile.provider];
@@ -197,11 +202,9 @@ async function invokeAttempt(
   invocationSignal.throwIfAborted();
   const expected = (await store.run(run.id)).snapshot!;
   await workspace.verify(project, expected);
-  if (task.evidence) await verifyEvidence(task.evidence);
   const id = randomUUID();
   const prompt = fullPrompt + attempt.correction;
-  const readOnly =
-    task.readOnly === true || attempt.number === maxInvocationAttempts;
+  const preserveCheckout = task.preserveCheckout === true || attempt.number > 1;
   const record: InvocationRecord = {
     id,
     runId: run.id,
@@ -211,6 +214,7 @@ async function invokeAttempt(
     attempt: attempt.number,
     provider: profile.provider,
     sessionId: null,
+    resumedFrom: attempt.resumeSessionId,
     sessionState: "pending",
     requested: profile,
     effective,
@@ -219,7 +223,6 @@ async function invokeAttempt(
     outputContract: outputSchema
       ? sha256(JSON.stringify(outputSchema))
       : undefined,
-    evidence: task.evidence,
     outcome: "running",
     startedAt: new Date().toISOString(),
     log: join(directory, `${id}.jsonl`),
@@ -230,12 +233,12 @@ async function invokeAttempt(
     const output = await invokeProvider(execution, prepared, {
       record,
       prompt,
-      readOnly,
+      resumeSessionId: attempt.resumeSessionId,
     });
     await appendFile(record.log, "", { mode: 0o600 });
     invocationSignal.throwIfAborted();
     let contribution = attempt.contribution;
-    if (readOnly) await workspace.verify(project, expected);
+    if (preserveCheckout) await workspace.verify(project, expected);
     else
       contribution = await saveImplementationSnapshot(
         run.id,
@@ -243,7 +246,6 @@ async function invokeAttempt(
         profile.provider,
         dependencies,
       );
-    if (task.evidence) await verifyEvidence(task.evidence);
     invocationSignal.throwIfAborted();
     const response = validateResponse(output, task.outputContract);
     if (response.kind === "invalid") {
@@ -253,7 +255,14 @@ async function invokeAttempt(
         response.error,
         redact,
       );
-      return { kind: "correction", correction, contribution };
+      if (!record.sessionId)
+        throw new Error("Session unavailable for format correction");
+      return {
+        kind: "correction",
+        correction,
+        contribution,
+        resumeSessionId: record.sessionId,
+      };
     }
     if (contribution)
       await acceptContribution(run.id, contribution, dependencies);
@@ -285,7 +294,11 @@ async function invokeAttempt(
 async function invokeProvider(
   execution: StageExecution,
   prepared: PreparedStage,
-  attempt: { record: InvocationRecord; prompt: string; readOnly: boolean },
+  attempt: {
+    record: InvocationRecord;
+    prompt: string;
+    resumeSessionId?: string;
+  },
 ): Promise<string> {
   const {
     run,
@@ -294,7 +307,7 @@ async function invokeProvider(
   } = execution;
   const { adapter, profile, outputSchema, invocationSignal, deadline } =
     prepared;
-  const { record, prompt, readOnly } = attempt;
+  const { record, prompt, resumeSessionId } = attempt;
   return adapter.invoke({
     id: record.id,
     runId: run.id,
@@ -304,10 +317,14 @@ async function invokeProvider(
     profile,
     outputSchema,
     processFile: record.log + ".process.json",
-    readOnly,
+    resumeSessionId,
     signal: invocationSignal,
     timeoutMs: Math.max(1, deadline - Date.now()),
     session: async (sessionId) => {
+      if (resumeSessionId && sessionId !== resumeSessionId)
+        throw new Error(
+          "Provider returned a different session than requested for resumption",
+        );
       record.sessionId = sessionId;
       record.sessionState = "available";
       await store.saveInvocation(record);
@@ -354,7 +371,7 @@ async function recordInvalidResponse(
   );
   if (record.attempt === maxInvocationAttempts)
     throw new Error(`Invalid output after one correction: ${String(error)}`);
-  return `\n\nCorrect the prior response format in this fresh inspection-only session. Do not modify files.\nPrior invalid response:\n${output}\nValidation errors:\n${String(error)}`;
+  return `\n\nCorrect the prior response format in this session. Preserve source files, Git index, branch and revision. Do not commit, push, or publish.\nPrior invalid response:\n${output}\nValidation errors:\n${String(error)}`;
 }
 
 async function saveImplementationSnapshot(
