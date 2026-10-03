@@ -313,3 +313,38 @@ test("path base resolves state and checkout while prompt base only overrides pro
     /not an existing directory/,
   );
 });
+
+test("workflow intake config defaults to implementation and makes push reviews opt-in", () => {
+  const input = {
+    id: "review",
+    checkout: "/tmp",
+    hosting: {
+      provider: "github",
+      origin: "https://github.com",
+      repository: "a/b",
+      tokenEnv: "TOKEN",
+    },
+    agent: { provider: "codex" },
+  };
+  const defaults = projectSchema.parse(input);
+  assert.equal(defaults.workflows.implementation.enabled, true);
+  assert.equal(defaults.workflows.review.enabled, false);
+  assert.equal(defaults.workflows.review.rereviewOnPush, false);
+  const review = projectSchema.parse({
+    ...input,
+    workflows: {
+      implementation: { enabled: false },
+      review: { enabled: true, labels: ["review"], rereviewOnPush: true },
+    },
+  });
+  assert.equal(review.workflows.review.rereviewOnPush, true);
+  assert.equal(
+    projectSchema.safeParse({ ...input, labels: ["old"] }).success,
+    false,
+  );
+  assert.equal(
+    projectSchema.safeParse({ ...input, workflows: { review: { labels: [] } } })
+      .success,
+    false,
+  );
+});

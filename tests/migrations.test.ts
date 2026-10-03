@@ -29,7 +29,8 @@ for (const legacy of [false, true]) {
       checkout: "/tmp/legacy",
       taskKey: "legacy:1",
       attempt: 1,
-      issue: {
+      subject: {
+        kind: "issue",
         id: "1",
         number: 1,
         title: "preserve",

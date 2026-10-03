@@ -14,7 +14,14 @@ export const configuration = configSchema.parse({
         repository: "group/application",
         tokenEnv: "GITLAB_TOKEN",
       },
-      labels: ["ready-for-agent"],
+      workflows: {
+        implementation: { enabled: true, labels: ["ready-for-agent"] },
+        review: {
+          enabled: false,
+          labels: ["ready-for-review"],
+          rereviewOnPush: false,
+        },
+      },
       baseBranch: "main",
       branchTemplate: "agent/{issue}-{attempt}",
       includeAgentCoAuthors: true,

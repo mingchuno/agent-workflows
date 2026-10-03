@@ -1,5 +1,6 @@
 import type { Key } from "ink";
 import type { RunRecord } from "../domain.js";
+import { subjectReference } from "../domain.js";
 import type { EventRecord, InvocationRecord, ProjectState } from "../store.js";
 import type { MonitorAction } from "./data.js";
 import type { LogSource } from "./log.js";
@@ -109,6 +110,7 @@ export function transitionNavigation(
   if (
     kind &&
     context.run &&
+    (kind !== "retry-refresh" || context.run.subject.kind === "issue") &&
     context.available[kind === "retry-refresh" ? "retry" : kind]
   )
     return {
@@ -118,7 +120,7 @@ export function transitionNavigation(
           type: "confirmation",
           kind,
           runId: context.run.id,
-          title: `#${context.run.issue.number} ${context.run.issue.title}`,
+          title: `${subjectReference(context.run.subject)} ${context.run.subject.title}`,
         },
       },
     };

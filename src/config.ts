@@ -62,7 +62,29 @@ export const projectSchema = z
       repository: z.string().min(1),
       tokenEnv: z.string().regex(/^[A-Z_][A-Z0-9_]*$/),
     }),
-    labels: z.array(z.string().min(1)).min(1).default(["ready-for-agent"]),
+    workflows: z
+      .strictObject({
+        implementation: z
+          .strictObject({
+            enabled: z.boolean().default(true),
+            labels: z
+              .array(z.string().min(1))
+              .min(1)
+              .default(["ready-for-agent"]),
+          })
+          .prefault({}),
+        review: z
+          .strictObject({
+            enabled: z.boolean().default(false),
+            labels: z
+              .array(z.string().min(1))
+              .min(1)
+              .default(["ready-for-review"]),
+            rereviewOnPush: z.boolean().default(false),
+          })
+          .prefault({}),
+      })
+      .prefault({}),
     baseBranch: z.string().min(1).default("main"),
     remote: z
       .string()
@@ -100,6 +122,7 @@ export const projectSchema = z
   })
   .refine(
     (project) =>
+      !project.workflows.implementation.enabled ||
       project.stages.publication.useNewSession ||
       resolveProfile(project.agent, project.stages.implementation.profile)
         .provider ===

@@ -13,14 +13,19 @@ import {
   type RunRecord,
   type Workspace,
 } from "./domain.js";
-import { defaultWorkflow, Operations } from "./operations.js";
+import { defaultWorkflow, Operations, reviewWorkflow } from "./operations.js";
 import { projectPrompts } from "./prompts.js";
 import {
   executionFingerprint,
   resumePublicationExecution,
   verifyPublicationRecoveryAdmission,
 } from "./recovery.js";
-import { createQueuedRun } from "./run-record.js";
+import {
+  alreadyReviewed,
+  reviewEligible,
+  reviewTaskKey,
+} from "./review-intake.js";
+import { createQueuedReviewRun, createQueuedRun } from "./run-record.js";
 import {
   assertProcessesStopped,
   CheckoutOwnership,
@@ -124,12 +129,12 @@ export class Runner {
     });
     this.workflow = DBOS.registerWorkflow(
       async (runId: string) => this.execute(runId),
-      { name: `${this.config.id}-issue-workflow` },
+      { name: `${this.config.id}-workflow` },
     );
     DBOS.setConfig({
       name: `agent-workflows-${this.config.id}`,
       systemDatabaseUrl: this.options.databaseUrl,
-      applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v3"}`,
+      applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v4"}`,
       executorID: this.config.id,
       listenQueues: this.config.projects.map((p) => this.queue(p.id)),
       logger: runtimeLogger(this.redact),
@@ -184,9 +189,10 @@ export class Runner {
     const state = await this.store.project(project.id);
     if (state.paused || state.blocked || this.stopping) return;
     const hosting = this.hosting.get(project.id)!;
-    for (const issue of (await hosting.listIssues(project.labels)).sort(
-      (a, b) => a.number - b.number,
-    )) {
+    for (const issue of (project.workflows.implementation.enabled
+      ? await hosting.listIssues(project.workflows.implementation.labels)
+      : []
+    ).sort((a, b) => a.number - b.number)) {
       if (this.stopping) return;
       const now = new Date().toISOString();
       const id = randomUUID();
@@ -194,11 +200,33 @@ export class Runner {
         id,
         projectId: project.id,
         checkout: project.checkout,
-        taskKey: `${hosting.identity}:${issue.id}`,
+        taskKey: `${hosting.identity}:${project.id}:issue:${issue.id}`,
         attempt: 1,
         issue,
         now,
         branchTemplate: project.branchTemplate,
+      });
+      await this.store.insertRun(run);
+    }
+    if (!project.workflows.review.enabled || this.stopping) return;
+    const history = await this.store.runs();
+    const requests = await hosting.listChanges(project.workflows.review.labels);
+    for (const request of requests.sort((a, b) => a.number - b.number)) {
+      if (this.stopping) return;
+      if (
+        !reviewEligible(request, project) ||
+        alreadyReviewed(history, project, request)
+      )
+        continue;
+      const id = randomUUID();
+      const run = createQueuedReviewRun({
+        id,
+        projectId: project.id,
+        checkout: project.checkout,
+        taskKey: reviewTaskKey(hosting.identity, project, request),
+        attempt: 1,
+        request,
+        now: new Date().toISOString(),
       });
       await this.store.insertRun(run);
     }
@@ -283,7 +311,7 @@ export class Runner {
       return DBOS.forkWorkflow(execution.recoveryOf, execution.startStep!, {
         newWorkflowID: execution.id,
         queueName: this.queue(project.id),
-        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v3"}`,
+        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v4"}`,
       });
     }
     return DBOS.startWorkflow(this.workflow, {
@@ -351,7 +379,7 @@ export class Runner {
       executionFingerprint: () =>
         executionFingerprint(
           project,
-          this.options.workflowVersion ?? "phase1-v3",
+          this.options.workflowVersion ?? "workflows-v4",
           controller.signal,
         ),
       beforeStep: async () => {
@@ -371,7 +399,11 @@ export class Runner {
         await DBOS.sleepms(200);
       }
       controller.signal.throwIfAborted();
-      await (this.options.workflow ?? defaultWorkflow)(operations);
+      const workflow =
+        run.subject.kind === "change-request"
+          ? reviewWorkflow
+          : (this.options.workflow ?? defaultWorkflow);
+      await workflow(operations);
       await DBOS.runStep(
         async () => {
           const completed = await this.store.run(runId);
@@ -417,7 +449,7 @@ export class Runner {
       workspace: this.options.workspace ?? new ExistingCheckout(),
       hosting: this.hosting.get(project.id)!,
       stateDirectory: this.config.stateDirectory,
-      workflowVersion: this.options.workflowVersion ?? "phase1-v3",
+      workflowVersion: this.options.workflowVersion ?? "workflows-v4",
     });
   }
   private async recordExecutionFailure(
@@ -435,9 +467,11 @@ export class Runner {
     }
     const outcome = controller.signal.aborted
       ? "cancelled"
-      : isBlockedError(error)
-        ? "blocked"
-        : "failed";
+      : error instanceof Error && error.name === "StaleReviewError"
+        ? "superseded"
+        : isBlockedError(error)
+          ? "blocked"
+          : "failed";
     await this.store.patchRun(runId, {
       outcome,
       error: this.redact(String(error)),
@@ -462,7 +496,8 @@ export class Runner {
           id: run.id,
           // Capture inputs after prepare fetches and checks out the actual base.
           fingerprint: "",
-          recoverySupported: !this.options.workflow,
+          recoverySupported:
+            run.subject.kind === "issue" && !this.options.workflow,
           createdAt: run.createdAt,
           outcome: run.outcome,
           phase: run.phase,
@@ -512,19 +547,25 @@ export class Runner {
         );
         await (this.options.workspace ?? new ExistingCheckout()).check(project);
         let issue: Issue | undefined;
+        if (options.refreshIssue && previous.subject.kind === "change-request")
+          throw new Error(
+            "Issue refresh does not apply to review runs; retry reviews the recorded revision",
+          );
         if (options.refreshIssue) {
           const hosting =
             this.hosting.get(project.id) ?? this.options.hosting(project);
-          const current = await hosting.getIssue(previous.issue.number);
+          const current = await hosting.getIssue(previous.subject.number);
           if (
-            current.id !== previous.issue.id ||
-            current.number !== previous.issue.number ||
-            current.url !== previous.issue.url
+            current.id !== previous.subject.id ||
+            current.number !== previous.subject.number ||
+            current.url !== previous.subject.url
           )
             throw new Error("Refreshed issue identity differs from the run");
           if (
             !current.open ||
-            !project.labels.every((label) => current.labels.includes(label))
+            !project.workflows.implementation.labels.every((label) =>
+              current.labels.includes(label),
+            )
           )
             throw new Error(
               "Refreshed issue is closed or missing required labels",
@@ -546,6 +587,10 @@ export class Runner {
       checkSafety: async (run) => {
         if (!this.ownsRuntime || this.stopping)
           throw new Error("Recovery requires an active runner");
+        if (run.subject.kind === "change-request")
+          throw new Error(
+            "Review publication retries reuse retained findings; use retry instead of recover",
+          );
         if (this.options.workflow)
           throw new Error(
             "Publication recovery currently supports the default workflow only",
@@ -561,7 +606,7 @@ export class Runner {
           {
             status,
             steps,
-            applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "phase1-v3"}`,
+            applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v4"}`,
           },
           {
             project,
@@ -569,7 +614,7 @@ export class Runner {
             workspace: this.options.workspace ?? new ExistingCheckout(),
             hosting: this.hosting.get(project.id)!,
             stateDirectory: this.config.stateDirectory,
-            workflowVersion: this.options.workflowVersion ?? "phase1-v3",
+            workflowVersion: this.options.workflowVersion ?? "workflows-v4",
           },
         );
       },

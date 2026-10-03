@@ -1,4 +1,5 @@
 #!/usr/bin/env -S node --
+
 import { realpathSync, statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
@@ -10,6 +11,7 @@ import { createHosting } from "./adapters/hosting.js";
 import { readCliConfiguration } from "./cli-config.js";
 import type { Configuration } from "./config.js";
 import { defaultValidationTimeoutMs } from "./defaults.js";
+import { subjectReference } from "./domain.js";
 import { Runner } from "./runner.js";
 import { Store } from "./store.js";
 import { createTerminalNotificationWriter, Monitor } from "./tui/index.js";
@@ -99,7 +101,14 @@ program
             repository: "OWNER/REPOSITORY",
             tokenEnv: "GITHUB_TOKEN",
           },
-          labels: ["ready-for-agent"],
+          workflows: {
+            implementation: { enabled: true, labels: ["ready-for-agent"] },
+            review: {
+              enabled: false,
+              labels: ["ready-for-review"],
+              rereviewOnPush: false,
+            },
+          },
           baseBranch: "main",
           branchTemplate: "agent/{issue}-{attempt}",
           includeAgentCoAuthors: true,
@@ -177,7 +186,7 @@ program
             (run) => run.projectId === project.id,
           ))
             console.log(
-              `  ${run.id} #${run.issue.number} attempt ${run.attempt}: ${run.outcome} / ${run.phase}`,
+              `  ${run.id} ${subjectReference(run.subject)} attempt ${run.attempt}: ${run.outcome} / ${run.phase}`,
             );
         }
     }),

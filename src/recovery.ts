@@ -68,6 +68,8 @@ function verifyPublicationExecutionStart(
 }
 
 export function recoveryUnavailable(run: RunRecord): string | undefined {
+  if (run.subject.kind === "change-request")
+    return "Review publication retains findings; use retry instead of recover";
   if (run.outcome !== "failed")
     return "Only failed publication runs can be recovered";
   if (!publicationSteps.includes(run.phase))
@@ -95,7 +97,6 @@ export async function executionFingerprint(
 ): Promise<string> {
   const {
     pollIntervalMs: _poll,
-    labels: _labels,
     branchTemplate: _branch,
     hosting,
     ...execution

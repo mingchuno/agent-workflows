@@ -10,7 +10,8 @@ export function monitorFixture() {
     checkout: "/fixture",
     taskKey: "task",
     attempt: 1,
-    issue: {
+    subject: {
+      kind: "issue",
       id: "1",
       number: 1,
       title: "Implement feature",

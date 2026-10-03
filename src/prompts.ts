@@ -12,8 +12,8 @@ description for the supplied changes. Follow repository conventions. Describe
 what changed and why, summarize the recorded validation accurately, and state
 material limitations. Do not claim checks passed unless the supplied evidence
 shows they ran and passed.`,
-  review: `Independently review the supplied published changes against the issue's
-requirements and repository conventions. Use Git commands and inspect
+  review: `Independently review the supplied changes against the supplied requirements
+and repository conventions. Use Git commands and inspect
 relevant source for correctness, regressions, and missing validation. Report
 actionable findings with supporting locations where possible. State any gaps
 in inspection explicitly; do not present an incomplete review as a clean review.`,

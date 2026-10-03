@@ -19,6 +19,7 @@ const terminalOutcomes: Outcome[] = [
   "cancelled",
   "no-change",
   "ineligible",
+  "superseded",
 ];
 
 function recorder(notifications: ExecutionNotification[]) {
@@ -119,7 +120,7 @@ test("unseen terminal executions notify across projects and after reconnection",
     ...run,
     id: "other-run",
     projectId: "other-project",
-    issue: { ...run.issue, number: 22, title: "Private other title" },
+    subject: { ...run.subject, number: 22, title: "Private other title" },
     executions: [
       {
         ...run.executions![0]!,
@@ -157,7 +158,7 @@ test("unseen terminal executions notify across projects and after reconnection",
       {
         ...other,
         id: "recovery-run",
-        issue: { ...other.issue, number: 23 },
+        subject: { ...other.subject, number: 23 },
         executions: [
           {
             ...other.executions![0]!,

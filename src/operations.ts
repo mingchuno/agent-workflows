@@ -11,12 +11,18 @@ import {
   publicationSchema,
   type RunRecord,
   reviewSchema,
+  StaleReviewError,
   type ValidationResult,
   type Workspace,
 } from "./domain.js";
 import { type InvocationTask, invokeStage } from "./invocation.js";
 import { defaultStagePrompts } from "./prompts.js";
 import { publicationSteps } from "./recovery.js";
+import {
+  alreadyReviewed,
+  reviewEligible,
+  sameReviewRevision,
+} from "./review-intake.js";
 import { command } from "./runtime/process.js";
 import type { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
@@ -80,6 +86,7 @@ export class Operations {
           if (
             !publicationSteps.includes(name) ||
             isBlockedError(error) ||
+            (error instanceof Error && error.name === "StaleReviewError") ||
             DBOS.stepStatus?.currentAttempt === maxStepAttempts
           )
             await store.patchRun(this.runId, { failedStep: DBOS.stepID! });
@@ -94,6 +101,10 @@ export class Operations {
           const message = this.dependencies.redact(
             error instanceof Error ? error.message : String(error),
           );
+          if (error instanceof Error && error.name === "StaleReviewError")
+            throw run.subject.kind === "change-request"
+              ? new StaleReviewError()
+              : new BlockedError(message);
           throw isBlockedError(error)
             ? new BlockedError(message)
             : new Error(message);
@@ -105,24 +116,101 @@ export class Operations {
         maxAttempts: maxStepAttempts,
         intervalSeconds: 0.2,
         backoffRate: 2,
-        shouldRetry: (error) => !isBlockedError(error),
+        shouldRetry: (error) =>
+          !isBlockedError(error) &&
+          !(error instanceof Error && error.name === "StaleReviewError"),
       },
     );
   }
   async eligible(): Promise<boolean> {
     return this.step("eligibility", async (run) => {
       const { hosting, project } = this.dependencies;
-      const issue = await hosting.getIssue(run.issue.number);
       if (
-        !issue.open ||
-        !project.labels.every((label) => issue.labels.includes(label))
+        run.subject.kind !== "issue" ||
+        !project.workflows.implementation.enabled
       )
         return false;
-      const { profile } = selectValidation(run.issue.body, project);
+      const issue = await hosting.getIssue(run.subject.number);
+      if (
+        !issue.open ||
+        !project.workflows.implementation.labels.every((label) =>
+          issue.labels.includes(label),
+        )
+      )
+        return false;
+      const { profile } = selectValidation(run.subject.body, project);
       await this.dependencies.store.patchRun(run.id, {
         validationProfile: profile,
       });
       return true;
+    });
+  }
+  async reviewEligible(): Promise<boolean> {
+    return this.step("review-eligibility", async (run) => {
+      if (run.subject.kind !== "change-request")
+        throw new Error("Review workflow requires a change request");
+      const { project, hosting, store } = this.dependencies;
+      const current = await hosting.getChange(run.subject.number);
+      if (
+        !reviewEligible(current, project) ||
+        alreadyReviewed(await store.runs(), project, current)
+      )
+        return false;
+      if (
+        current.id !== run.subject.id ||
+        current.number !== run.subject.number ||
+        current.url !== run.subject.url
+      )
+        throw new StaleReviewError();
+      if (!sameReviewRevision(run.subject, current)) {
+        // Before inspection, a one-shot review follows the latest eligible revision.
+        if (project.workflows.review.rereviewOnPush || run.review)
+          throw new StaleReviewError();
+        await store.patchRun(run.id, {
+          subject: { ...current, kind: "change-request" },
+          change: current.change,
+        });
+      }
+      return true;
+    });
+  }
+  async prepareReview(): Promise<void> {
+    await this.step("review-prepare", async (run) => {
+      if (run.subject.kind !== "change-request")
+        throw new Error("Missing review request");
+      const { workspace, project, store } = this.dependencies;
+      const request = run.subject;
+      const assertFresh = async () => {
+        this.dependencies.signal.throwIfAborted();
+        const current = await this.dependencies.hosting.getChange(
+          run.subject.number,
+        );
+        if (
+          !reviewEligible(current, project) ||
+          !sameReviewRevision(request, current)
+        )
+          throw new StaleReviewError();
+      };
+      await assertFresh();
+      let snapshot: Awaited<ReturnType<Workspace["prepareReview"]>>;
+      try {
+        snapshot = await workspace.prepareReview(
+          project,
+          run.subject,
+          this.dependencies.signal,
+        );
+      } catch (error) {
+        await assertFresh();
+        throw error;
+      }
+      await assertFresh();
+      await store.patchRun(run.id, {
+        base: run.subject.base,
+        head: run.subject.change.head,
+        branch: snapshot.branch,
+        snapshot,
+        outcome: "running",
+      });
     });
   }
   async prepare(): Promise<void> {
@@ -169,7 +257,7 @@ export class Operations {
       this.dependencies.project.stages.implementation,
       {
         defaultPrompt: defaultStagePrompts.implementation,
-        context: (run) => `Issue: ${JSON.stringify(run.issue)}`,
+        context: (run) => `Issue: ${JSON.stringify(run.subject)}`,
       },
     );
   }
@@ -184,7 +272,7 @@ export class Operations {
       const validation: ValidationResult[] = [];
       const directory = join(this.dependencies.artifacts, run.id);
       await mkdir(directory, { recursive: true, mode: 0o700 });
-      const checks = selectValidation(run.issue.body, project).commands;
+      const checks = selectValidation(run.subject.body, project).commands;
       for (const [index, check] of checks.entries()) {
         const startedAt = new Date().toISOString();
         const log = join(directory, `validation-${index}.log`);
@@ -278,7 +366,7 @@ export class Operations {
         resumeSessionId,
         outputContract: publicationSchema,
         context: (run) =>
-          `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nValidated snapshot: ${run.snapshot?.fingerprint}\nChanged paths: ${JSON.stringify(run.snapshot?.paths)}\nInspect staged and unstaged changes with git diff and git diff --cached. Use git ls-files --others --exclude-standard and file tools for untracked changes. Inspect by path and search as needed; do not assume git diff includes untracked files.\nIssue: ${JSON.stringify(run.issue)}\nValidation: ${JSON.stringify(run.validation ?? [])}`,
+          `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nValidated snapshot: ${run.snapshot?.fingerprint}\nChanged paths: ${JSON.stringify(run.snapshot?.paths)}\nInspect staged and unstaged changes with git diff and git diff --cached. Use git ls-files --others --exclude-standard and file tools for untracked changes. Inspect by path and search as needed; do not assume git diff includes untracked files.\nIssue: ${JSON.stringify(run.subject)}\nValidation: ${JSON.stringify(run.validation ?? [])}`,
       },
     );
     await this.step("publication-content", async (run) => {
@@ -343,7 +431,7 @@ export class Operations {
           branch: run.branch,
           base: project.baseBranch,
           head: run.head,
-          issue: run.issue,
+          issue: run.subject,
           publication: run.publication,
           runId: run.id,
         }));
@@ -363,7 +451,7 @@ export class Operations {
         context: (run) => {
           if (!run.base || !run.head)
             throw new BlockedError("Missing published revisions");
-          return `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nPublished revision: ${run.head}\nInspect the exact revision pair with git diff ${run.base} ${run.head}, starting with --stat or --name-status and reading selected paths. Use git show and source search for context.\nIssue: ${JSON.stringify(run.issue)}\nValidation: ${JSON.stringify(run.validation ?? [])}\nSet complete=false with limitations if required changes or source cannot be inspected. Never report an incomplete review as clean. Use null for finding path/line where no valid added-line location exists.`;
+          return `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nPublished revision: ${run.head}\nInspect the exact revision pair with git diff ${run.base} ${run.head}, starting with --stat or --name-status and reading selected paths. Use git show and source search for context.\n${run.subject.kind === "issue" ? "Issue" : "Change request"}: ${JSON.stringify(run.subject)}\nValidation: ${JSON.stringify(run.validation ?? [])}\nSet complete=false with limitations if required changes or source cannot be inspected. Never report an incomplete review as clean. Use null for finding path/line where no valid added-line location exists.`;
         },
       },
     );
@@ -388,8 +476,18 @@ export class Operations {
         throw new BlockedError(
           "Incomplete review; use retry for a fresh inspection",
         );
+      if (run.subject.kind === "change-request") {
+        const current = await hosting.getChange(run.subject.number);
+        if (
+          !reviewEligible(current, project) ||
+          !sameReviewRevision(run.subject, current)
+        )
+          throw new StaleReviewError();
+      }
       if ((await hosting.head(run.change)) !== run.reviewHead)
-        throw new BlockedError("Review stale: remote head changed");
+        throw run.subject.kind === "change-request"
+          ? new StaleReviewError()
+          : new BlockedError("Review stale: remote head changed");
       const paths = [
         ...new Set(
           run.review.findings
@@ -397,6 +495,34 @@ export class Operations {
             .map((finding) => finding.path!),
         ),
       ];
+      // Include rename origins so the selected diff retains provider position paths.
+      const diffPaths = new Set(paths);
+      if (paths.length) {
+        const status = (
+          await command(
+            "git",
+            [
+              "diff",
+              "--name-status",
+              "--find-renames",
+              "--no-ext-diff",
+              "--no-textconv",
+              "-z",
+              run.base,
+              run.reviewHead,
+            ],
+            { cwd: project.checkout, signal: this.dependencies.signal },
+          )
+        ).stdout.split("\0");
+        for (let index = 0; index < status.length - 1; ) {
+          const kind = status[index++]!;
+          const oldPath = status[index++]!;
+          if (kind.startsWith("R") || kind.startsWith("C")) {
+            const newPath = status[index++]!;
+            if (diffPaths.has(newPath)) diffPaths.add(oldPath);
+          }
+        }
+      }
       const diff = paths.length
         ? (
             await command(
@@ -407,10 +533,11 @@ export class Operations {
                 "--no-ext-diff",
                 "--no-textconv",
                 "--unified=0",
+                "--find-renames",
                 run.base,
                 run.reviewHead,
                 "--",
-                ...paths,
+                ...diffPaths,
               ],
               { cwd: project.checkout, signal: this.dependencies.signal },
             )
@@ -420,8 +547,16 @@ export class Operations {
         change: run.change,
         head: run.reviewHead,
         review: run.review,
-        runId: run.id,
+        runId: run.reviewPublicationId ?? run.id,
         diff,
+        ...(run.subject.kind === "change-request"
+          ? {
+              reviewTarget: {
+                request: run.subject,
+                labels: project.workflows.review.labels,
+              },
+            }
+          : {}),
       });
     });
   }
@@ -452,6 +587,21 @@ export async function defaultWorkflow(operations: Operations): Promise<void> {
   await operations.push();
   await operations.publish();
   await operations.review();
+  await operations.publishReview();
+  await operations.complete();
+}
+
+export async function reviewWorkflow(operations: Operations): Promise<void> {
+  if (!(await operations.reviewEligible())) {
+    await operations.complete("ineligible");
+    return;
+  }
+  await operations.prepareReview();
+  const retained = await operations.step(
+    "review-reuse",
+    async (run) => run.review?.complete === true && run.reviewHead === run.head,
+  );
+  if (!retained) await operations.review();
   await operations.publishReview();
   await operations.complete();
 }

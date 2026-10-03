@@ -118,7 +118,7 @@ for (const phase of ["push", "change-request", "review-publication"]) {
           branch: run.branch,
           base: "main",
           head: run.head!,
-          issue: run.issue,
+          issue: run.subject,
           publication: run.publication!,
           runId: run.id,
         });

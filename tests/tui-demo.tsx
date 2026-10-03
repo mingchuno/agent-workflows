@@ -8,8 +8,8 @@ import { monitorFixture } from "./tui-fixtures.js";
 
 const { source, run, sessions } = monitorFixture();
 const directory = await mkdtemp(join(tmpdir(), "aw-monitor-demo-"));
-run.issue.title = "Load CLI environment files for runner and workflow steps";
-run.issue.number = 3;
+run.subject.title = "Load CLI environment files for runner and workflow steps";
+run.subject.number = 3;
 run.executions![0]!.startedAt = new Date(Date.now() - 137000).toISOString();
 run.createdAt = run.executions![0]!.createdAt = new Date(
   Date.now() - 145000,
@@ -32,8 +32,8 @@ source.runs = async () => [
   {
     ...run,
     id: "failed",
-    issue: {
-      ...run.issue,
+    subject: {
+      ...run.subject,
       number: 2,
       title: "Publish validated change request",
     },

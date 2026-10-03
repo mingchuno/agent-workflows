@@ -1,5 +1,6 @@
 import { write as writeFileDescriptor } from "node:fs";
 import type { Outcome, RunRecord } from "../domain.js";
+import { subjectReference } from "../domain.js";
 
 const terminalOutcomes = [
   "completed",
@@ -8,6 +9,7 @@ const terminalOutcomes = [
   "cancelled",
   "no-change",
   "ineligible",
+  "superseded",
 ] as const satisfies readonly Outcome[];
 const terminalOutcomeSet = new Set<Outcome>(terminalOutcomes);
 const whitespace = /\s+/gu;
@@ -47,7 +49,7 @@ export class ExecutionNotificationObserver {
         try {
           this.writer.notify({
             project: run.projectId,
-            issue: `#${run.issue.number}`,
+            issue: `${subjectReference(run.subject)}`,
             outcome: execution.outcome,
           });
         } catch {

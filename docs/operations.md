@@ -18,7 +18,7 @@ All commands accept `--config PATH` before the subcommand.
 | `retry RUN --refresh-issue`        | Queue a new attempt using the current hosted issue              |
 | `monitor [--notify]`               | Attach an interactive terminal view; optionally alert on outcomes |
 
-Control commands return a command ID and `pending`; inspect `status --json` or the monitor for success/failure. With no runner, commands stay pending. Run and monitor are separate processes. Closing the monitor never cancels work. Ctrl-C on the runner stops intake, cancels active work, waits for process termination and releases ownership. Queued issues remain durable for the next start.
+Control commands return a command ID and `pending`; inspect `status --json` or the monitor for success/failure. With no runner, commands stay pending. Run and monitor are separate processes. Closing the monitor never cancels work. Ctrl-C on the runner stops intake, cancels active work, waits for process termination and releases ownership. Queued tasks remain durable for the next start.
 
 The monitor uses a full-screen view and restores the terminal when closed.
 It refreshes persisted workflow state and open logs every 400 ms. Database
@@ -179,7 +179,28 @@ After a blocked/failed task that cannot be recovered:
 3. Preserve unfinished work on a developer-owned commit/branch or move it to a safe location. Resolve merge/rebase state yourself. Do not rely on DBOS to restore files.
 4. Once the checkout is clean, request `retry RUN`. This creates a new attempt and branch from the configured base, keeping the old run and files/commits inspectable. Use `retry RUN --refresh-issue` to capture the current hosted issue description and validation selection in the new run. The hosted issue must retain its identity, be open, and have the required labels; its selected validation profile must be configured.
 
-A failed review after publication remains a failed automation attempt, even if its draft request exists. Explicit retry starts the full workflow as a new attempt; it does not silently modify the old request. Human review/merging remains separate. A stale review never claims coverage of a changed remote head.
+In the implementation workflow, a failed review after publication remains a failed automation attempt, even if its draft request exists. Explicit retry starts the full workflow as a new attempt; it does not silently modify the old request. Human review/merging remains separate. A stale review never claims coverage of a changed remote head.
+
+## Existing PR/MR reviews
+
+Enable `workflows.review` as shown in the [configuration reference](configuration.md#workflows).
+Intake excludes drafts and forks. Reviews do not run configured validation commands;
+agent inspection and structured findings are retained independently of implementation.
+Requests are revalidated before inspection and each publication effect. Revision or
+eligibility changes after inspection produce `superseded`, without blocking an
+otherwise clean project. With `rereviewOnPush: true`, a new head can receive a new
+review; otherwise polls do not admit another review of that request.
+
+For a failed review-publication step, use `retry RUN`. The retry prepares the
+recorded revisions and reuses complete findings and the original review marker,
+so partial inline publication and lost responses can be reconciled. `recover`
+and `--refresh-issue` do not apply to review runs. Incomplete reviews preserve
+partial findings locally and require fresh inspection. Checkout mutations still
+block the project and preserve files for operator intervention.
+
+The checkout remains detached at the reviewed commit. Stop the runner before
+switching it manually; subsequent implementation preparation can create its normal
+work branch from this clean checkout.
 
 ## Evidence and limits
 

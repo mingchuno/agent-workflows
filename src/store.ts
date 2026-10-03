@@ -7,7 +7,7 @@ import { migrateDatabase } from "./db/migrations.js";
 import * as tables from "./db/schema.js";
 import type { ExecutionRecord, Issue, RunRecord } from "./domain.js";
 import { recoveryUnavailable } from "./recovery.js";
-import { createQueuedRun } from "./run-record.js";
+import { createQueuedReviewRun, createQueuedRun } from "./run-record.js";
 import { redactValue } from "./runtime/redaction.js";
 
 export interface EventRecord {
@@ -243,17 +243,26 @@ export class Store {
       const attempt = Math.max(...history.map((row) => row.attempt)) + 1;
       const id = admission.commandId ?? randomUUID();
       const now = new Date().toISOString();
-      const retry = createQueuedRun({
+      const input = {
         id,
         projectId: previous.projectId,
         checkout: target.checkout,
         taskKey: previous.taskKey,
         attempt,
         retryOf: previous.id,
-        issue: target.issue ?? previous.issue,
+        issue: target.issue ?? previous.subject,
         now,
         branchTemplate: target.branchTemplate,
-      });
+      };
+      const retry =
+        previous.subject.kind === "change-request"
+          ? createQueuedReviewRun({ ...input, request: previous.subject })
+          : createQueuedRun(input);
+      if (previous.subject.kind === "change-request") {
+        retry.reviewPublicationId = previous.reviewPublicationId ?? previous.id;
+        retry.review = previous.review;
+        retry.reviewHead = previous.reviewHead;
+      }
       const persisted = redactValue(retry, this.redact) as RunRecord;
       // A conflict must fail admission, never return an unpersisted run ID.
       await tx.insert(runs).values({
@@ -422,7 +431,7 @@ export class Store {
       .sort(
         (a, b) =>
           a.record.createdAt.localeCompare(b.record.createdAt) ||
-          a.record.issue.number - b.record.issue.number ||
+          a.record.subject.number - b.record.subject.number ||
           a.attempt - b.attempt ||
           a.id.localeCompare(b.id),
       )

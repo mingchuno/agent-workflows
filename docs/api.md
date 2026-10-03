@@ -6,7 +6,7 @@ TypeScript types. Use Node.js 22.12 or later. The CLI and SDK share the same
 runtime and configuration schema, but the CLI-only `envFile` field is not part
 of `Configuration`.
 
-Use `Runner` for issue intake and execution, `Operations` inside a custom
+Use `Runner` for issue and PR/MR intake and execution, `Operations` inside a custom
 workflow, and `Store` for persisted inspection or queued controls. The
 [configuration reference](configuration.md#schema-at-a-glance) describes every
 `Configuration` field.
@@ -71,7 +71,7 @@ Optional options:
 | `pathBaseDirectory` | `string` | Existing directory for relative state, checkout, and prompt paths; defaults to `process.cwd()`. |
 | `promptBaseDirectory` | `string` | Overrides the base for relative prompt files only. |
 | `workspace` | `Workspace` | Defaults to `ExistingCheckout`. |
-| `workflow` | `(operations: Operations) => Promise<void>` | Defaults to `defaultWorkflow`. |
+| `workflow` | `(operations: Operations) => Promise<void>` | Override the implementation workflow; review subjects always use `reviewWorkflow`. |
 | `workflowVersion` | `string` | Durable workflow version; change it when custom step order changes. |
 
 Paths are resolved once during construction; checkout roots are canonicalized
@@ -116,11 +116,13 @@ see [recovery rules](operations.md#publication-recovery) and
 
 ## Durable operations
 
-`defaultWorkflow(operations)` composes the standard issue-to-review path. The runner calls your optional `workflow(operations)` inside an ordinary registered DBOS workflow. Use [DBOS TypeScript documentation](https://docs.dbos.dev/typescript/programming-guide) for workflow, step, queue and determinism semantics.
+`defaultWorkflow(operations)` composes the standard issue-to-review path. `reviewWorkflow(operations)` reviews an existing eligible PR/MR using the same reviewer and publishers. Project `workflows` settings select intake; the persisted subject selects execution. The runner calls your optional `workflow(operations)` inside an ordinary registered DBOS workflow. Use [DBOS TypeScript documentation](https://docs.dbos.dev/typescript/programming-guide) for workflow, step, queue and determinism semantics.
 
 | Operation                                | Contract                                                                     |
 | ---------------------------------------- | ---------------------------------------------------------------------------- |
 | `eligible()`                             | Re-fetch issue; true only if open and still labelled                         |
+| `reviewEligible()` | Re-fetch request; exclude drafts/forks/closed/unlabelled requests and pin current revisions |
+| `prepareReview()` | Fetch same-repository source/target revisions and detach at the pinned head |
 | `prepare()`                              | Require clean Git state; fetch base and create unique branch                 |
 | `implement()`                            | Fresh implementation session; reject unexpected commits or branch changes    |
 | `validate()`                             | Run commands and verify unchanged checkout; false means no change                |
@@ -235,13 +237,26 @@ Caveats:
 
 ## Extension contracts
 
-`Workspace` separates `check`, `prepare`, `inspect`, `verify`, `commit`, `push` and `release`. `Snapshot` contains branch/head, changed paths, per-file digests and a checkout fingerprint; it contains no patch text. `commit` receives the already-finalized message, including attribution and run marker, and must preserve native Git identity selection. Never implement release by discarding files. A future isolated workspace implementation can replace this interface without changing workflow composition.
+`Workspace` separates `check`, `prepare`, `prepareReview`, `inspect`, `verify`, `commit`, `push` and `release`. `Snapshot` contains branch/head, changed paths, per-file digests and a checkout fingerprint; it contains no patch text. `commit` receives the already-finalized message, including attribution and run marker, and must preserve native Git identity selection. Never implement release by discarding files. A future isolated workspace implementation can replace this interface without changing workflow composition.
 
-`prepare`, `commit` and `push` receive an optional final `AbortSignal`. Custom workspaces must stop their subprocesses before settling a cancelled operation. The existing-checkout strategy journals Git processes under the Git directory; ownership acquisition rejects surviving process groups after a runner crash.
+`prepare`, `prepareReview`, `commit` and `push` receive an optional final `AbortSignal`. Custom workspaces must stop their subprocesses before settling a cancelled operation. The existing-checkout strategy journals Git processes under the Git directory; ownership acquisition rejects surviving process groups after a runner crash.
 
 `AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)` receives working directory, prompt, optional application-owned `outputSchema`, optional `resumeSessionId`, abort signal, stage `timeoutMs` and session/event callbacks. All invocations receive implementation-level permissions. The abort signal also covers cancellation and time spent validating the profile. Honor `resumeSessionId` without silently creating a new session. Call `session(id)` immediately when available, using the requested ID when resuming. Await event persistence; invocation must not settle until its work has stopped. SDK adapters enforce process-group lifecycle; custom adapters must uphold the same contract. `processFile` is available for controlled subprocess ownership.
 
-`HostingAdapter` provides issue pagination/revalidation, instance-qualified `identity`, change-request lookup/create, remote head, and idempotent review publication. `preflight` is optional. Reconciliation keys must be stable across response loss; providers must never infer successful publication from agent prose.
+`HostingAdapter` provides issue and PR/MR pagination/revalidation (`listChanges`/`getChange` return `ReviewRequest`), instance-qualified `identity`, change-request lookup/create, remote head, and idempotent review publication. `preflight` is optional. `publishReview` optionally receives `reviewTarget: { request, labels }` for eligibility and exact diff-reference checks before effects. Reconciliation keys must be stable across response loss; providers must never infer successful publication from agent prose.
+
+Review runs use `RunRecord.subject.kind === "change-request"`; implementation runs
+use `"issue"`. Both subjects carry title, body, URL, number, and labels; review
+subjects additionally carry the request identity, base/start/head revisions,
+source/target branches, draft status, and fork status. `superseded` is a terminal
+review outcome for changed eligibility or revision evidence during inspection.
+
+Review publication failures use `retry`, not `recover`: the new run prepares the
+same target and reuses a retained complete review, `reviewHead`, and
+`reviewPublicationId`. This preserves inline reconciliation markers after partial
+publication or response loss. Incomplete reviews invoke a fresh session on retry.
+`refreshIssue` applies only to implementation runs. No review mutation is retried
+without consulting the provider's publication markers.
 
 ## Store: history, events, and commands
 
@@ -299,8 +314,8 @@ mutate Store records. Operator tools should use the runner or queued commands.
 
 `RunRecord.executions` contains the initial execution and recovery executions,
 including DBOS IDs, source execution, restart step, reused steps, configuration
-fingerprint and outcomes. Run IDs remain stable for invocations and publication
-markers. `Store.recoveryPlan(runId)` reports persisted eligibility and its reason;
+fingerprint and outcomes. Invocations retain the owning run ID; review publication
+can retain a predecessor's marker. `Store.recoveryPlan(runId)` reports persisted eligibility and its reason;
 live safety checks happen at admission and execution. Runs without execution
 metadata remain readable and retryable, but cannot be recovered.
 

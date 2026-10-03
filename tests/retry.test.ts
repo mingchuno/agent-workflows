@@ -34,7 +34,7 @@ async function setup(scopePrefix = "retry") {
     checkout: root,
     taskKey: `${hosting.identity}:1`,
     attempt: 1,
-    issue: hosting.issues[0]!,
+    subject: { ...hosting.issues[0]!, kind: "issue" },
     outcome: "failed",
     phase: "implementation",
     createdAt: new Date().toISOString(),
@@ -66,14 +66,14 @@ test("refresh retry snapshots the current issue and selected validation profile"
       refreshIssue: true,
     });
     const retried = await runner.store.run(id);
-    assert.equal(retried.issue.title, "Revised task");
-    assert.equal(retried.issue.body, hosting.issues[0]!.body);
+    assert.equal(retried.subject.title, "Revised task");
+    assert.equal(retried.subject.body, hosting.issues[0]!.body);
     assert.equal(
-      (await runner.store.run(original.id)).issue.body,
-      original.issue.body,
+      (await runner.store.run(original.id)).subject.body,
+      original.subject.body,
     );
     hosting.issues[0]!.body = "Changed again";
-    assert.match((await runner.store.run(id)).issue.body, /migration/);
+    assert.match((await runner.store.run(id)).subject.body, /migration/);
     assert.equal((await runner.store.project(project.id)).blocked, null);
   } finally {
     await runner.store.close();
@@ -87,7 +87,10 @@ test("plain retry retains the recorded issue after hosted edits", {
   try {
     hosting.issues[0]!.body = "New hosted instructions";
     const id = await runner.retry(original.id);
-    assert.equal((await runner.store.run(id)).issue.body, "Implement the task");
+    assert.equal(
+      (await runner.store.run(id)).subject.body,
+      "Implement the task",
+    );
   } finally {
     await runner.store.close();
   }
@@ -105,7 +108,7 @@ test("refresh retry rejects ineligible issues and invalid validation selections"
     hosting.issues[0]!.open = true;
     hosting.issues[0]!.labels = [];
     await assert.rejects(refresh(), /closed or missing required labels/);
-    hosting.issues[0]!.labels = [...project.labels];
+    hosting.issues[0]!.labels = [...project.workflows.implementation.labels];
     hosting.issues[0]!.body = "```agent-workflows-validation\nmissing\n```";
     await assert.rejects(refresh(), /Unknown validation profile/);
     hosting.issues[0]!.body = "Updated";
@@ -139,7 +142,7 @@ test("refresh command replay retains the admitted issue snapshot", {
       commandId,
     );
     assert.equal(
-      (await runner.store.run(commandId)).issue.body,
+      (await runner.store.run(commandId)).subject.body,
       "First revision",
     );
   } finally {

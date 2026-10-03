@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
 import type { RunRecord } from "../domain.js";
+import { subjectReference } from "../domain.js";
 import { recoveryUnavailable } from "../recovery.js";
 import type { EventRecord, InvocationRecord } from "../store.js";
 import {
@@ -245,7 +246,7 @@ export function summaryLines(
   event?: EventRecord,
 ): string[] {
   return [
-    `#${run.issue.number} ${run.issue.title}`,
+    `${subjectReference(run.subject)} ${run.subject.title}`,
     `${run.outcome.toUpperCase()} · ${run.phase}`,
     `Attempt ${run.attempt} · Execution ${executionDuration(run.executions?.at(-1), now)}`,
     "",
@@ -347,7 +348,10 @@ export function detailLines(
     "",
     "TECHNICAL DETAILS",
     label("Run ID", run.id),
-    label("Issue URL", run.issue.url || "unavailable"),
+    label(
+      run.subject.kind === "issue" ? "Issue URL" : "Change URL",
+      run.subject.url || "unavailable",
+    ),
     label("Checkout", run.checkout || "unavailable"),
     label("Task key", run.taskKey),
     label("Created ISO", run.createdAt),
@@ -388,7 +392,7 @@ export function detailLines(
     ]),
   ];
   return [
-    `#${run.issue.number} ${run.issue.title}`,
+    `${subjectReference(run.subject)} ${run.subject.title}`,
     label("Outcome", run.outcome),
     label("Phase", run.phase),
     label("Attempt", String(run.attempt)),
@@ -492,7 +496,7 @@ export function RunList({
               wrap="truncate"
             >
               {cells(
-                `${run.id === selected ? ">" : " "} #${run.issue.number} ${run.issue.title}`,
+                `${run.id === selected ? ">" : " "} ${subjectReference(run.subject)} ${run.subject.title}`,
                 width,
               )}
             </Text>

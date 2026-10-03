@@ -15,6 +15,27 @@ export interface ChangeRequest {
   url: string;
   head: string;
 }
+export interface ReviewRequest extends Issue {
+  change: ChangeRequest;
+  base: string;
+  start: string;
+  sourceBranch: string;
+  targetBranch: string;
+  draft: boolean;
+  fork: boolean;
+}
+export type RunSubject =
+  | (Issue & { kind: "issue" })
+  | (ReviewRequest & { kind: "change-request" });
+export function subjectReference(subject: RunSubject): string {
+  return `${subject.kind === "change-request" ? "Review " : ""}#${subject.number}`;
+}
+export class StaleReviewError extends Error {
+  constructor() {
+    super("Review superseded: change request eligibility or revisions changed");
+    this.name = "StaleReviewError";
+  }
+}
 export const publicationSchema = z.strictObject({
   commitMessage: z.string().trim().min(1).max(10000),
   title: z.string().trim().min(1).max(240),
@@ -61,6 +82,11 @@ export interface ContributionCandidate {
 }
 export interface Workspace {
   check(project: Project): Promise<void>;
+  prepareReview(
+    project: Project,
+    request: ReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Snapshot>;
   prepare(
     project: Project,
     branch: string,
@@ -86,6 +112,8 @@ export interface Workspace {
 export interface HostingAdapter {
   identity: string;
   preflight?(): Promise<void>;
+  listChanges(labels: string[]): Promise<ReviewRequest[]>;
+  getChange(number: number): Promise<ReviewRequest>;
   listIssues(labels: string[]): Promise<Issue[]>;
   getIssue(number: number): Promise<Issue>;
   findChange(branch: string): Promise<ChangeRequest | undefined>;
@@ -104,6 +132,7 @@ export interface HostingAdapter {
     review: Review;
     runId: string;
     diff: string;
+    reviewTarget?: { request: ReviewRequest; labels: string[] };
   }): Promise<void>;
 }
 export interface AgentInvocation {
@@ -143,9 +172,10 @@ export type Outcome =
   | "blocked"
   | "cancelled"
   | "no-change"
-  | "ineligible";
+  | "ineligible"
+  | "superseded";
 export interface ExecutionRecord {
-  /** DBOS workflow identity; publication markers continue to use the run ID. */
+  /** DBOS workflow identity; review retries retain their original publication marker. */
   id: string;
   recoveryOf?: string;
   startStep?: number;
@@ -167,7 +197,7 @@ export interface RunRecord {
   taskKey: string;
   attempt: number;
   retryOf?: string;
-  issue: Issue;
+  subject: RunSubject;
   validationProfile?: string;
   outcome: Outcome;
   phase: string;
@@ -184,6 +214,7 @@ export interface RunRecord {
   change?: ChangeRequest;
   review?: Review;
   reviewHead?: string;
+  reviewPublicationId?: string;
   error?: string;
   failedStep?: number;
   stageLogs?: Array<{ executionId: string; step: string; path: string }>;

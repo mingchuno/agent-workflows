@@ -7,7 +7,10 @@ import {
   type HostingAdapter,
   type Issue,
   type Review,
+  type ReviewRequest,
+  StaleReviewError,
 } from "../domain.js";
+import { sameReviewRevision } from "../review-intake.js";
 
 const hostingRequestTimeoutMs = 30_000;
 const hostingPageSize = 100;
@@ -63,6 +66,22 @@ export function inlineFindings(review: Review, diff: string) {
       !!lines.get(finding.path)?.has(finding.line),
   );
 }
+async function verifyReviewTarget(
+  hosting: HostingAdapter,
+  input: Parameters<HostingAdapter["publishReview"]>[0],
+): Promise<void> {
+  if (!input.reviewTarget) return;
+  const { request, labels } = input.reviewTarget;
+  const current = await hosting.getChange(input.change.id);
+  if (
+    !current.open ||
+    current.draft ||
+    current.fork ||
+    !labels.every((label) => current.labels.includes(label)) ||
+    !sameReviewRevision(request, current)
+  )
+    throw new StaleReviewError();
+}
 function reviewPresentation(
   input: Parameters<HostingAdapter["publishReview"]>[0],
 ) {
@@ -96,6 +115,52 @@ export class GitHubHosting implements HostingAdapter {
           : `${host}/api/v3`,
       request: { timeout: hostingRequestTimeoutMs, redirect: "error" },
     });
+  }
+  async listChanges(labels: string[]): Promise<ReviewRequest[]> {
+    const changes = await this.client.paginate(this.client.pulls.list, {
+      ...this.repo,
+      state: "open",
+      per_page: hostingPageSize,
+    });
+    const selected = changes.filter(
+      (change) =>
+        !change.draft &&
+        change.head.repo?.id === change.base.repo.id &&
+        labels.every((label) =>
+          change.labels.some((value) => value.name === label),
+        ),
+    );
+    const requests: ReviewRequest[] = [];
+    for (const change of selected)
+      requests.push(await this.getChange(change.number));
+    return requests;
+  }
+  async getChange(number: number): Promise<ReviewRequest> {
+    const { data } = await this.client.pulls.get({
+      ...this.repo,
+      pull_number: number,
+    });
+    const { data: comparison } = await this.client.repos.compareCommits({
+      ...this.repo,
+      base: data.base.sha,
+      head: data.head.sha,
+    });
+    return {
+      id: String(data.id),
+      number: data.number,
+      title: data.title,
+      body: data.body ?? "",
+      url: data.html_url,
+      labels: data.labels.map((label) => label.name ?? ""),
+      open: data.state === "open",
+      draft: data.draft === true,
+      fork: data.head.repo?.id !== data.base.repo.id,
+      sourceBranch: data.head.ref,
+      targetBranch: data.base.ref,
+      base: comparison.merge_base_commit.sha,
+      start: data.base.sha,
+      change: { id: data.number, url: data.html_url, head: data.head.sha },
+    };
   }
   async listIssues(labels: string[]): Promise<Issue[]> {
     const issues = await this.client.paginate(this.client.issues.listForRepo, {
@@ -178,7 +243,8 @@ export class GitHubHosting implements HostingAdapter {
     if (reviews.some((review) => review.body?.includes(marker(input.runId))))
       return;
     if ((await this.head(input.change)) !== input.head)
-      throw new BlockedError("Review stale: head changed");
+      throw new StaleReviewError();
+    await verifyReviewTarget(this, input);
     const { inline, body } = reviewPresentation(input);
     await this.client.pulls.createReview({
       ...this.repo,
@@ -220,6 +286,52 @@ export class GitLabHosting implements HostingAdapter {
       throw new Error(
         `Supported GitLab versions are ${minimumGitLabMajorVersion}.x–${maximumGitLabMajorVersion}.x; instance reports ${metadata.version}`,
       );
+  }
+  async listChanges(labels: string[]): Promise<ReviewRequest[]> {
+    const changes = await this.client.MergeRequests.all({
+      projectId: this.repository,
+      state: "opened",
+      labels: labels.join(","),
+      perPage: hostingPageSize,
+    });
+    const requests: ReviewRequest[] = [];
+    for (const change of changes) {
+      if (
+        change.draft ||
+        change.work_in_progress ||
+        change.source_project_id !== change.target_project_id
+      )
+        continue;
+      requests.push(await this.getChange(change.iid));
+    }
+    return requests;
+  }
+  async getChange(number: number): Promise<ReviewRequest> {
+    const change = await this.client.MergeRequests.show(
+      this.repository,
+      number,
+    );
+    const refs = change.diff_refs;
+    if (!refs?.base_sha || !refs.start_sha || !refs.head_sha)
+      throw new Error("GitLab diff refs unavailable");
+    return {
+      id: String(change.id),
+      number: change.iid,
+      title: change.title,
+      body: change.description ?? "",
+      url: change.web_url,
+      labels: change.labels.map((label) =>
+        typeof label === "string" ? label : label.name,
+      ),
+      open: change.state === "opened",
+      draft: change.draft || change.work_in_progress,
+      fork: change.source_project_id !== change.target_project_id,
+      sourceBranch: change.source_branch,
+      targetBranch: change.target_branch,
+      base: refs.base_sha,
+      start: refs.start_sha,
+      change: { id: change.iid, url: change.web_url, head: refs.head_sha },
+    };
   }
   async listIssues(labels: string[]): Promise<Issue[]> {
     const issues = await this.client.Issues.all({
@@ -299,12 +411,20 @@ export class GitLabHosting implements HostingAdapter {
       this.repository,
       input.change.id,
     );
-    if (change.sha !== input.head)
-      throw new BlockedError("Review stale: head changed");
+    if (change.sha !== input.head) throw new StaleReviewError();
+    await verifyReviewTarget(this, input);
     const { inline, body } = reviewPresentation(input);
+    const oldPaths = new Map<string, string>();
+    let oldPath = "";
+    for (const line of input.diff.split("\n")) {
+      if (line.startsWith("--- a/")) oldPath = line.slice(6);
+      if (line.startsWith("+++ b/"))
+        oldPaths.set(line.slice(6), oldPath || line.slice(6));
+    }
     for (const [index, finding] of inline.entries()) {
       const tag = marker(input.runId, `:inline:${index}`);
       if (notes.some((note) => note.body.includes(tag))) continue;
+      await verifyReviewTarget(this, input);
       const refs = change.diff_refs;
       if (!refs) throw new BlockedError("GitLab diff refs unavailable");
       await this.client.MergeRequestDiscussions.create(
@@ -314,18 +434,19 @@ export class GitLabHosting implements HostingAdapter {
         {
           position: {
             positionType: "text",
-            baseSha: refs.base_sha,
-            startSha: refs.start_sha,
+            baseSha: input.reviewTarget?.request.base ?? refs.base_sha,
+            startSha: input.reviewTarget?.request.start ?? refs.start_sha,
             headSha: input.head,
             newPath: finding.path,
-            oldPath: finding.path,
+            oldPath: oldPaths.get(finding.path) ?? finding.path,
             newLine: String(finding.line),
           },
         },
       );
     }
     if ((await this.head(input.change)) !== input.head)
-      throw new BlockedError("Review stale: head changed");
+      throw new StaleReviewError();
+    await verifyReviewTarget(this, input);
     await this.client.MergeRequestNotes.create(
       this.repository,
       input.change.id,

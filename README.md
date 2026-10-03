@@ -2,7 +2,7 @@
 
 ![Print-shop workbench with a job sheet, a worked proof, and an inspected copy awaiting human approval.](docs/assets/hero.png)
 
-A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues into draft change requests with independent agent reviews. DBOS persists execution; each project uses its existing checkout, with one task at a time. Separate projects progress concurrently.
+A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues into draft change requests with independent agent reviews, and reviews existing labelled PRs/MRs. DBOS persists execution; each project uses its existing checkout, with one task at a time. Separate projects progress concurrently.
 
 Supports Codex and Copilot SDKs, GitHub, and GitLab.com/self-hosted GitLab. Human review and merging remain separate.
 
@@ -58,6 +58,23 @@ one explicit file. Existing process values win, including empty strings. See
 [environment file examples and boundaries](docs/configuration.md#cli-environment-files).
 
 The runner fetches the configured base, creates a branch, implements an eligible issue, validates it, generates publication text, commits and pushes, creates a draft PR/MR, and publishes an independent review of its exact head. It never merges. Initial use should target a repository and issue you explicitly intend to automate; running the CLI authorizes these effects and agent usage.
+
+Enable the standalone review workflow per project with:
+
+```json
+"workflows": {
+  "implementation": { "enabled": false },
+  "review": {
+    "enabled": true,
+    "labels": ["ready-for-review"],
+    "rereviewOnPush": false
+  }
+}
+```
+
+Review intake excludes drafts and forks. Set `rereviewOnPush: true` to review new
+heads; both workflows share `stages.review` and the project's serial checkout
+queue. See [workflow configuration](docs/configuration.md#workflows).
 
 ## SDK
 

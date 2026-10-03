@@ -1,6 +1,7 @@
 # Agent workflows
 
-Local coding work progresses through issue-linked runs and explicit recovery.
+Local coding work progresses through issue implementation and change-request
+review runs with explicit recovery.
 
 ## Language
 
@@ -15,7 +16,7 @@ request are separate workflow operations.
 _Avoid_: Writing stage, commit stage
 
 **Run**:
-One attempt to complete an issue through a coding workflow, with its own
+One attempt to implement an issue or review a change request, with its own
 outcome and recovery evidence.
 
 **Retry admission**:
@@ -38,3 +39,13 @@ starts and gaps between executions awaiting publication recovery.
 **Publication recovery**:
 Continuing a failed run at its failed publication step, reusing completed work
 and preserving the branch, revision, and publication identity.
+
+**Run subject**:
+The issue to implement or change request to review, recorded with the run.
+
+**Review target**:
+The change request and exact source/target revision evidence covered by a review.
+
+**Superseded review**:
+A review whose target revisions or eligibility changed before publication finished.
+Its findings remain inspectable but do not establish coverage of the new target.

@@ -6,6 +6,7 @@ import type {
   ChangeRequest,
   HostingAdapter,
   Issue,
+  ReviewRequest,
 } from "../src/domain.js";
 export class FixtureHosting implements HostingAdapter {
   identity = "https://fixture.invalid/a/b";
@@ -23,6 +24,15 @@ export class FixtureHosting implements HostingAdapter {
       open: true,
     },
   ];
+  requests: ReviewRequest[] = [];
+  async listChanges() {
+    return this.requests;
+  }
+  async getChange(number: number) {
+    const request = this.requests.find((request) => request.number === number);
+    if (!request) throw new Error("Unknown change request");
+    return request;
+  }
   async listIssues() {
     return this.issues;
   }

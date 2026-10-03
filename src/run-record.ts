@@ -1,11 +1,16 @@
-import type { RunRecord } from "./domain.js";
+import type { Issue, ReviewRequest, RunRecord, RunSubject } from "./domain.js";
 
 type QueuedRunInput = Pick<
   RunRecord,
-  "id" | "projectId" | "checkout" | "taskKey" | "attempt" | "issue" | "retryOf"
-> & { now: string; branchTemplate: string };
+  "id" | "projectId" | "checkout" | "taskKey" | "attempt" | "retryOf"
+> & { issue: Issue; now: string; branchTemplate: string };
 
-export function createQueuedRun(input: QueuedRunInput): RunRecord {
+function queuedRun(
+  input: Omit<QueuedRunInput, "issue" | "branchTemplate"> & {
+    subject: RunSubject;
+    branch: string;
+  },
+): RunRecord {
   return {
     id: input.id,
     projectId: input.projectId,
@@ -13,14 +18,37 @@ export function createQueuedRun(input: QueuedRunInput): RunRecord {
     taskKey: input.taskKey,
     attempt: input.attempt,
     ...(input.retryOf === undefined ? {} : { retryOf: input.retryOf }),
-    issue: input.issue,
+    subject: input.subject,
     outcome: "queued",
     phase: "queued",
     createdAt: input.now,
     updatedAt: input.now,
+    branch: input.branch,
+  };
+}
+export function createQueuedRun(input: QueuedRunInput): RunRecord {
+  return queuedRun({
+    ...input,
+    subject: { ...input.issue, kind: "issue" },
     branch: input.branchTemplate
       .replaceAll("{issue}", String(input.issue.number))
       .replaceAll("{attempt}", String(input.attempt))
       .replaceAll("{run}", input.id),
+  });
+}
+
+export function createQueuedReviewRun(
+  input: Omit<QueuedRunInput, "issue" | "branchTemplate"> & {
+    request: ReviewRequest;
+  },
+): RunRecord {
+  return {
+    ...queuedRun({
+      ...input,
+      subject: { ...input.request, kind: "change-request" },
+      branch: "HEAD",
+    }),
+    change: input.request.change,
+    reviewPublicationId: input.id,
   };
 }

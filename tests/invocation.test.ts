@@ -23,7 +23,7 @@ async function fixture(invoke: AgentAdapter["invoke"], timeoutMs = 5000) {
     id: "run",
     projectId: project.id,
     snapshot: await workspace.inspect(project),
-    issue: new FixtureHosting().issues[0]!,
+    subject: { ...new FixtureHosting().issues[0]!, kind: "issue" },
   } as RunRecord;
   const records: InvocationRecord[] = [];
   const controller = new AbortController();

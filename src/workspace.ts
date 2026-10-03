@@ -5,6 +5,7 @@ import type { Project } from "./config.js";
 import {
   BlockedError,
   type Publication,
+  type ReviewRequest,
   type Snapshot,
   type Workspace,
 } from "./domain.js";
@@ -84,6 +85,45 @@ export class ExistingCheckout implements Workspace {
       if (exists) throw new BlockedError(`Unresolved Git operation: ${marker}`);
     }
   }
+  async prepareReview(
+    project: Project,
+    request: ReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Snapshot> {
+    await this.check(project);
+    const original = await this.inspect(project);
+    for (const revision of [request.base, request.start, request.change.head]) {
+      if (!/^[0-9a-f]{40,64}$/.test(revision))
+        throw new BlockedError("Invalid review revision");
+    }
+    // Fetch same-repository branches without changing local branches; verify the pinned objects.
+    for (const branch of [request.targetBranch, request.sourceBranch]) {
+      await this.git(project, "check-ref-format", "--branch", branch);
+      await this.runGit(
+        project,
+        ["fetch", "--no-tags", project.remote, `refs/heads/${branch}`],
+        { signal },
+      );
+    }
+    for (const revision of [request.base, request.start, request.change.head])
+      await this.git(project, "cat-file", "-e", `${revision}^{commit}`);
+    const base = await this.git(
+      project,
+      "merge-base",
+      request.start,
+      request.change.head,
+    );
+    if (base !== request.base)
+      throw new BlockedError("Review diff base differs from fetched revisions");
+    await this.verify(project, original);
+    await this.runGit(project, ["switch", "--detach", request.change.head], {
+      signal,
+    });
+    const snapshot = await this.inspect(project);
+    if (snapshot.paths.length)
+      throw new BlockedError("Checkout changed during review preparation");
+    return snapshot;
+  }
   async prepare(
     project: Project,
     branch: string,
@@ -117,7 +157,7 @@ export class ExistingCheckout implements Workspace {
   async inspect(project: Project): Promise<Snapshot> {
     await this.assertNoOperation(project);
     const head = await this.git(project, "rev-parse", "HEAD");
-    const branch = await this.git(project, "symbolic-ref", "--short", "HEAD");
+    const branch = await this.git(project, "rev-parse", "--abbrev-ref", "HEAD");
     const status = await this.git(
       project,
       "status",

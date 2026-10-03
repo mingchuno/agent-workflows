@@ -282,7 +282,7 @@ test("selection survives new rows and stale selected-run responses", async () =>
   const { source, run, sessions } = monitorFixture();
   let runs = [
     run,
-    { ...run, id: "second", issue: { ...run.issue, title: "Second task" } },
+    { ...run, id: "second", subject: { ...run.subject, title: "Second task" } },
   ];
   source.runs = async () => runs;
   let release!: (value: typeof sessions) => void;
@@ -306,7 +306,7 @@ test("selection survives new rows and stale selected-run responses", async () =>
   try {
     await until(() => view.lastFrame()!.includes("run-session"));
     runs = [
-      { ...run, id: "new", issue: { ...run.issue, title: "New arrival" } },
+      { ...run, id: "new", subject: { ...run.subject, title: "New arrival" } },
       ...runs,
     ];
     await until(() => view.lastFrame()!.includes("New arrival"));
@@ -366,7 +366,7 @@ test("event cursor progresses beyond 1000 records and connection recovers", asyn
 
 test("compact, wide and resized screens stay within terminal bounds", async () => {
   const { source, run } = monitorFixture();
-  run.issue.title = "Long issue 界 ".repeat(40);
+  run.subject.title = "Long issue 界 ".repeat(40);
   run.error = "Long error ".repeat(100);
   const view = render(<Monitor source={source} size={wide} />);
   try {
@@ -408,7 +408,7 @@ test("pending command survives project navigation and blocks duplicate submissio
       ...run,
       id: "other-run",
       projectId: "other",
-      issue: { ...run.issue, title: "Other project task" },
+      subject: { ...run.subject, title: "Other project task" },
     },
   ];
   let release!: (id: string) => void;
@@ -472,8 +472,8 @@ test("scrolling details clamps at the bottom so Up moves immediately", async () 
 
 test("run details lead with operator facts and use the responsive evidence hierarchy", async () => {
   const { source, run, sessions } = monitorFixture();
-  run.issue.number = 7;
-  run.issue.title = "Redesign TUI Run details around operator hierarchy";
+  run.subject.number = 7;
+  run.subject.title = "Redesign TUI Run details around operator hierarchy";
   run.validation = [
     {
       command: "pnpm",
@@ -623,7 +623,7 @@ test("attention, diagnostics and technical evidence preserve action and exact va
   run.outcome = run.executions![0]!.outcome = "failed";
   run.phase = run.executions![0]!.phase = "implementation";
   run.error = "Error: concise failure\ncomplete diagnostic evidence";
-  run.issue.url = "https://example.test/issues/1?exact=yes";
+  run.subject.url = "https://example.test/issues/1?exact=yes";
   const view = render(<Monitor source={source} size={designTarget} />);
   try {
     await until(() => view.lastFrame()!.includes("Implement feature"));
@@ -1043,7 +1043,7 @@ test("a removed selected run dismisses its confirmation without submitting a com
       {
         ...run,
         id: "replacement",
-        issue: { ...run.issue, title: "Replacement task" },
+        subject: { ...run.subject, title: "Replacement task" },
       },
     ];
     await until(() => view.lastFrame()!.includes("Replacement task"));

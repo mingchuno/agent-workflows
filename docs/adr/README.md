@@ -11,5 +11,7 @@ documentation.
 - [0005: Persist application state in PostgreSQL beside DBOS](0005-postgresql-persistence-boundary.md)
 - [0006: Continue publication in the implementation session and inspect through commands](0006-agent-sessions-and-command-inspection.md)
 
+- [0007: Review existing requests with a shared reviewer and stable publication identity](0007-review-workflow-and-publication-identity.md)
+
 For observable behavior, see the [public SDK API](../api.md),
 [configuration reference](../configuration.md), and [operator guide](../operations.md).

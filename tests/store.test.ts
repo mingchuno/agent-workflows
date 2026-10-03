@@ -12,7 +12,8 @@ function run(scope: string, number = 1, attempt = 1): RunRecord {
     checkout: "/tmp/fixture",
     taskKey: `${scope}:${number}`,
     attempt,
-    issue: {
+    subject: {
+      kind: "issue",
       id: String(number),
       number,
       title: "secret",
@@ -67,7 +68,7 @@ test("store preserves scoped records, uniqueness, numeric ordering and concurren
     const updated = await store.run(two.id);
     assert.equal(updated.phase, "implementation");
     assert.equal(updated.error, "[REDACTED]");
-    assert.equal(updated.issue.title, "[REDACTED]");
+    assert.equal(updated.subject.title, "[REDACTED]");
     await assert.rejects(other.run(two.id), /Unknown run/);
     await assert.rejects(
       other.patchRun(two.id, { phase: "wrong" }),

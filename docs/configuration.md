@@ -61,17 +61,72 @@ checked when the runner starts.
 | --- | --- | --- | --- |
 | `id` | identifier | **Required** | Stable project identity. |
 | `checkout` | nonempty path string | **Required** | Existing Git repository root. |
-| `hosting` | `Hosting` | **Required** | Issue and draft PR/MR API configuration. |
+| `hosting` | `Hosting` | **Required** | Issue and PR/MR API configuration. |
 | `agent` | `AgentProfile` | **Required** | Default agent for all stages. |
-| `labels` | nonempty `string[]` | `["ready-for-agent"]` | Issue must have every listed label. |
+| `workflows` | `Workflows` | Implementation enabled, review intake disabled | Select issue implementation and existing PR/MR review intake. |
 | `baseBranch` | nonempty string | `main` | Branch fetched as the work base. |
 | `remote` | identifier | `origin` | Git remote name; independent of `hosting.origin`. |
 | `branchTemplate` | string containing `{issue}` | `agent/{issue}-{attempt}` | Work branch name; also supports `{attempt}` and `{run}`. |
-| `pollIntervalMs` | integer ≥ 100 | `30000` | Issue scan interval in milliseconds. |
+| `pollIntervalMs` | integer ≥ 100 | `30000` | Issue and PR/MR scan interval in milliseconds. |
 | `validation` | `ValidationCommand[]` | `[]` | Baseline checks, in order. |
 | `validationProfiles` | name → nonempty `ValidationCommand[]` | `{}` | Additional checks selected by an issue description. |
 | `includeAgentCoAuthors` | boolean | `true` | Add trailers for writable agent contributions retained in the commit. |
 | `stages` | `Stages` | All defaults | Optional overrides for `implementation`, `publication`, and `review`. |
+
+### Workflows
+
+Both workflows share one project checkout and serial queue. Configure intake under
+`workflows`; configure agent instructions, profiles, and deadlines under `stages`.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `workflows.implementation.enabled` | `true` | Discover issues and run `defaultWorkflow`. |
+| `workflows.implementation.labels` | `["ready-for-agent"]` | Issues must have every configured label. |
+| `workflows.review.enabled` | `false` | Discover existing PRs/MRs and run `reviewWorkflow`. |
+| `workflows.review.labels` | `["ready-for-review"]` | Requests must have every configured label. |
+| `workflows.review.rereviewOnPush` | `false` | Admit another review when the labelled request has a new head commit. |
+
+Label arrays must be nonempty and contain nonempty strings. Review intake always
+excludes drafts, closed requests, and forks. These exclusions do not change the
+implementation workflow's review of its own newly created draft request.
+
+For a review-only project, add this to the project object:
+
+```json
+"workflows": {
+  "implementation": { "enabled": false },
+  "review": {
+    "enabled": true,
+    "labels": ["ready-for-review"],
+    "rereviewOnPush": false
+  }
+},
+"stages": {
+  "review": {
+    "promptFile": "prompts/review.md",
+    "timeoutMs": 1800000
+  }
+}
+```
+
+Reviews inspect the request's actual target diff and pinned source head, without
+implementation, validation commands, commits, pushes, or request creation. The
+checkout stays at a detached reviewed head after completion. `baseBranch` and
+`branchTemplate` apply to implementation runs only. Review profiles still inherit
+`agent`; implementation/publication provider compatibility is checked only when
+implementation intake is enabled.
+
+Repeated polls and restarts do not repeat the same review. With new-push reviews
+disabled, a request is admitted once; removing and reapplying its labels does not
+create another run. With the option enabled, each distinct head can be admitted
+once. A completed implementation-workflow review also counts toward this policy.
+A head or target-diff change during inspection supersedes the review and prevents
+further publication; the next new-head scan can admit a fresh review when enabled.
+
+This alpha schema replaces project-level `labels` with
+`workflows.implementation.labels`; there is no legacy alias. Persisted runs now
+use `subject` instead of `issue`. Start with a fresh runner `id` for state written
+by the previous schema, after stopping the old runner and resolving its work.
 
 ### Hosting
 
@@ -279,8 +334,8 @@ shows they ran and passed.
 Review:
 
 ```text
-Independently review the supplied published changes against the issue's
-requirements and repository conventions. Use Git commands and inspect
+Independently review the supplied changes against the supplied requirements
+and repository conventions. Use Git commands and inspect
 relevant source for correctness, regressions, and missing validation. Report
 actionable findings with supporting locations where possible. State any gaps
 in inspection explicitly; do not present an incomplete review as a clean review.
