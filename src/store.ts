@@ -25,6 +25,7 @@ export interface ProjectState {
 export interface InvocationRecord {
   id: string;
   runId: string;
+  executionId: string;
   projectId: string;
   step: string;
   stepId: number;

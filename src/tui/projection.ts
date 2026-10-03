@@ -1,13 +1,12 @@
 import type { RunRecord } from "../domain.js";
 import { recoveryUnavailable } from "../recovery.js";
-import type { EventRecord, InvocationRecord, ProjectState } from "../store.js";
+import type { InvocationRecord, ProjectState } from "../store.js";
 
 interface RunProjectionInput {
   run?: RunRecord;
   project?: ProjectState;
   projectRuns: RunRecord[];
   sessions?: InvocationRecord[];
-  events?: EventRecord[];
   pending: boolean;
 }
 
@@ -17,7 +16,6 @@ export function projectRunProjection({
   project,
   projectRuns,
   sessions = [],
-  events = [],
   pending,
 }: RunProjectionInput) {
   const recoveryReason = run
@@ -29,7 +27,7 @@ export function projectRunProjection({
         ? "A newer attempt has superseded this run"
         : undefined))
     : undefined;
-  const executionSessions = currentExecutionSessions(run, sessions, events);
+  const executionSessions = currentExecutionSessions(run, sessions);
   return {
     recoveryReason,
     available: {
@@ -56,29 +54,11 @@ export function projectRunProjection({
 function currentExecutionSessions(
   run: RunRecord | undefined,
   sessions: InvocationRecord[],
-  events: EventRecord[],
 ) {
   const current = run?.executions?.at(-1);
-  if (!current || (run?.executions?.length ?? 0) <= 1) return sessions;
-  const currentStepIds = new Set(
-    events.flatMap((event) => {
-      const payload = event.payload as {
-        executionId?: unknown;
-        stepId?: unknown;
-      };
-      return payload.executionId === current.id &&
-        typeof payload.stepId === "number"
-        ? [payload.stepId]
-        : [];
-    }),
-  );
-  if (currentStepIds.size)
-    return sessions.filter((item) => currentStepIds.has(item.stepId));
-  const executionCreatedAt = Date.parse(current.createdAt);
-  if (!Number.isFinite(executionCreatedAt)) return [];
-  return sessions.filter(
-    (item) => Date.parse(item.startedAt) >= executionCreatedAt,
-  );
+  return current
+    ? sessions.filter((item) => item.executionId === current.id)
+    : [];
 }
 
 function latestSession(sessions: InvocationRecord[]) {

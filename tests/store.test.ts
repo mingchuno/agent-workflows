@@ -77,6 +77,7 @@ test("store preserves scoped records, uniqueness, numeric ordering and concurren
     const invocation: InvocationRecord = {
       id: randomUUID(),
       runId: two.id,
+      executionId: two.id,
       projectId: "project",
       step: "implementation",
       stepId: 1,
@@ -96,6 +97,7 @@ test("store preserves scoped records, uniqueness, numeric ordering and concurren
     assert.equal((await store.invocations(two.id)).length, 1);
     assert.equal((await store.invocations(two.id))[0]?.prompt, "[REDACTED]");
     assert.equal((await store.invocations(two.id))[0]?.outcome, "completed");
+    assert.equal((await store.invocations(two.id))[0]?.executionId, two.id);
     assert.deepEqual(await other.invocations(two.id), []);
     await store.emit(two.id, "nullable", null);
     assert.equal((await store.events(0, two.id)).at(-1)?.payload, null);
@@ -143,6 +145,7 @@ for (const mutation of [
     const invocation: InvocationRecord = {
       id: randomUUID(),
       runId: original.id,
+      executionId: original.id,
       projectId: original.projectId,
       step: "implementation",
       stepId: 1,

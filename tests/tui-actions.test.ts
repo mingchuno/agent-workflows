@@ -80,3 +80,73 @@ test("recovery explanation preserves domain, project and supersession precedence
     "A newer attempt has superseded this run",
   );
 });
+
+test("session selection uses execution identity despite shared steps and timestamps", () => {
+  const { run, sessions } = monitorFixture();
+  run.executions!.push({ ...run.executions![0]!, id: "recovery" });
+  const previous = { ...sessions[0]!, id: "previous", executionId: "run" };
+  const current = { ...previous, id: "current", executionId: "recovery" };
+  const correction = { ...current, id: "correction", attempt: 2 };
+  const projected = projectRunProjection({
+    run,
+    projectRuns: [run],
+    pending: false,
+    sessions: [previous, current, correction],
+  });
+  assert.deepEqual(projected.executionSessions, [current, correction]);
+});
+
+test("single execution selection excludes records without a matching identity", () => {
+  const { run, sessions } = monitorFixture();
+  const current = { ...sessions[0]!, executionId: "run" };
+  const other = { ...current, id: "other", executionId: "other" };
+  const unowned = { ...current, id: "unowned" };
+  Reflect.deleteProperty(unowned, "executionId");
+  const projected = projectRunProjection({
+    run,
+    projectRuns: [run],
+    pending: false,
+    sessions: [unowned, other, current],
+  });
+  assert.deepEqual(projected.executionSessions, [current]);
+  assert.equal(projected.detailLogSession, current);
+});
+
+test("queued runs and recovery without new invocations have no current session", () => {
+  const { run, sessions } = monitorFixture();
+  const options = { run, projectRuns: [run], pending: false, sessions };
+  run.executions = undefined;
+  assert.deepEqual(projectRunProjection(options).executionSessions, []);
+  assert.equal(projectRunProjection(options).detailLogSession, undefined);
+  run.executions = [
+    {
+      id: "recovery",
+      fingerprint: "",
+      recoverySupported: true,
+      createdAt: run.createdAt,
+      outcome: "running",
+      phase: "push",
+    },
+  ];
+  assert.deepEqual(projectRunProjection(options).executionSessions, []);
+});
+
+test("current session selection prefers a running invocation then the latest finished one", () => {
+  const { run, sessions } = monitorFixture();
+  const running = { ...sessions[0]!, executionId: "run" };
+  const finished = {
+    ...running,
+    id: "finished",
+    outcome: "completed",
+    startedAt: "2026-09-20T10:02:00Z",
+  };
+  const options = {
+    run,
+    projectRuns: [run],
+    pending: false,
+    sessions: [finished, running],
+  };
+  assert.equal(projectRunProjection(options).detailLogSession, running);
+  running.outcome = "completed";
+  assert.equal(projectRunProjection(options).detailLogSession, finished);
+});

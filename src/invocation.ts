@@ -29,6 +29,7 @@ interface StageExecution {
   stage: Stage;
   task: InvocationTask;
   stepId: number;
+  executionId: string;
   dependencies: OperationDependencies;
 }
 interface AttemptInput {
@@ -52,7 +53,7 @@ export async function invokeStage(execution: StageExecution): Promise<string> {
   const directory = join(dependencies.artifacts, run.id);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const path = join(directory, `stage-${name}-${stepId}.log`);
-  const executionId = run.executions?.at(-1)?.id ?? run.id;
+  const { executionId } = execution;
   await dependencies.store.patchRun(run.id, {
     stageLogs: [
       ...(run.stageLogs ?? []).filter(
@@ -208,6 +209,7 @@ async function invokeAttempt(
   const record: InvocationRecord = {
     id,
     runId: run.id,
+    executionId: execution.executionId,
     projectId: project.id,
     step: name,
     stepId,

@@ -286,6 +286,11 @@ test("custom agent steps keep multiple invocations and query events survive rest
     const sessions = await runner.store.invocations(run.id);
     assert.equal(sessions.length, 2);
     assert.notEqual(sessions[0]?.stepId, sessions[1]?.stepId);
+    assert.ok(
+      sessions.every(
+        (record) => record.executionId === run.executions!.at(-1)!.id,
+      ),
+    );
   } finally {
     await runner.shutdown();
   }

@@ -55,6 +55,7 @@ async function fixture(invoke: AgentAdapter["invoke"], timeoutMs = 5000) {
       outputContract: z.strictObject({ result: z.string() }),
     },
     stepId: 1,
+    executionId: "execution",
     dependencies: {
       project,
       workspace,
@@ -201,6 +202,11 @@ test("a writable stage retains its contribution through correction in the same s
   input.task.preserveCheckout = false;
   assert.equal(await invokeStage(input), '{"result":"ok"}');
   assert.equal(calls[1]!.resumeSessionId, "implementation-session");
+  assert.deepEqual(
+    records.map((record) => record.executionId),
+    ["execution", "execution"],
+  );
+  assert.equal(input.run.stageLogs![0]!.executionId, "execution");
   assert.equal(calls[0]!.signal, calls[1]!.signal);
   assert.ok(calls[1]!.timeoutMs! <= calls[0]!.timeoutMs!);
   assert.equal(input.run.contributionCandidates?.length, 1);

@@ -109,6 +109,7 @@ for (const phase of ["push", "change-request", "review-publication"]) {
       await failedPublication(phase);
     try {
       const sessions = await runner.store.invocations(run.id);
+      assert.ok(sessions.every((session) => session.executionId === run.id));
       restore();
       // The effect may have succeeded even though all responses were lost.
       if (phase === "push")
@@ -155,6 +156,10 @@ for (const phase of ["push", "change-request", "review-publication"]) {
       assert.equal(await readFile(validationCount, "utf8"), "checked\n");
       const completedSessions = await runner.store.invocations(run.id);
       assert.equal(completedSessions.length, 3);
+      for (const session of completedSessions) {
+        const reused = sessions.some((item) => item.id === session.id);
+        assert.equal(session.executionId, reused ? run.id : executionId);
+      }
       for (const session of sessions)
         assert.ok(completedSessions.some((item) => item.id === session.id));
       assert.equal(hosting.changes.length, 1);

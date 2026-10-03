@@ -296,11 +296,14 @@ A queued command needs an active runner to execute it. `finishCommand`,
 persistence APIs. Operator tools should use queued commands or the `Runner`
 methods so checkout and process safety checks run.
 
-Invocation records include project/run IDs, stable DBOS step ID and name,
+Invocation records include project/run IDs, the owning DBOS `executionId`, stable DBOS step ID and name,
 invocation ID, attempt, timestamps, requested/effective profile, provider,
 effective task prompt/source/hash, output-contract identity, resume origin
 (`resumedFrom`), log path, and session state (`pending`, `available`, `unavailable`). A retry
-has a separate run record linked to its predecessor. The run also retains
+has a separate run record linked to its predecessor. The monitor selects current
+invocations by execution identity; records without that identity remain in run
+history but are excluded from current-execution selection. Provider `sessionId`
+and `resumedFrom` identify the agent conversation independently. The run also retains
 before/after evidence for writable invocations; publication finalization records
 contributing provider identities in first-contribution order.
 

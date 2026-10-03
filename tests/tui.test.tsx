@@ -740,6 +740,7 @@ test("details show latest execution first and l selects the current running sess
     {
       ...sessions[0]!,
       id: "old",
+      executionId: "original-execution",
       sessionId: "old-session",
       startedAt: "2026-09-20T10:00:01Z",
       log: join(directory, "old.log"),
@@ -747,6 +748,7 @@ test("details show latest execution first and l selects the current running sess
     {
       ...sessions[0]!,
       id: "finished-current",
+      executionId: "recovery-execution",
       sessionId: "finished-session",
       startedAt: "2026-09-20T10:02:02Z",
       finishedAt: "2026-09-20T10:02:03Z",
@@ -756,6 +758,7 @@ test("details show latest execution first and l selects the current running sess
     {
       ...sessions[0]!,
       id: "running-current",
+      executionId: "recovery-execution",
       sessionId: "running-session",
       startedAt: "2026-09-20T10:02:04Z",
       outcome: "running",

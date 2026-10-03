@@ -247,6 +247,7 @@ export class Operations {
         stage,
         task,
         stepId: DBOS.stepID!,
+        executionId: DBOS.workflowID!,
         dependencies: this.dependencies,
       }),
     );

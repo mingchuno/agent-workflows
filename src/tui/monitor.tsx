@@ -74,7 +74,6 @@ export function Monitor({
       project,
       projectRuns,
       sessions,
-      events,
       pending: Boolean(data.pending),
     });
   const event =

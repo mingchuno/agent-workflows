@@ -42,6 +42,7 @@ export function monitorFixture() {
     {
       id: "inv",
       runId: "run",
+      executionId: "run",
       projectId: "demo",
       step: "implementation",
       stepId: 2,
