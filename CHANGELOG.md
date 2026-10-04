@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.0](https://github.com/mingchuno/agent-workflows/compare/v0.5.1...v0.6.0) (2026-10-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* **stages:** Replace invocation readOnly and evidence options with preserveCheckout and resumeSessionId. Remove Snapshot.diff and captured evidence interfaces.
+
+### Features
+
+* **stages:** resume publication and inspect via commands ([30af2a9](https://github.com/mingchuno/agent-workflows/commit/30af2a91dfc35b40114f6df223323aec37a441b5))
+* **workflows:** add labelled pull request reviews ([312d2de](https://github.com/mingchuno/agent-workflows/commit/312d2de2be7f83a3fa0164ced61ff70516aba342))
+
+
+### Bug Fixes
+
+* **invocation:** Reject incomplete agent turns ([65ca75b](https://github.com/mingchuno/agent-workflows/commit/65ca75bccd878cea004df6886b28a64c7ea51163))
+* **tui:** preserve log rows during horizontal panning ([#20](https://github.com/mingchuno/agent-workflows/issues/20)) ([9cf9de2](https://github.com/mingchuno/agent-workflows/commit/9cf9de242dafaa25915175761d4facdac1b2ed18))
+
 ## [0.5.1](https://github.com/mingchuno/agent-workflows/compare/v0.5.0...v0.5.1) (2026-09-23)
 
 
