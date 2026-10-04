@@ -146,7 +146,17 @@ for (const provider of ["github", "gitlab"] as const) {
             { body: "General finding", path: null, line: null },
           ],
         },
-        diff: "--- a/old.txt\n+++ b/new.txt\n@@ -1,0 +2,1 @@\n+added",
+        positions: {
+          inline: [
+            {
+              body: "Fix regression",
+              path: "new.txt",
+              oldPath: "old.txt",
+              line: 2,
+            },
+          ],
+          summaryFindings: ["General finding"],
+        },
         reviewTarget: { request: target, labels: ["review"] },
       };
       await hosting.publishReview(publication);

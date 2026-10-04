@@ -23,6 +23,7 @@ import {
   reviewEligible,
   sameReviewRevision,
 } from "./review-intake.js";
+import { prepareReviewPositions } from "./review-positions.js";
 import { command } from "./runtime/process.js";
 import type { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
@@ -497,67 +498,19 @@ export class Operations {
         throw run.subject.kind === "change-request"
           ? new StaleReviewError()
           : new BlockedError("Review stale: remote head changed");
-      const paths = [
-        ...new Set(
-          run.review.findings
-            .filter((finding) => finding.path && finding.line)
-            .map((finding) => finding.path!),
-        ),
-      ];
-      // Include rename origins so the selected diff retains provider position paths.
-      const diffPaths = new Set(paths);
-      if (paths.length) {
-        const status = (
-          await command(
-            "git",
-            [
-              "diff",
-              "--name-status",
-              "--find-renames",
-              "--no-ext-diff",
-              "--no-textconv",
-              "-z",
-              run.base,
-              run.reviewHead,
-            ],
-            { cwd: project.checkout, signal: this.dependencies.signal },
-          )
-        ).stdout.split("\0");
-        for (let index = 0; index < status.length - 1; ) {
-          const kind = status[index++]!;
-          const oldPath = status[index++]!;
-          if (kind.startsWith("R") || kind.startsWith("C")) {
-            const newPath = status[index++]!;
-            if (diffPaths.has(newPath)) diffPaths.add(oldPath);
-          }
-        }
-      }
-      const diff = paths.length
-        ? (
-            await command(
-              "git",
-              [
-                "--literal-pathspecs",
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--unified=0",
-                "--find-renames",
-                run.base,
-                run.reviewHead,
-                "--",
-                ...diffPaths,
-              ],
-              { cwd: project.checkout, signal: this.dependencies.signal },
-            )
-          ).stdout
-        : "";
+      const positions = await prepareReviewPositions({
+        checkout: project.checkout,
+        base: run.base,
+        head: run.reviewHead,
+        review: run.review,
+        signal: this.dependencies.signal,
+      });
       await hosting.publishReview({
         change: run.change,
         head: run.reviewHead,
         review: run.review,
         runId: publicationId,
-        diff,
+        positions,
         ...(run.subject.kind === "change-request"
           ? {
               reviewTarget: {

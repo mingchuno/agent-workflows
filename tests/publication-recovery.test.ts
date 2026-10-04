@@ -129,7 +129,7 @@ for (const phase of ["push", "change-request", "review-publication"]) {
           head: run.head!,
           review: run.review!,
           runId: run.id,
-          diff: "",
+          positions: { inline: [], summaryFindings: [] },
         });
       const executionId = await runner.recover(run.id);
       await waitFor(

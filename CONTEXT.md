@@ -49,3 +49,8 @@ The change request and exact source/target revision evidence covered by a review
 **Superseded review**:
 A review whose target revisions or eligibility changed before publication finished.
 Its findings remain inspectable but do not establish coverage of the new target.
+
+**Review position**:
+An added-line location in the pinned review target, including the previous path
+for a renamed file. Findings without a valid review position remain in the
+review summary.

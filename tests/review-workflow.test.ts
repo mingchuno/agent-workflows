@@ -356,7 +356,7 @@ test("queued review rechecks completed implementation reviews before invoking an
   }
 });
 
-test("review of a renamed file includes the original path in the publication diff", {
+test("review of a renamed file publishes positions with the original path", {
   skip: !databaseUrl,
 }, async () => {
   const { runner, hosting, request, git, root } = await setup({
@@ -389,17 +389,26 @@ test("review of a renamed file includes the original path in the publication dif
     },
   };
   const publish = hosting.publishReview.bind(hosting);
-  let diff = "";
+  let positions: Parameters<typeof publish>[0]["positions"] | undefined;
   hosting.publishReview = async (input) => {
-    diff = input.diff;
+    positions = input.positions;
     await publish(input);
   };
   try {
     await runner.start();
     const [run] = await finished(runner);
     assert.equal(run!.outcome, "completed", run!.error ?? "unexpected outcome");
-    assert.match(diff, /--- a\/file.txt/);
-    assert.match(diff, /\+\+\+ b\/renamed.txt/);
+    assert.deepEqual(positions, {
+      inline: [
+        {
+          body: "Check added line",
+          path: "renamed.txt",
+          oldPath: "file.txt",
+          line: 3,
+        },
+      ],
+      summaryFindings: [],
+    });
   } finally {
     await runner.shutdown();
   }

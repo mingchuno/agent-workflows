@@ -3,11 +3,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import { SDKAgent } from "../src/adapters/agents.js";
-import {
-  GitHubHosting,
-  GitLabHosting,
-  inlineFindings,
-} from "../src/adapters/hosting.js";
+import { GitHubHosting, GitLabHosting } from "../src/adapters/hosting.js";
 import { projectSchema } from "../src/config.js";
 
 test("GitLab routes and credentials stay on a configured relative-root instance", async () => {
@@ -143,25 +139,6 @@ test("agent capabilities reject unsupported settings without invoking a provider
     100000,
   );
 });
-test("inline findings include only added lines in the published diff", () => {
-  const review = {
-    complete: true,
-    limitations: [],
-    summary: "Review",
-    findings: [
-      { body: "valid", path: "a.txt", line: 4 },
-      { body: "invalid", path: "a.txt", line: 99 },
-    ],
-  };
-  assert.equal(
-    inlineFindings(review, "+++ b/a.txt\n@@ -3,0 +4,1 @@\n+new")[0]?.body,
-    "valid",
-  );
-  assert.equal(
-    inlineFindings(review, "+++ b/a.txt\n@@ -3,0 +4,1 @@\n+new").length,
-    1,
-  );
-});
 
 for (const major of [17, 18, 19])
   test(`GitLab ${major} API v4 fixture supports draft publication and revision-bound inline review`, async () => {
@@ -260,7 +237,12 @@ for (const major of [17, 18, 19])
           summary: "Summary",
           findings: [{ body: "Finding", path: "a.txt", line: 4 }],
         },
-        diff: "+++ b/a.txt\n@@ -3,0 +4,1 @@\n+new",
+        positions: {
+          inline: [
+            { body: "Finding", path: "a.txt", oldPath: "a.txt", line: 4 },
+          ],
+          summaryFindings: [],
+        },
       };
       await adapter.publishReview(review);
       await adapter.publishReview(review);

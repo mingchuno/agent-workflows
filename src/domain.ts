@@ -60,6 +60,10 @@ export const reviewSchema = z
     path: ["limitations"],
   });
 export type Review = z.input<typeof reviewSchema>;
+export interface ReviewPositions {
+  inline: Array<{ body: string; path: string; oldPath: string; line: number }>;
+  summaryFindings: string[];
+}
 export interface ValidationResult {
   command: string;
   args: string[];
@@ -131,7 +135,7 @@ export interface HostingAdapter {
     head: string;
     review: Review;
     runId: string;
-    diff: string;
+    positions: ReviewPositions;
     reviewTarget?: { request: ReviewRequest; labels: string[] };
   }): Promise<void>;
 }

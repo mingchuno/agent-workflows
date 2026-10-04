@@ -130,7 +130,7 @@ see [recovery rules](operations.md#publication-recovery) and
 | `commit()` / `push()`                    | Separate reconciled Git effects using the verified change set                |
 | `publish()`                              | Find existing request by branch before creating a draft                      |
 | `review()`                               | Fresh reviewer with implementation permissions; inspect exact base/head and preserve checkout |
-| `publishReview()`                        | Reject stale head; reconcile review marker; map valid added-line findings    |
+| `publishReview()`                        | Reject stale head; prepare review positions; reconcile review marker    |
 | `complete(outcome?)`                     | Require clean checkout and persist terminal outcome                          |
 | `step(name, operation)`                  | Custom durable operation receiving current `RunRecord`                       |
 | `invoke(name, stage, task)` | Custom agentic step with profile resolution and session history              |
@@ -244,6 +244,13 @@ Caveats:
 `AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)` receives working directory, prompt, optional application-owned `outputSchema`, optional `resumeSessionId`, abort signal, stage `timeoutMs` and session/event callbacks. All invocations receive implementation-level permissions. The abort signal also covers cancellation and time spent validating the profile. Honor `resumeSessionId` without silently creating a new session. Call `session(id)` immediately when available, using the requested ID when resuming. Await event persistence; invocation must not settle until its work has stopped. SDK adapters enforce process-group lifecycle; custom adapters must uphold the same contract. `processFile` is available for controlled subprocess ownership.
 
 `HostingAdapter` provides issue and PR/MR pagination/revalidation (`listChanges`/`getChange` return `ReviewRequest`), instance-qualified `identity`, change-request lookup/create, remote head, and idempotent review publication. `preflight` is optional. `publishReview` optionally receives `reviewTarget: { request, labels }` for eligibility and exact diff-reference checks before effects. Reconciliation keys must be stable across response loss; providers must never infer successful publication from agent prose.
+Hosting adapters receive `ReviewPositions` with validated added-line locations
+(including rename origins) and summary-only findings. The review positioning
+module’s `prepareReviewPositions({ checkout, base, head, review, signal? })`
+prepares this evidence from the pinned Git revision pair; adapters
+translate positions into provider payloads and retain publication reconciliation
+and freshness checks.
+
 
 Review runs use `RunRecord.subject.kind === "change-request"`; implementation runs
 use `"issue"`. Both subjects carry title, body, URL, number, and labels; review

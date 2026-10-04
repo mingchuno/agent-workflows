@@ -6,7 +6,6 @@ import {
   type ChangeRequest,
   type HostingAdapter,
   type Issue,
-  type Review,
   type ReviewRequest,
   StaleReviewError,
 } from "../domain.js";
@@ -44,28 +43,6 @@ function token(project: Project) {
 function marker(runId: string, suffix = "") {
   return `<!-- agent-workflows:${runId}${suffix} -->`;
 }
-export function inlineFindings(review: Review, diff: string) {
-  const lines = new Map<string, Set<number>>();
-  let path = "",
-    line = 0;
-  for (const text of diff.split("\n")) {
-    if (text.startsWith("+++ b/")) {
-      path = text.slice(6);
-      lines.set(path, new Set());
-    } else if (text.startsWith("@@")) {
-      line = Number(/\+(\d+)/.exec(text)?.[1] ?? 0);
-    } else if (text.startsWith("+")) {
-      lines.get(path)?.add(line);
-      line++;
-    } else if (!text.startsWith("-") && !text.startsWith("\\")) line++;
-  }
-  return review.findings.filter(
-    (finding): finding is { body: string; path: string; line: number } =>
-      !!finding.path &&
-      !!finding.line &&
-      !!lines.get(finding.path)?.has(finding.line),
-  );
-}
 async function verifyReviewTarget(
   hosting: HostingAdapter,
   input: Parameters<HostingAdapter["publishReview"]>[0],
@@ -85,13 +62,11 @@ async function verifyReviewTarget(
 function reviewPresentation(
   input: Parameters<HostingAdapter["publishReview"]>[0],
 ) {
-  const inline = inlineFindings(input.review, input.diff);
+  const { inline, summaryFindings } = input.positions;
   const body = [
     `Review of ${input.head}`,
     input.review.summary,
-    ...input.review.findings
-      .filter((finding) => !inline.includes(finding as (typeof inline)[number]))
-      .map((finding) => finding.body),
+    ...summaryFindings,
     marker(input.runId),
   ].join("\n\n");
   return { inline, body };
@@ -414,13 +389,6 @@ export class GitLabHosting implements HostingAdapter {
     if (change.sha !== input.head) throw new StaleReviewError();
     await verifyReviewTarget(this, input);
     const { inline, body } = reviewPresentation(input);
-    const oldPaths = new Map<string, string>();
-    let oldPath = "";
-    for (const line of input.diff.split("\n")) {
-      if (line.startsWith("--- a/")) oldPath = line.slice(6);
-      if (line.startsWith("+++ b/"))
-        oldPaths.set(line.slice(6), oldPath || line.slice(6));
-    }
     for (const [index, finding] of inline.entries()) {
       const tag = marker(input.runId, `:inline:${index}`);
       if (notes.some((note) => note.body.includes(tag))) continue;
@@ -438,7 +406,7 @@ export class GitLabHosting implements HostingAdapter {
             startSha: input.reviewTarget?.request.start ?? refs.start_sha,
             headSha: input.head,
             newPath: finding.path,
-            oldPath: oldPaths.get(finding.path) ?? finding.path,
+            oldPath: finding.oldPath,
             newLine: String(finding.line),
           },
         },
