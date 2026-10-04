@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/mingchuno/agent-workflows/compare/v0.6.0...v0.7.0) (2026-10-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* **review:** HostingAdapter.publishReview accepts ReviewPositions instead of diff text. Replace inlineFindings with prepareReviewPositions.
+
+### Code Refactoring
+
+* **review:** Centralize review positioning ([1c6418b](https://github.com/mingchuno/agent-workflows/commit/1c6418b7152fe2c3d96277a4a0789b5ecc553b73))
+
 ## [0.6.0](https://github.com/mingchuno/agent-workflows/compare/v0.5.1...v0.6.0) (2026-10-03)
 
 
