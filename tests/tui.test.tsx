@@ -868,7 +868,15 @@ test("details expose overflow range and ignore dashboard-only navigation keys", 
 });
 
 test("80-column details keep every active control visible", async () => {
-  const { source, run } = monitorFixture();
+  const { source, run, sessions } = monitorFixture();
+  let releaseSessions!: () => void;
+  const sessionLoad = new Promise<void>((resolve) => {
+    releaseSessions = resolve;
+  });
+  source.invocations = async () => {
+    await sessionLoad;
+    return sessions;
+  };
   run.outcome = run.executions![0]!.outcome = "failed";
   run.phase = run.executions![0]!.phase = "push";
   run.executions![0]!.finishedAt = "2026-09-20T10:02:01Z";
@@ -905,6 +913,9 @@ test("80-column details keep every active control visible", async () => {
   );
   try {
     await until(() => view.lastFrame()!.includes("Implement feature"));
+    assert.ok(!view.lastFrame()!.includes("l log"));
+    releaseSessions();
+    await until(() => view.lastFrame()!.includes("l log"), view.lastFrame);
     const dashboardFooter = view
       .lastFrame()!
       .split("\n")
