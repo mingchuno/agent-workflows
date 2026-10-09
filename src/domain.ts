@@ -36,6 +36,12 @@ export class StaleReviewError extends Error {
     this.name = "StaleReviewError";
   }
 }
+export function isStaleReviewError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "StaleReviewError";
+}
+export function currentExecutionId(run: RunRecord): string {
+  return run.executions?.at(-1)?.id ?? run.id;
+}
 export const maxPublicationDescriptionLength = 60_000;
 export const publicationSchema = z.strictObject({
   commitMessage: z.string().trim().min(1).max(10000),

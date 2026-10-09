@@ -1,6 +1,6 @@
 import type { Key } from "ink";
 import type { RunRecord } from "../domain.js";
-import { subjectReference } from "../domain.js";
+import { currentExecutionId, subjectReference } from "../domain.js";
 import type { EventRecord, InvocationRecord, ProjectState } from "../store.js";
 import type { MonitorAction } from "./data.js";
 import type { LogSource } from "./log.js";
@@ -252,10 +252,9 @@ function openAgentLog(
   state: MonitorNavigation,
   context: NavigationContext,
 ): MonitorNavigation {
-  const currentExecutionId =
-    context.run?.executions?.at(-1)?.id ?? context.run?.id;
+  const executionId = context.run ? currentExecutionId(context.run) : undefined;
   const stageSources = (context.run?.stageLogs ?? [])
-    .filter((item) => item.executionId === currentExecutionId)
+    .filter((item) => item.executionId === executionId)
     .map((item) => ({
       path: item.path,
       label: `${item.step} · stage diagnostic`,

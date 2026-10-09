@@ -1,5 +1,6 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
+import { currentExecutionId } from "../domain.js";
 import { minimumTerminalSize } from "./constants.js";
 import { type MonitorSource, useMonitorData } from "./data.js";
 import { ConfirmDialog, HelpDialog } from "./dialogs.js";
@@ -217,7 +218,7 @@ export function Monitor({
       ? "l current log"
       : `l log: ${detailLogSession.step} invocation ${detailLogSession.attempt} (${detailLogSession.outcome})`
     : run?.stageLogs?.some(
-          (item) => item.executionId === (run.executions?.at(-1)?.id ?? run.id),
+          (item) => item.executionId === currentExecutionId(run),
         )
       ? "l stage diagnostic"
       : "";

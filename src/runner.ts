@@ -7,9 +7,11 @@ import { type Configuration, configSchema, type Project } from "./config.js";
 import {
   type AgentAdapter,
   BlockedError,
+  currentExecutionId,
   type HostingAdapter,
   type Issue,
   isBlockedError,
+  isStaleReviewError,
   type RunRecord,
   type Workspace,
 } from "./domain.js";
@@ -93,6 +95,12 @@ export class Runner {
       projectPrompts(project, promptBaseDirectory);
     this.store = new Store(options.databaseUrl, this.config.id, this.redact);
   }
+  private get workflowVersion(): string {
+    return this.options.workflowVersion ?? "workflows-v5";
+  }
+  private get applicationVersion(): string {
+    return `${this.config.id}-${this.workflowVersion}`;
+  }
   private queue(id: string) {
     return `${this.config.id}:${id}`;
   }
@@ -142,7 +150,7 @@ export class Runner {
     DBOS.setConfig({
       name: `agent-workflows-${this.config.id}`,
       systemDatabaseUrl: this.options.databaseUrl,
-      applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v5"}`,
+      applicationVersion: this.applicationVersion,
       executorID: this.config.id,
       listenQueues: this.config.projects.map((p) => this.queue(p.id)),
       logger: runtimeLogger(this.redact),
@@ -351,7 +359,7 @@ export class Runner {
       return DBOS.forkWorkflow(execution.recoveryOf, execution.startStep!, {
         newWorkflowID: execution.id,
         queueName: this.queue(project.id),
-        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v5"}`,
+        applicationVersion: this.applicationVersion,
       });
     }
     return DBOS.startWorkflow(this.workflow, {
@@ -364,13 +372,13 @@ export class Runner {
     error: unknown,
   ): Promise<void> {
     const message = this.redact(String(error));
-    const executionId = run.executions?.at(-1)?.id ?? run.id;
+    const executionId = currentExecutionId(run);
     await this.store.emit(run.id, "workflow-error", {
       executionId,
       error: message,
     });
     const current = await this.store.run(run.id);
-    if ((current.executions?.at(-1)?.id ?? current.id) !== executionId) return;
+    if (currentExecutionId(current) !== executionId) return;
     if (["queued", "running"].includes(current.outcome)) {
       await this.store.patchRun(run.id, {
         outcome: "blocked",
@@ -419,11 +427,7 @@ export class Runner {
       signal: controller.signal,
       redact: this.redact,
       executionFingerprint: () =>
-        executionFingerprint(
-          project,
-          this.options.workflowVersion ?? "workflows-v5",
-          controller.signal,
-        ),
+        executionFingerprint(project, this.workflowVersion, controller.signal),
       beforeStep: async () => {
         if (recoveryChecked) return;
         await this.checkExecutionStart(runId, project, controller.signal);
@@ -491,7 +495,7 @@ export class Runner {
       workspace: this.options.workspace ?? new ExistingCheckout(),
       hosting: this.hosting.get(project.id)!,
       stateDirectory: this.config.stateDirectory,
-      workflowVersion: this.options.workflowVersion ?? "workflows-v5",
+      workflowVersion: this.workflowVersion,
     });
   }
   private async recordExecutionFailure(
@@ -509,7 +513,7 @@ export class Runner {
     }
     const outcome = controller.signal.aborted
       ? "cancelled"
-      : error instanceof Error && error.name === "StaleReviewError"
+      : isStaleReviewError(error)
         ? "superseded"
         : isBlockedError(error)
           ? "blocked"
@@ -564,7 +568,7 @@ export class Runner {
       return;
     }
     if (run.outcome === "queued") {
-      await DBOS.cancelWorkflow(run.executions?.at(-1)?.id ?? runId);
+      await DBOS.cancelWorkflow(currentExecutionId(run));
       await this.store.patchRun(runId, { outcome: "cancelled" });
       return;
     }
@@ -648,7 +652,7 @@ export class Runner {
           {
             status,
             steps,
-            applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v5"}`,
+            applicationVersion: this.applicationVersion,
           },
           {
             project,
@@ -656,7 +660,7 @@ export class Runner {
             workspace: this.options.workspace ?? new ExistingCheckout(),
             hosting: this.hosting.get(project.id)!,
             stateDirectory: this.config.stateDirectory,
-            workflowVersion: this.options.workflowVersion ?? "workflows-v5",
+            workflowVersion: this.workflowVersion,
           },
         );
       },

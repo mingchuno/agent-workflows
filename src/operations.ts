@@ -9,7 +9,9 @@ import {
   type HostingAdapter,
   implementationSchema,
   isBlockedError,
+  isStaleReviewError,
   publicationSchema,
+  type ReviewRequest,
   type RunRecord,
   reviewSchema,
   StaleReviewError,
@@ -89,7 +91,7 @@ export class Operations {
           if (
             !publicationSteps.includes(name) ||
             isBlockedError(error) ||
-            (error instanceof Error && error.name === "StaleReviewError") ||
+            isStaleReviewError(error) ||
             DBOS.stepStatus?.currentAttempt === maxStepAttempts
           )
             await store.patchRun(this.runId, { failedStep: DBOS.stepID! });
@@ -104,7 +106,7 @@ export class Operations {
           const message = this.dependencies.redact(
             error instanceof Error ? error.message : String(error),
           );
-          if (error instanceof Error && error.name === "StaleReviewError")
+          if (isStaleReviewError(error))
             throw run.subject.kind === "change-request"
               ? new StaleReviewError()
               : new BlockedError(message);
@@ -120,8 +122,7 @@ export class Operations {
         intervalSeconds: 0.2,
         backoffRate: 2,
         shouldRetry: (error) =>
-          !isBlockedError(error) &&
-          !(error instanceof Error && error.name === "StaleReviewError"),
+          !isBlockedError(error) && !isStaleReviewError(error),
       },
     );
   }
@@ -177,6 +178,15 @@ export class Operations {
       return true;
     });
   }
+  private async assertReviewFresh(request: ReviewRequest): Promise<void> {
+    const { hosting, project } = this.dependencies;
+    const current = await hosting.getChange(request.number);
+    if (
+      !reviewEligible(current, project) ||
+      !sameReviewRevision(request, current)
+    )
+      throw new StaleReviewError();
+  }
   async prepareReview(): Promise<void> {
     await this.step("review-prepare", async (run) => {
       if (run.subject.kind !== "change-request")
@@ -185,14 +195,7 @@ export class Operations {
       const request = run.subject;
       const assertFresh = async () => {
         this.dependencies.signal.throwIfAborted();
-        const current = await this.dependencies.hosting.getChange(
-          run.subject.number,
-        );
-        if (
-          !reviewEligible(current, project) ||
-          !sameReviewRevision(request, current)
-        )
-          throw new StaleReviewError();
+        await this.assertReviewFresh(request);
       };
       await assertFresh();
       let snapshot: Awaited<ReturnType<Workspace["prepareReview"]>>;
@@ -615,12 +618,7 @@ Set complete=false and explain limitations when inspection is incomplete. Assign
           "Incomplete review; use retry for a fresh inspection",
         );
       if (run.subject.kind === "change-request") {
-        const current = await hosting.getChange(run.subject.number);
-        if (
-          !reviewEligible(current, project) ||
-          !sameReviewRevision(run.subject, current)
-        )
-          throw new StaleReviewError();
+        await this.assertReviewFresh(run.subject);
       }
       if ((await hosting.head(run.change)) !== run.reviewHead)
         throw run.subject.kind === "change-request"
