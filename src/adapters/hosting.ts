@@ -40,6 +40,16 @@ function token(project: Project) {
     );
   return value;
 }
+function readyTitle(title: string): string {
+  return (
+    title
+      .replace(
+        /^(?:(?:draft|wip):\s*|\[(?:draft|wip)\]\s*|\((?:draft|wip)\)\s*)+/i,
+        "",
+      )
+      .trim() || "Workflow changes"
+  );
+}
 function marker(runId: string, suffix = "") {
   return `<!-- agent-workflows:${runId}${suffix} -->`;
 }
@@ -65,7 +75,12 @@ function reviewPresentation(
   const { inline, summaryFindings } = input.positions;
   const body = [
     `Review of ${input.head}`,
-    input.review.summary,
+    input.review.complete
+      ? input.review.summary
+      : `Incomplete inspection: ${input.review.summary}`,
+    ...input.review.limitations.map(
+      (limitation) => `Limitation: ${limitation}`,
+    ),
     ...summaryFindings,
     marker(input.runId),
   ].join("\n\n");
@@ -198,7 +213,7 @@ export class GitHubHosting implements HostingAdapter {
       base: input.base,
       title: input.publication.title,
       body: `${input.publication.description}\n\nRefs ${input.issue.url}\n${marker(input.runId)}`,
-      draft: true,
+      draft: input.draft,
     });
     return { id: data.number, url: data.html_url, head: data.head.sha };
   }
@@ -361,7 +376,9 @@ export class GitLabHosting implements HostingAdapter {
       this.repository,
       input.branch,
       input.base,
-      `Draft: ${input.publication.title}`,
+      input.draft
+        ? `Draft: ${readyTitle(input.publication.title)}`
+        : readyTitle(input.publication.title),
       {
         description: `${input.publication.description}\n\nRefs ${input.issue.url}\n${marker(input.runId)}`,
         removeSourceBranch: false,

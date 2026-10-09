@@ -56,9 +56,7 @@ export async function invokeStage(execution: StageExecution): Promise<string> {
   const { executionId } = execution;
   await dependencies.store.patchRun(run.id, {
     stageLogs: [
-      ...(run.stageLogs ?? []).filter(
-        (item) => item.executionId !== executionId || item.step !== name,
-      ),
+      ...(run.stageLogs ?? []).filter((item) => item.path !== path),
       { executionId, step: name, path },
     ],
   });

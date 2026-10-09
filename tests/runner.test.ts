@@ -53,15 +53,31 @@ test("public runner completes durable issue-to-review workflow and deduplicates 
           }
           if (input.step === "review") {
             const base = /Base revision: ([0-9a-f]+)/.exec(input.prompt)![1]!;
-            const head = /Published revision: ([0-9a-f]+)/.exec(
-              input.prompt,
-            )![1]!;
-            const diff = await command(
-              "git",
-              ["diff", base, head, "--", "implemented.txt"],
-              { cwd: input.cwd },
+            assert.match(input.prompt, /Local changes/);
+            assert.equal(
+              (
+                await command("git", ["rev-parse", "HEAD"], {
+                  cwd: input.cwd,
+                })
+              ).stdout.trim(),
+              base,
             );
-            assert.match(diff.stdout, /\+implemented/);
+            assert.match(
+              (
+                await command(
+                  "git",
+                  ["ls-files", "--others", "--exclude-standard"],
+                  {
+                    cwd: input.cwd,
+                  },
+                )
+              ).stdout,
+              /implemented.txt/,
+            );
+            assert.equal(
+              await readFile(join(input.cwd, "implemented.txt"), "utf8"),
+              "implemented\n",
+            );
           }
           return agent.invoke(input);
         },
@@ -90,8 +106,8 @@ test("public runner completes durable issue-to-review workflow and deduplicates 
     assert.equal(publication.resumedFrom, implementation.sessionId);
     assert.notEqual(review.sessionId, implementation.sessionId);
     assert.equal(review.resumedFrom, undefined);
-    assert.equal(calls[1]!.resumeSessionId, implementation.sessionId);
-    assert.equal(calls[2]!.resumeSessionId, undefined);
+    assert.equal(calls[1]!.resumeSessionId, undefined);
+    assert.equal(calls[2]!.resumeSessionId, implementation.sessionId);
     assert.equal("diff" in runs[0]!.snapshot!, false);
     const artifacts = await readdir(join(config.stateDirectory, runs[0]!.id), {
       recursive: true,
@@ -213,13 +229,14 @@ for (const scenario of [
             run.error!,
             /Implementation session unavailable.*useNewSession/,
           );
-          assert.equal(calls.length, 1);
+          assert.equal(calls.length, 2);
           assert.equal(hosting.changes.length, 0);
           assert.equal(run.head, undefined);
           assert.equal(run.phase, "publication-session");
         } else {
           assert.match(run.error!, /Unexpected checkout mutation/);
-          assert.equal(calls.length, 3);
+          assert.equal(calls.length, 2);
+          assert.equal(hosting.changes.length, 0);
           assert.equal(run.review, undefined);
           assert.equal(run.phase, "review");
         }
@@ -337,7 +354,11 @@ test("configured stage timeout reaches the agent adapter", {
         validate: agent.validate,
         async invoke(input) {
           observed.push(input.timeoutMs);
-          return "No changes needed";
+          return JSON.stringify({
+            summary: "No changes needed",
+            validation: [],
+            limitations: [],
+          });
         },
       },
     },

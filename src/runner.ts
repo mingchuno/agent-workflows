@@ -142,7 +142,7 @@ export class Runner {
     DBOS.setConfig({
       name: `agent-workflows-${this.config.id}`,
       systemDatabaseUrl: this.options.databaseUrl,
-      applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v4"}`,
+      applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v5"}`,
       executorID: this.config.id,
       listenQueues: this.config.projects.map((p) => this.queue(p.id)),
       logger: runtimeLogger(this.redact),
@@ -351,7 +351,7 @@ export class Runner {
       return DBOS.forkWorkflow(execution.recoveryOf, execution.startStep!, {
         newWorkflowID: execution.id,
         queueName: this.queue(project.id),
-        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v4"}`,
+        applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v5"}`,
       });
     }
     return DBOS.startWorkflow(this.workflow, {
@@ -421,7 +421,7 @@ export class Runner {
       executionFingerprint: () =>
         executionFingerprint(
           project,
-          this.options.workflowVersion ?? "workflows-v4",
+          this.options.workflowVersion ?? "workflows-v5",
           controller.signal,
         ),
       beforeStep: async () => {
@@ -491,7 +491,7 @@ export class Runner {
       workspace: this.options.workspace ?? new ExistingCheckout(),
       hosting: this.hosting.get(project.id)!,
       stateDirectory: this.config.stateDirectory,
-      workflowVersion: this.options.workflowVersion ?? "workflows-v4",
+      workflowVersion: this.options.workflowVersion ?? "workflows-v5",
     });
   }
   private async recordExecutionFailure(
@@ -648,7 +648,7 @@ export class Runner {
           {
             status,
             steps,
-            applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v4"}`,
+            applicationVersion: `${this.config.id}-${this.options.workflowVersion ?? "workflows-v5"}`,
           },
           {
             project,
@@ -656,7 +656,7 @@ export class Runner {
             workspace: this.options.workspace ?? new ExistingCheckout(),
             hosting: this.hosting.get(project.id)!,
             stateDirectory: this.config.stateDirectory,
-            workflowVersion: this.options.workflowVersion ?? "workflows-v4",
+            workflowVersion: this.options.workflowVersion ?? "workflows-v5",
           },
         );
       },

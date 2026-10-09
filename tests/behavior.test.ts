@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -138,7 +145,11 @@ test("validation failure, malformed publication and no-change stop publication; 
       )!;
       if (project.id === "nochange" && input.step === "implementation") {
         await input.session("no-change-session");
-        return "nothing to do";
+        return JSON.stringify({
+          summary: "Nothing to do",
+          validation: [],
+          limitations: [],
+        });
       }
       if (project.id === "malformed" && input.step === "publication")
         return '{"title":"incomplete"}';
@@ -158,7 +169,15 @@ test("validation failure, malformed publication and no-change stop publication; 
       runs.find((run) => run.projectId === "nochange")!.outcome,
       "no-change",
     );
-    for (const id of ["validation", "malformed"]) {
+    assert.equal(
+      runs.find((run) => run.projectId === "validation")!.outcome,
+      "completed",
+    );
+    assert.equal(
+      runs.find((run) => run.projectId === "validation")!.readiness?.draft,
+      true,
+    );
+    for (const id of ["malformed"]) {
       assert.equal(runs.find((run) => run.projectId === id)!.outcome, "failed");
       assert.ok((await runner.store.project(id)).blocked);
       assert.equal(hosts.get(id)!.changes.length, 0);
@@ -654,7 +673,7 @@ test("documented custom workflow executes through the public runner", {
     await runner.shutdown();
   }
 });
-test("validation timeout records failure evidence and preserves unfinished work", {
+test("validation timeout records failure evidence and delivers a draft", {
   skip: !databaseUrl,
 }, async () => {
   const { project } = await repository();
@@ -670,10 +689,10 @@ test("validation timeout records failure evidence and preserves unfinished work"
     await runner.start();
     await waitFor(() => terminal(runner, 1));
     const run = (await runner.store.runs())[0]!;
-    assert.equal(run.outcome, "failed");
+    assert.equal(run.outcome, "completed");
     assert.equal(run.validation?.[0]?.exitCode, -1);
     assert.match(await readFile(run.validation![0]!.log, "utf8"), /timed out/);
-    assert.equal(hosts.get(project.id)!.changes.length, 0);
+    assert.equal(hosts.get(project.id)!.changes.length, 1);
   } finally {
     await runner.shutdown();
   }
@@ -871,16 +890,255 @@ for (const scenario of [
           "completed",
           "invalid-output",
         ]);
+      } else if (scenario === "incomplete") {
+        assert.equal(run.outcome, "completed", run.error ?? "");
+        assert.equal(run.readiness?.draft, true);
+        assert.equal(run.review?.complete, false);
+        assert.equal(run.review?.findings.length, 1);
+        assert.equal(hosts.get(project.id)!.reviews.length, 1);
       } else {
         assert.notEqual(run.outcome, "completed");
         assert.equal(calls.length, scenario === "invalid" ? 2 : 1);
         assert.equal(hosts.get(project.id)!.reviews.length, 0);
-        if (scenario === "incomplete") {
-          assert.equal(run.review?.complete, false);
-          assert.equal(run.review?.findings.length, 1);
-          assert.match(run.error!, /Incomplete review/);
-        } else assert.equal(run.publication, undefined);
+        assert.equal(run.publication, undefined);
       }
+    } finally {
+      await runner.shutdown();
+    }
+  });
+}
+
+test("default reviews local changes before publication and records non-draft readiness", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project, git } = await repository();
+  const base = (await git("rev-parse", "HEAD")).stdout.trim();
+  const stages: string[] = [];
+  const controlled: AgentAdapter = {
+    validate: agent.validate,
+    async invoke(input) {
+      stages.push(input.step);
+      if (input.step === "review") {
+        assert.equal(input.resumeSessionId, undefined);
+        assert.match(input.prompt, /Local changes/);
+        assert.ok(input.prompt.includes(base));
+        assert.match(input.prompt, /Implement the task/);
+        assert.equal((await git("rev-parse", "HEAD")).stdout.trim(), base);
+      }
+      return agent.invoke(input);
+    },
+  };
+  const { runner } = await setup([project], { codex: controlled });
+  try {
+    await runner.start();
+    await waitFor(() => terminal(runner, 1));
+    const run = (await runner.store.runs())[0]!;
+    assert.equal(run.outcome, "completed", run.error ?? "");
+    assert.ok(stages.indexOf("review") < stages.indexOf("publication"));
+    assert.deepEqual((run as unknown as { readiness: unknown }).readiness, {
+      draft: false,
+      reasons: [],
+    });
+  } finally {
+    await runner.shutdown();
+  }
+});
+
+for (const scenario of [
+  "early",
+  "second",
+  "unresolved",
+  "incomplete",
+  "checks",
+  "zero",
+  "minor",
+  "repaired-checks",
+  "removed",
+  "publication-limit",
+  "missing-session",
+  "rejected-session",
+  "fix-provider",
+  "late-mutation",
+  "threshold",
+] as const) {
+  test(`default bounded repair delivers ${scenario} with final readiness`, {
+    skip: !databaseUrl,
+  }, async () => {
+    const { project } = await repository();
+    if (scenario === "zero")
+      project.workflows.implementation.review.maxFixRounds = 0;
+    if (scenario === "threshold")
+      project.workflows.implementation.review.blockAtOrAbove = "P1";
+    if (scenario === "checks" || scenario === "repaired-checks")
+      project.validation = [
+        {
+          command: process.execPath,
+          args: [
+            "-e",
+            scenario === "repaired-checks"
+              ? "process.exit(require('node:fs').readFileSync('implemented.txt','utf8').startsWith('fix') ? 0 : 3)"
+              : "process.exit(3)",
+          ],
+          timeoutMs: 1000,
+        },
+      ];
+    let reviews = 0;
+    let fixes = 0;
+    let implementationSession: string | undefined;
+    const controlled: AgentAdapter = {
+      validate: agent.validate,
+      async invoke(input) {
+        if (input.step === "implementation") {
+          implementationSession = "implementation-session";
+          if (scenario !== "missing-session")
+            await input.session(implementationSession);
+          await writeFile(join(input.cwd, "implemented.txt"), "initial\n");
+          return JSON.stringify({
+            summary: "Implemented",
+            validation: [
+              {
+                command: "chosen check",
+                outcome: "passed",
+                details: "Agent reported",
+              },
+            ],
+            limitations: [],
+          });
+        }
+        if (input.step === "fix") {
+          fixes++;
+          assert.equal(input.resumeSessionId, implementationSession);
+          if (scenario === "fix-provider")
+            throw new Error("Repair provider failed");
+          if (scenario === "rejected-session") {
+            await input.session("unexpected-session");
+            throw new Error("Unexpected resume accepted");
+          }
+          await input.session(implementationSession!);
+          if (scenario === "removed")
+            await unlink(join(input.cwd, "implemented.txt"));
+          else
+            await writeFile(
+              join(input.cwd, "implemented.txt"),
+              `fix ${fixes}\n`,
+            );
+          return JSON.stringify({
+            summary: "Fixed",
+            validation: [],
+            limitations: [],
+          });
+        }
+        if (input.step === "review") {
+          assert.equal(input.resumeSessionId, undefined);
+          await input.session(`review-${++reviews}`);
+          if (scenario === "late-mutation" && fixes > 0)
+            await writeFile(
+              join(input.cwd, "unexpected.txt"),
+              "mutated during re-review",
+            );
+          const blocking =
+            [
+              "missing-session",
+              "rejected-session",
+              "fix-provider",
+              "late-mutation",
+            ].includes(scenario) ||
+            scenario === "unresolved" ||
+            scenario === "zero" ||
+            (scenario === "removed" && fixes < 1) ||
+            (scenario === "early" && fixes < 1) ||
+            (scenario === "second" && fixes < 2);
+          return JSON.stringify({
+            complete: scenario !== "incomplete",
+            limitations:
+              scenario === "incomplete" ? ["Could not inspect everything"] : [],
+            summary: "Reviewed",
+            findings:
+              blocking || scenario === "minor" || scenario === "threshold"
+                ? [
+                    {
+                      body: "Finding",
+                      priority:
+                        scenario === "minor"
+                          ? "P3"
+                          : scenario === "threshold"
+                            ? "P2"
+                            : "P1",
+                      path: "implemented.txt",
+                      line: 1,
+                    },
+                  ]
+                : [],
+          });
+        }
+        if (scenario === "publication-limit" && input.step === "publication") {
+          await input.session(input.resumeSessionId!);
+          return JSON.stringify({
+            commitMessage: "feat: delivered",
+            title: "Delivered",
+            description: "x".repeat(60000),
+          });
+        }
+        return agent.invoke(input);
+      },
+    };
+    const { runner, hosts } = await setup([project], { codex: controlled });
+    try {
+      await runner.start();
+      await waitFor(() => terminal(runner, 1));
+      const run = (await runner.store.runs())[0]!;
+      if (
+        [
+          "missing-session",
+          "rejected-session",
+          "fix-provider",
+          "late-mutation",
+        ].includes(scenario)
+      ) {
+        assert.ok(["blocked", "failed"].includes(run.outcome), run.error ?? "");
+        assert.equal(hosts.get(project.id)!.changes.length, 0);
+        assert.equal(run.head, undefined);
+        assert.equal(fixes, scenario === "missing-session" ? 0 : 1);
+        assert.match(
+          run.error ?? "",
+          scenario === "missing-session"
+            ? /session unavailable/
+            : scenario === "rejected-session"
+              ? /different session/
+              : scenario === "fix-provider"
+                ? /Repair provider failed/
+                : /mutation/,
+        );
+        return;
+      }
+      if (scenario === "removed") {
+        assert.equal(run.outcome, "no-change", run.error ?? "");
+        assert.equal(fixes, 1);
+        assert.equal(hosts.get(project.id)!.changes.length, 0);
+        return;
+      }
+      assert.equal(run.outcome, "completed", run.error ?? "");
+      const draft = ["unresolved", "incomplete", "checks", "zero"].includes(
+        scenario,
+      );
+      assert.ok(run.publication!.description.length <= 60000);
+      assert.equal(run.readiness?.draft, draft);
+      assert.deepEqual(hosts.get(project.id)!.createdDrafts, [draft]);
+      assert.equal(
+        fixes,
+        ["early", "repaired-checks"].includes(scenario)
+          ? 1
+          : ["second", "unresolved", "checks"].includes(scenario)
+            ? 2
+            : 0,
+      );
+      assert.equal(run.reviewRounds?.length, fixes + 1);
+      assert.equal(reviews, fixes + 1);
+      assert.equal(run.reviewHead, run.head);
+      assert.equal(
+        run.reviewRounds?.[0]?.agentReport?.validation[0]?.command,
+        "chosen check",
+      );
     } finally {
       await runner.shutdown();
     }

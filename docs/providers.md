@@ -63,7 +63,7 @@ If access is denied, check the selected owner/repository, PR write permission, t
 
 References: GitHub's [PAT creation guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens), [issue permissions](https://docs.github.com/en/rest/issues/issues#list-repository-issues), [PR creation permissions](https://docs.github.com/en/rest/pulls/pulls#create-a-pull-request), and [review permissions](https://docs.github.com/en/rest/pulls/reviews#create-a-review-for-a-pull-request).
 
-Issue intake paginates and excludes PRs. Publications default to draft. Reviews use the exact commit ID and right-side added lines where valid; other findings appear in the summary.
+Issue intake paginates and excludes PRs. Default publication is non-draft only after complete local review with no blocking findings or failed configured checks; remaining problems produce a draft. Reviews use the exact commit ID and right-side added lines where valid; other findings appear in the summary.
 
 ## GitLab.com and self-hosted GitLab
 

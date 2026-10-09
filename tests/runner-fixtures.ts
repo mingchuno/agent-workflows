@@ -25,6 +25,7 @@ export class FixtureHosting implements HostingAdapter {
     },
   ];
   requests: ReviewRequest[] = [];
+  createdDrafts: boolean[] = [];
   async listChanges() {
     return this.requests;
   }
@@ -43,6 +44,7 @@ export class FixtureHosting implements HostingAdapter {
     return this.branches.get(branch);
   }
   async createChange(input: Parameters<HostingAdapter["createChange"]>[0]) {
+    this.createdDrafts.push(input.draft);
     const change = {
       id: this.changes.length + 1,
       url: "https://fixture.invalid/pr/1",
@@ -71,9 +73,13 @@ export const agent: AgentAdapter = {
   },
   async invoke(invocation) {
     await invocation.session(invocation.resumeSessionId ?? randomUUID());
-    if (invocation.step === "implementation") {
+    if (["implementation", "fix"].includes(invocation.step)) {
       await writeFile(join(invocation.cwd, "implemented.txt"), "implemented\n");
-      return "done";
+      return JSON.stringify({
+        summary: "Implemented",
+        validation: [],
+        limitations: [],
+      });
     }
     if (invocation.step === "publication")
       return JSON.stringify({

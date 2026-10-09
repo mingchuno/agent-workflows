@@ -109,6 +109,8 @@ Both workflows share one project checkout and serial queue. Configure intake und
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `workflows.implementation.enabled` | `true` | Discover issues and run `defaultWorkflow`. |
+| `workflows.implementation.review.maxFixRounds` | `2` | Maximum repair rounds after initial validation/review; nonnegative integer, including zero. |
+| `workflows.implementation.review.blockAtOrAbove` | `"P2"` | Blocking priority threshold: P0–P2 block by default; P3 does not. |
 | `workflows.implementation.labels` | `["ready-for-agent"]` | Issues must have every configured label. |
 | `workflows.review.enabled` | `false` | Discover existing PRs/MRs and run `reviewWorkflow`. |
 | `workflows.review.labels` | `["ready-for-review"]` | Requests must have every configured label. |
@@ -116,7 +118,7 @@ Both workflows share one project checkout and serial queue. Configure intake und
 
 Label arrays must be nonempty and contain nonempty strings. Review intake always
 excludes drafts, closed requests, and forks. These exclusions do not change the
-implementation workflow's review of its own newly created draft request.
+implementation workflow's local review before request creation.
 
 For a review-only project, add this to the project object:
 
@@ -147,7 +149,7 @@ implementation intake is enabled.
 Repeated polls and restarts do not repeat the same review. With new-push reviews
 disabled, a request is admitted once; removing and reapplying its labels does not
 create another run. With the option enabled, each distinct head can be admitted
-once. A completed implementation-workflow review also counts toward this policy.
+once. A complete implementation-workflow review of matching published content also counts toward this policy; incomplete draft summaries do not.
 A head or target-diff change during inspection supersedes the review and prevents
 further publication; the next new-head scan can admit a fresh review when enabled.
 
@@ -432,7 +434,7 @@ Publication receives the checkout, base revision, changed paths, validated snaps
 identity and recorded validation. Inspect tracked changes with `git diff` and
 `git diff --cached`; discover untracked files with
 `git ls-files --others --exclude-standard` and inspect their content separately.
-Review receives the exact base and published head; use `git diff BASE HEAD`,
+Local review receives the base and checkout snapshot, including untracked paths. Published-request review receives the exact base and head; use `git diff BASE HEAD`,
 `git show` and source search. Inspect selected paths and ranges for large changes.
 There is no total evidence capture limit. Agent commands remain subject to runtime
 output/context limits and the stage deadline.
@@ -445,8 +447,31 @@ and preserve the files for inspection; scratch output should stay outside the
 checkout or in ignored paths. Permissions allow writes, so these checks detect
 source mutation rather than preventing command side effects.
 
-Review output includes `complete` and `limitations`. Incomplete reviews preserve
-partial findings locally and block normal review publication. Invocation records
+Review output includes `complete` and `limitations`. Incomplete standalone reviews preserve partial findings locally and block publication. Incomplete local reviews deliver a draft with an informational summary and limitations. Invocation records
 retain prompts, contracts, session IDs and resume origins. Changed effective
 prompts block publication recovery; file edits take effect only after reload or
 restart and do not alter an active execution.
+
+## Implementation readiness and repair
+
+Review is mandatory in the default workflow. It runs before the final commit in
+a fresh session using `stages.review.profile`. Each repair resumes implementation
+and reruns configured checks and fresh review. The initial review does not consume
+a repair round; the default permits two repairs and up to three reviews.
+
+Non-draft publication requires complete review, no blocking findings, and no failed
+configured checks. Exhausted repairs, failed checks, or incomplete inspection
+produce a draft and complete the Run. Provider failures, cancellation, checkout
+mutation, and publication errors remain operational failures. Incomplete review
+ends repair and delivers a draft without consuming unused rounds.
+
+`validation: []` skips command checks while retaining checkout integrity checks.
+Nonzero exits and timeouts enter repair; command-start failures remain operational
+errors. Commands run in order and stop at the first failure. Implementation and
+repair report their own checks separately as agent-reported evidence. Neither
+empty configured checks nor unexecuted checks are displayed as passing.
+
+This breaking version adds structured implementation output and review priorities.
+Custom agent adapters must return the documented implementation JSON contract.
+Stop the old runner, resolve unfinished work, and use a fresh runner ID for older
+durable state. Workflow-version checks refuse incompatible publication recovery.

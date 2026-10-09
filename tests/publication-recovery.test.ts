@@ -116,6 +116,7 @@ for (const phase of ["push", "change-request", "review-publication"]) {
         await git("push", "origin", `${run.head}:refs/heads/${run.branch}`);
       if (phase === "change-request")
         await hosting.createChange({
+          draft: true,
           branch: run.branch,
           base: "main",
           head: run.head!,
@@ -465,6 +466,69 @@ test("failed admission event rolls back recovery intent and can be retried", {
     await waitFor(
       async () => (await runner.store.run(run.id)).outcome === "completed",
     );
+  } finally {
+    await runner.shutdown();
+  }
+});
+
+test("publication recovery preserves incomplete draft evidence without new agent work", {
+  skip: !databaseUrl,
+}, async () => {
+  const fixture = await repository();
+  const hosting = new FixtureHosting();
+  let fail = true;
+  const publish = hosting.publishReview.bind(hosting);
+  hosting.publishReview = async (input) => {
+    if (fail) throw new Error("Summary unavailable");
+    await publish(input);
+  };
+  const runner = new Runner({
+    config: configSchema.parse({
+      id: "draft_recovery_" + randomUUID().replaceAll("-", ""),
+      stateDirectory: await mkdtemp(join(tmpdir(), "aw-draft-recovery-")),
+      projects: [fixture.project],
+    }),
+    databaseUrl: databaseUrl!,
+    hosting: () => hosting,
+    agents: {
+      codex: {
+        ...agent,
+        async invoke(input) {
+          if (input.step !== "review") return agent.invoke(input);
+          await input.session("partial-review");
+          return JSON.stringify({
+            complete: false,
+            limitations: ["Missing coverage"],
+            summary: "Partial review",
+            findings: [],
+          });
+        },
+      },
+    },
+  });
+  try {
+    await runner.start();
+    await waitFor(
+      async () => (await runner.store.runs())[0]?.outcome === "failed",
+    );
+    const run = (await runner.store.runs())[0]!;
+    const invocations = await runner.store.invocations(run.id);
+    assert.equal(run.readiness?.draft, true);
+    assert.equal(run.review?.complete, false);
+    fail = false;
+    await runner.recover(run.id);
+    await waitFor(
+      async () => (await runner.store.run(run.id)).outcome === "completed",
+    );
+    const recovered = await runner.store.run(run.id);
+    assert.deepEqual(recovered.readiness, run.readiness);
+    assert.deepEqual(recovered.reviewRounds, run.reviewRounds);
+    assert.equal(
+      (await runner.store.invocations(run.id)).length,
+      invocations.length,
+    );
+    assert.deepEqual(hosting.createdDrafts, [true]);
+    assert.deepEqual(hosting.reviews, [run.id]);
   } finally {
     await runner.shutdown();
   }

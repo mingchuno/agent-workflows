@@ -2,7 +2,7 @@
 
 ![Print-shop workbench with a job sheet, a worked proof, and an inspected copy awaiting human approval.](docs/assets/hero.png)
 
-A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues into draft change requests with independent agent reviews, and reviews existing labelled PRs/MRs. DBOS persists execution; each project uses its existing checkout, with one task at a time. Separate projects progress concurrently.
+A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues into reviewed change requests with bounded automatic repairs, and reviews existing labelled PRs/MRs. DBOS persists execution; each project uses its existing checkout, with one task at a time. Separate projects progress concurrently.
 
 Supports Codex and Copilot SDKs, GitHub, and GitLab.com/self-hosted GitLab. Human review and merging remain separate.
 
@@ -12,7 +12,7 @@ DBOS provides durable execution, checkpoints and queues. This SDK supplies the
 coding-workflow behavior a client would otherwise build around it:
 
 - **Ready-made operations:** issue intake, agent implementation, validation,
-  draft PR/MR publication and independent review, with Codex/Copilot and
+  local review, automatic repair, and PR/MR publication, with Codex/Copilot and
   GitHub/GitLab adapters.
 - **Checkout and recovery rules:** exclusive checkout ownership, process
   cancellation, preservation of unfinished work, and reconciliation of interrupted
@@ -57,7 +57,7 @@ Alternatively, set `"envFile": "./runner.env"` at the top level of
 one explicit file. Existing process values win, including empty strings. See
 [environment file examples and boundaries](docs/configuration.md#cli-environment-files).
 
-The runner fetches the configured base, creates a branch, implements an eligible issue, validates it, generates publication text, commits and pushes, creates a draft PR/MR, and publishes an independent review of its exact head. It never merges. Initial use should target a repository and issue you explicitly intend to automate; running the CLI authorizes these effects and agent usage.
+The runner fetches the configured base, creates a branch, implements an eligible issue, runs optional configured checks, and reviews local changes independently. It repairs blocking findings or failed checks up to twice with fresh review after each repair, then generates publication text, commits once and pushes. Ready results create a non-draft PR/MR; unresolved findings, failed checks or incomplete inspection create a draft. Both deliveries complete the Run. It never merges. Initial use should target a repository and issue you explicitly intend to automate; running the CLI authorizes these effects and agent usage.
 
 Enable the standalone review workflow per project with:
 

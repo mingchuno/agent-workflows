@@ -1,6 +1,13 @@
 import { spawn } from "node:child_process";
 import { unlinkSync, writeFileSync } from "node:fs";
 
+export class CommandTimeoutError extends Error {
+  constructor() {
+    super("Command cancelled or timed out; process group terminated");
+    this.name = "CommandTimeoutError";
+  }
+}
+
 export const maxCapturedOutputBytes = 32 * 1024 * 1024;
 
 export interface CommandOptions {
@@ -38,6 +45,7 @@ export function command(
     let stdout = "",
       stderr = "",
       cancelled = false,
+      timedOut = false,
       killTimer: NodeJS.Timeout | undefined;
     let failure: unknown;
     const kill = (signal: NodeJS.Signals) => {
@@ -73,7 +81,10 @@ export function command(
       failure = error;
       stop();
     }
-    const timeout = setTimeout(stop, options.timeoutMs ?? 300_000);
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      stop();
+    }, options.timeoutMs ?? 300_000);
     options.signal?.addEventListener("abort", stop, { once: true });
     const decoders = {
       stdout: new TextDecoder("utf-8", {
@@ -144,7 +155,11 @@ export function command(
       if (failure) return reject(failure);
       if (cancelled)
         return reject(
-          new Error("Command cancelled or timed out; process group terminated"),
+          timedOut
+            ? new CommandTimeoutError()
+            : new Error(
+                "Command cancelled or timed out; process group terminated",
+              ),
         );
       if (code !== 0 && !options.allowFailure)
         return reject(

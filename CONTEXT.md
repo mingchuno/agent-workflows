@@ -44,7 +44,8 @@ and preserving the branch, revision, and publication identity.
 The issue to implement or change request to review, recorded with the run.
 
 **Review target**:
-The change request and exact source/target revision evidence covered by a review.
+The local changes and pinned checkout snapshot, or change request and exact
+source/target revision evidence, covered by a review.
 
 **Superseded review**:
 A review whose target revisions or eligibility changed before publication finished.
@@ -54,3 +55,16 @@ Its findings remain inspectable but do not establish coverage of the new target.
 An added-line location in the pinned review target, including the previous path
 for a renamed file. Findings without a valid review position remain in the
 review summary.
+
+**Repair round**:
+One automatic fix followed by configured validation and an independent review.
+The initial implementation and review do not consume the repair budget.
+
+**Readiness**:
+The final delivery decision: complete review without blocking findings or failed
+configured checks permits non-draft publication; remaining problems require draft
+publication. Successful delivery completes the Run in either case.
+
+**Agent-reported validation**:
+Checks and outcomes reported by an implementation or repair agent, distinguished
+from validation commands executed and recorded by the workflow.

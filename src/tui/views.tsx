@@ -104,6 +104,32 @@ export function wrapDetailLines(lines: string[], width: number): string[] {
   });
 }
 
+function deliveryLines(run: RunRecord): string[] {
+  if (!run.readiness) return [];
+  return [
+    "DELIVERY",
+    label("Readiness", run.readiness.draft ? "draft" : "ready for review"),
+    ...run.readiness.reasons,
+    label("Review rounds", String(run.reviewRounds?.length ?? 0)),
+    run.review?.summary ?? "Review not recorded",
+    ...(run.review?.findings.map(
+      (finding) =>
+        `[${finding.priority ?? "P2"}] ${finding.path ?? "summary"}${finding.line ? `:${finding.line}` : ""}: ${finding.body}`,
+    ) ?? []),
+    ...(run.review?.limitations.map(
+      (limitation) => `Review limitation: ${limitation}`,
+    ) ?? []),
+    "AGENT-REPORTED VALIDATION (not workflow-executed)",
+    ...(run.agentReport?.validation.map(
+      (check) => `${check.command} · ${check.outcome} · ${check.details}`,
+    ) ?? []),
+    ...(run.agentReport?.limitations.map(
+      (limitation) => `Agent limitation: ${limitation}`,
+    ) ?? []),
+    "",
+  ];
+}
+
 function validationLines(run: RunRecord, now: number): string[] {
   return [
     "VALIDATION",
@@ -111,13 +137,20 @@ function validationLines(run: RunRecord, now: number): string[] {
       ? run.validation.flatMap((check) => [
           `${check.command} ${check.args.join(" ")} · exit ${check.exitCode} · ${duration(check.startedAt, check.finishedAt, now)}`,
         ])
-      : ["not recorded"]),
+      : [
+          run.validationStatus === "skipped"
+            ? "not configured (skipped)"
+            : "not recorded",
+        ]),
   ];
 }
 
 function validationSummary(run: RunRecord): string {
   const checks = run.validation ?? [];
-  if (!checks.length) return "not recorded";
+  if (!checks.length)
+    return run.validationStatus === "skipped"
+      ? "not configured (skipped)"
+      : "not recorded";
   const successful = checks.filter((check) => check.exitCode === 0).length;
   const failed = checks.length - successful;
   return [
@@ -318,6 +351,7 @@ export function detailLines(
     : [];
   const executions = executionLines(run, now);
   const evidence = [
+    ...deliveryLines(run),
     ...validationLines(run, now),
     "",
     ...sessionLines(sessions, now),

@@ -7,6 +7,7 @@ import {
   type AgentAdapter,
   BlockedError,
   type HostingAdapter,
+  implementationSchema,
   isBlockedError,
   publicationSchema,
   type RunRecord,
@@ -17,6 +18,7 @@ import {
 } from "./domain.js";
 import { type InvocationTask, invokeStage } from "./invocation.js";
 import { defaultStagePrompts } from "./prompts.js";
+import { withDeliveryEvidence } from "./publication-evidence.js";
 import { publicationSteps } from "./recovery.js";
 import {
   alreadyReviewed,
@@ -24,7 +26,7 @@ import {
   sameReviewRevision,
 } from "./review-intake.js";
 import { prepareReviewPositions } from "./review-positions.js";
-import { command } from "./runtime/process.js";
+import { CommandTimeoutError, command } from "./runtime/process.js";
 import type { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
 
@@ -254,16 +256,56 @@ export class Operations {
     );
   }
   async implement(): Promise<void> {
-    await this.invoke(
+    const output = await this.invoke(
       "implementation",
       this.dependencies.project.stages.implementation,
       {
         defaultPrompt: defaultStagePrompts.implementation,
         context: (run) => `Issue: ${JSON.stringify(run.subject)}`,
+        outputContract: implementationSchema,
       },
     );
+    await this.recordAgentReport(output);
   }
 
+  private async recordAgentReport(output: string): Promise<void> {
+    await this.step("implementation-report", async (run) => {
+      await this.dependencies.store.patchRun(run.id, {
+        agentReport: implementationSchema.parse(JSON.parse(output)),
+      });
+    });
+  }
+  async fix(): Promise<void> {
+    const session = await this.step("fix-session", async () => {
+      const invocation = (await this.dependencies.store.invocations(this.runId))
+        .filter(
+          (item) =>
+            ["implementation", "fix"].includes(item.step) &&
+            item.outcome === "completed",
+        )
+        .at(-1);
+      if (!invocation?.sessionId || invocation.sessionState !== "available")
+        throw new BlockedError("Implementation session unavailable for repair");
+      return invocation.sessionId;
+    });
+    const output = await this.invoke(
+      "fix",
+      this.dependencies.project.stages.implementation,
+      {
+        defaultPrompt: defaultStagePrompts.implementation,
+        resumeSessionId: session,
+        outputContract: implementationSchema,
+        context: (
+          run,
+        ) => `Repair the blocking review findings and failed configured checks.
+Issue: ${JSON.stringify(run.subject)}
+Review: ${JSON.stringify(run.review)}
+Configured checks: ${JSON.stringify(run.validation)}
+Blocking threshold: ${this.dependencies.project.workflows.implementation.review.blockAtOrAbove}`,
+      },
+    );
+    await this.recordAgentReport(output);
+  }
   async validate(): Promise<boolean> {
     return this.step("validation", async (run) => {
       const { project, workspace, signal, redact } = this.dependencies;
@@ -272,12 +314,16 @@ export class Operations {
       await workspace.verify(project, run.snapshot);
       if (!run.snapshot.paths.length) return false;
       const validation: ValidationResult[] = [];
+      await this.dependencies.store.patchRun(run.id, {
+        validation,
+        validationStatus: undefined,
+      });
       const directory = join(this.dependencies.artifacts, run.id);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const checks = selectValidation(run.subject.body, project).commands;
       for (const [index, check] of checks.entries()) {
         const startedAt = new Date().toISOString();
-        const log = join(directory, `validation-${index}.log`);
+        const log = join(directory, `validation-${DBOS.stepID}-${index}.log`);
         let captured = "";
         let result: Awaited<ReturnType<typeof command>>;
         try {
@@ -302,7 +348,13 @@ export class Operations {
             startedAt,
             finishedAt: new Date().toISOString(),
           });
-          throw error;
+          if (signal.aborted || !(error instanceof CommandTimeoutError))
+            throw error;
+          await this.dependencies.store.patchRun(run.id, {
+            validationStatus: "failed",
+          });
+          await workspace.verify(project, run.snapshot);
+          return true;
         }
         await appendFile(log, redact(captured), { mode: 0o600 });
         await this.recordValidation(run.id, validation, {
@@ -312,11 +364,15 @@ export class Operations {
           startedAt,
           finishedAt: new Date().toISOString(),
         });
-        if (result.exitCode !== 0)
-          throw new Error(
-            `Validation failed: ${check.command} (exit ${result.exitCode})`,
-          );
+        if (result.exitCode !== 0) break;
       }
+      await this.dependencies.store.patchRun(run.id, {
+        validationStatus: !checks.length
+          ? "skipped"
+          : validation.some((check) => check.exitCode !== 0)
+            ? "failed"
+            : "passed",
+      });
       await workspace.verify(project, run.snapshot);
       return true;
     });
@@ -368,7 +424,7 @@ export class Operations {
         resumeSessionId,
         outputContract: publicationSchema,
         context: (run) =>
-          `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nValidated snapshot: ${run.snapshot?.fingerprint}\nChanged paths: ${JSON.stringify(run.snapshot?.paths)}\nInspect staged and unstaged changes with git diff and git diff --cached. Use git ls-files --others --exclude-standard and file tools for untracked changes. Inspect by path and search as needed; do not assume git diff includes untracked files.\nIssue: ${JSON.stringify(run.subject)}\nValidation: ${JSON.stringify(run.validation ?? [])}`,
+          `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nValidated snapshot: ${run.snapshot?.fingerprint}\nChanged paths: ${JSON.stringify(run.snapshot?.paths)}\nInspect staged and unstaged changes with git diff and git diff --cached. Use git ls-files --others --exclude-standard and file tools for untracked changes. Inspect by path and search as needed; do not assume git diff includes untracked files.\nIssue: ${JSON.stringify(run.subject)}\nValidation: ${JSON.stringify(run.validation ?? [])}\nAgent-reported validation (not workflow-executed): ${JSON.stringify(run.agentReport)}\nFinal review: ${JSON.stringify(run.review)}\nReadiness: ${JSON.stringify(run.readiness)}`,
       },
     );
     await this.step("publication-content", async (run) => {
@@ -377,9 +433,13 @@ export class Operations {
         run.contributionCandidates ?? [],
         run.snapshot,
       );
+      const publication = withDeliveryEvidence(
+        publicationSchema.parse(JSON.parse(output)),
+        run,
+      );
       await this.dependencies.store.patchRun(run.id, {
         publication: finalizeCommitMessage(
-          publicationSchema.parse(JSON.parse(output)),
+          publication,
           this.dependencies.project,
           providers,
           run.id,
@@ -409,7 +469,23 @@ export class Operations {
       const snapshot = await this.dependencies.workspace.inspect(
         this.dependencies.project,
       );
-      await this.dependencies.store.patchRun(run.id, { head, snapshot });
+      if (snapshot.paths.length || snapshot.branch !== run.snapshot.branch)
+        throw new BlockedError("Commit changed checkout content");
+      // Reconciliation compares the final commit with the reviewed precommit snapshot.
+      const reconciled = await this.dependencies.workspace.commit(
+        this.dependencies.project,
+        run.snapshot,
+        run.publication,
+        run.id,
+        this.dependencies.signal,
+      );
+      if (reconciled !== head)
+        throw new BlockedError("Commit revision changed");
+      await this.dependencies.store.patchRun(run.id, {
+        head,
+        snapshot,
+        reviewHead: head,
+      });
     });
   }
   async push(): Promise<void> {
@@ -436,6 +512,7 @@ export class Operations {
           issue: run.subject,
           publication: run.publication,
           runId: run.id,
+          draft: run.readiness?.draft ?? true,
         }));
       if (change.head !== run.head)
         throw new BlockedError("Existing change request has a different head");
@@ -451,9 +528,24 @@ export class Operations {
         preserveCheckout: true,
         outputContract: reviewSchema,
         context: (run) => {
-          if (!run.base || !run.head)
-            throw new BlockedError("Missing published revisions");
-          return `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nPublished revision: ${run.head}\nInspect the exact revision pair with git diff ${run.base} ${run.head}, starting with --stat or --name-status and reading selected paths. Use git show and source search for context.\n${run.subject.kind === "issue" ? "Issue" : "Change request"}: ${JSON.stringify(run.subject)}\nValidation: ${JSON.stringify(run.validation ?? [])}\nSet complete=false with limitations if required changes or source cannot be inspected. Never report an incomplete review as clean. Use null for finding path/line where no valid added-line location exists.`;
+          if (
+            !run.base ||
+            !run.snapshot ||
+            (run.subject.kind === "change-request" && !run.head)
+          )
+            throw new BlockedError("Missing review target");
+          if (run.subject.kind === "issue")
+            return `Local changes
+Checkout: ${this.dependencies.project.checkout}
+Base revision: ${run.base}
+Snapshot: ${run.snapshot.fingerprint}
+Changed paths: ${JSON.stringify(run.snapshot.paths)}
+Inspect git diff ${run.base}, git diff --cached, and untracked files from git ls-files --others --exclude-standard. Read untracked contents separately.
+Issue: ${JSON.stringify(run.subject)}
+Workflow-executed validation: ${JSON.stringify(run.validation ?? [])}
+Agent-reported validation: ${JSON.stringify(run.agentReport)}
+Set complete=false and explain limitations when inspection is incomplete. Assign P0/P1/P2/P3 priorities to findings.`;
+          return `Checkout: ${this.dependencies.project.checkout}\nBase revision: ${run.base}\nPublished revision: ${run.head}\nInspect the exact revision pair with git diff ${run.base} ${run.head}, starting with --stat or --name-status and reading selected paths. Use git show and source search for context.\nChange request: ${JSON.stringify(run.subject)}\nValidation: ${JSON.stringify(run.validation ?? [])}\nSet complete=false with limitations if required changes or source cannot be inspected. Never report an incomplete review as clean. Use null for finding path/line where no valid added-line location exists.`;
         },
       },
     );
@@ -463,10 +555,46 @@ export class Operations {
         review,
         reviewHead: run.head,
       });
-      if (!review.complete)
+      if (!review.complete && run.subject.kind === "change-request")
         throw new BlockedError(
           "Incomplete review; partial findings and limitations retained locally",
         );
+    });
+  }
+  async recordReadiness(): Promise<{ draft: boolean; complete: boolean }> {
+    return this.step("review-readiness", async (run) => {
+      if (!run.review || !run.snapshot)
+        throw new BlockedError("Missing local review evidence");
+      const threshold =
+        this.dependencies.project.workflows.implementation.review
+          .blockAtOrAbove;
+      const reasons: string[] = [];
+      if (!run.review.complete) reasons.push("Review incomplete");
+      if (
+        run.review.findings.some(
+          (finding) => (finding.priority ?? "P2") <= threshold,
+        )
+      )
+        reasons.push("Blocking review findings remain");
+      if (run.validation?.some((check) => check.exitCode !== 0))
+        reasons.push("Configured validation failed");
+      const readiness = { draft: reasons.length > 0, reasons };
+      await this.dependencies.store.patchRun(run.id, {
+        readiness,
+        reviewRounds: [
+          ...(run.reviewRounds ?? []),
+          {
+            round: run.reviewRounds?.length ?? 0,
+            snapshot: run.snapshot,
+            validation: run.validation ?? [],
+            validationStatus: run.validationStatus ?? "skipped",
+            agentReport: run.agentReport,
+            review: run.review,
+            readiness,
+          },
+        ],
+      });
+      return { draft: readiness.draft, complete: run.review.complete };
     });
   }
   async publishReview(): Promise<void> {
@@ -482,7 +610,7 @@ export class Operations {
         );
       if (!run.change || !run.review || !run.reviewHead || !run.base)
         throw new Error("Missing review");
-      if (run.review.complete !== true)
+      if (run.review.complete !== true && run.subject.kind === "change-request")
         throw new BlockedError(
           "Incomplete review; use retry for a fresh inspection",
         );
@@ -498,13 +626,18 @@ export class Operations {
         throw run.subject.kind === "change-request"
           ? new StaleReviewError()
           : new BlockedError("Review stale: remote head changed");
-      const positions = await prepareReviewPositions({
-        checkout: project.checkout,
-        base: run.base,
-        head: run.reviewHead,
-        review: run.review,
-        signal: this.dependencies.signal,
-      });
+      const positions = !run.review.complete
+        ? {
+            inline: [],
+            summaryFindings: run.review.findings.map((finding) => finding.body),
+          }
+        : await prepareReviewPositions({
+            checkout: project.checkout,
+            base: run.base,
+            head: run.reviewHead,
+            review: run.review,
+            signal: this.dependencies.signal,
+          });
       await hosting.publishReview({
         change: run.change,
         head: run.reviewHead,
@@ -544,11 +677,29 @@ export async function defaultWorkflow(operations: Operations): Promise<void> {
     await operations.complete("no-change");
     return;
   }
+  await operations.review();
+  let readiness = await operations.recordReadiness();
+  for (
+    let round = 0;
+    readiness.draft &&
+    readiness.complete &&
+    round <
+      operations.dependencies.project.workflows.implementation.review
+        .maxFixRounds;
+    round++
+  ) {
+    await operations.fix();
+    if (!(await operations.validate())) {
+      await operations.complete("no-change");
+      return;
+    }
+    await operations.review();
+    readiness = await operations.recordReadiness();
+  }
   await operations.writePublication();
   await operations.commit();
   await operations.push();
   await operations.publish();
-  await operations.review();
   await operations.publishReview();
   await operations.complete();
 }

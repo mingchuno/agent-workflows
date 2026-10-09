@@ -3,6 +3,7 @@ import {
   defaultStageTimeoutMs,
   defaultValidationTimeoutMs,
 } from "./defaults.js";
+import { reviewPrioritySchema } from "./domain.js";
 
 export const profileSchema = z.strictObject({
   provider: z.enum(["codex", "copilot"]),
@@ -59,6 +60,12 @@ export const projectSchema = z
         implementation: z
           .strictObject({
             enabled: z.boolean().default(true),
+            review: z
+              .strictObject({
+                maxFixRounds: z.number().int().nonnegative().default(2),
+                blockAtOrAbove: reviewPrioritySchema.default("P2"),
+              })
+              .prefault({}),
             labels: z
               .array(z.string().min(1))
               .min(1)

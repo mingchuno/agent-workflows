@@ -208,6 +208,7 @@ for (const major of [17, 18, 19])
       const adapter = new GitLabHosting(project);
       await adapter.preflight();
       const published = await adapter.createChange({
+        draft: true,
         branch: "agent/1",
         base: "main",
         head: "head",
@@ -336,3 +337,93 @@ for (const provider of ["github", "gitlab"] as const)
       delete process.env.FIXTURE_TOKEN;
     }
   });
+
+for (const provider of ["github", "gitlab"] as const) {
+  test(`${provider} creation honors both draft readiness states`, async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const server = createServer(async (request, response) => {
+      let raw = "";
+      for await (const chunk of request) raw += chunk;
+      const contentType = request.headers["content-type"] ?? "";
+      bodies.push(
+        contentType.includes("multipart/form-data")
+          ? Object.fromEntries(
+              await new Response(raw, {
+                headers: { "content-type": contentType },
+              }).formData(),
+            )
+          : JSON.parse(raw),
+      );
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify(
+          provider === "github"
+            ? {
+                number: 1,
+                html_url: "https://fixture/pr/1",
+                head: { sha: "head" },
+              }
+            : { iid: 1, web_url: "https://fixture/mr/1", sha: "head" },
+        ),
+      );
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address() as { port: number };
+    const oldToken = process.env.FIXTURE_TOKEN;
+    process.env.FIXTURE_TOKEN = "fixture";
+    try {
+      const project = projectSchema.parse({
+        id: "fixture",
+        checkout: "/tmp",
+        hosting: {
+          provider,
+          origin: `http://127.0.0.1:${address.port}`,
+          repository: "a/b",
+          tokenEnv: "FIXTURE_TOKEN",
+        },
+        agent: { provider: "codex" },
+      });
+      const hosting =
+        provider === "github"
+          ? new GitHubHosting(project)
+          : new GitLabHosting(project);
+      for (const draft of [false, true])
+        await hosting.createChange({
+          draft,
+          branch: "feature",
+          base: "main",
+          head: "head",
+          runId: "run",
+          issue: {
+            id: "1",
+            number: 1,
+            url: "https://fixture/issue/1",
+            body: "",
+            title: "Issue",
+            labels: [],
+            open: true,
+          },
+          publication: {
+            commitMessage: "feat: change",
+            title: "Draft: Change",
+            description: "Delivered",
+          },
+        });
+      if (provider === "github")
+        assert.deepEqual(
+          bodies.map((body) => body.draft),
+          [false, true],
+        );
+      else
+        assert.deepEqual(
+          bodies.map((body) => body.title),
+          ["Change", "Draft: Change"],
+        );
+    } finally {
+      if (oldToken === undefined) delete process.env.FIXTURE_TOKEN;
+      else process.env.FIXTURE_TOKEN = oldToken;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+}

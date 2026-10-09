@@ -6,13 +6,32 @@ import { snapshot } from "./env-child.mjs";
 let prompt = "";
 for await (const chunk of process.stdin) prompt += chunk;
 const publication = prompt.includes("commitMessage");
+const review = prompt.includes("Local changes");
 const values = await snapshot(publication ? "publication" : "implementation");
 const emit = (value) => console.log(JSON.stringify(value));
 emit({
   type: "thread.started",
   thread_id: "implementation",
 });
-if (publication) {
+if (review) {
+  emit({
+    type: "item.completed",
+    item: {
+      type: "agent_message",
+      id: "review",
+      text: JSON.stringify({
+        complete: true,
+        limitations: [],
+        summary: "Reviewed",
+        findings: [],
+      }),
+    },
+  });
+  emit({
+    type: "turn.completed",
+    usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 },
+  });
+} else if (publication) {
   // Stop before publication, exercising persisted error redaction as well.
   emit({ type: "turn.failed", error: { message: JSON.stringify(values) } });
 } else {
@@ -27,7 +46,11 @@ if (publication) {
     item: {
       type: "agent_message",
       id: "message",
-      text: JSON.stringify(values),
+      text: JSON.stringify({
+        summary: JSON.stringify(values),
+        validation: [],
+        limitations: [],
+      }),
     },
   });
   emit({

@@ -234,6 +234,9 @@ async function verifyPublicationRecovery(
   for (const path of [
     ...invocations.map((item) => item.log),
     ...(run.validation ?? []).map((item) => item.log),
+    ...(run.reviewRounds ?? []).flatMap((round) =>
+      round.validation.map((check) => check.log),
+    ),
   ]) {
     try {
       await access(path);

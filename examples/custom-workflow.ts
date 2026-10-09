@@ -22,11 +22,29 @@ export async function reportingWorkflow(operations: Operations): Promise<void> {
       changedPaths: run.snapshot?.paths ?? [],
     });
   });
+  await operations.review();
+  let readiness = await operations.recordReadiness();
+  for (
+    let round = 0;
+    readiness.draft &&
+    readiness.complete &&
+    round <
+      operations.dependencies.project.workflows.implementation.review
+        .maxFixRounds;
+    round++
+  ) {
+    await operations.fix();
+    if (!(await operations.validate())) {
+      await operations.complete("no-change");
+      return;
+    }
+    await operations.review();
+    readiness = await operations.recordReadiness();
+  }
   await operations.writePublication();
   await operations.commit();
   await operations.push();
   await operations.publish();
-  await operations.review();
   await operations.publishReview();
   await operations.complete();
 }

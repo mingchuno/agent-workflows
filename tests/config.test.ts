@@ -328,6 +328,25 @@ test("workflow intake config defaults to implementation and makes push reviews o
   };
   const defaults = projectSchema.parse(input);
   assert.equal(defaults.workflows.implementation.enabled, true);
+  assert.deepEqual(defaults.workflows.implementation.review, {
+    maxFixRounds: 2,
+    blockAtOrAbove: "P2",
+  });
+  for (const budget of [-1, 1.5, Infinity])
+    assert.equal(
+      projectSchema.safeParse({
+        ...input,
+        workflows: { implementation: { review: { maxFixRounds: budget } } },
+      }).success,
+      false,
+    );
+  assert.equal(
+    projectSchema.safeParse({
+      ...input,
+      workflows: { implementation: { review: { blockAtOrAbove: "P4" } } },
+    }).success,
+    false,
+  );
   assert.equal(defaults.workflows.review.enabled, false);
   assert.equal(defaults.workflows.review.rereviewOnPush, false);
   const review = projectSchema.parse({

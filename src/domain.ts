@@ -36,12 +36,40 @@ export class StaleReviewError extends Error {
     this.name = "StaleReviewError";
   }
 }
+export const maxPublicationDescriptionLength = 60_000;
 export const publicationSchema = z.strictObject({
   commitMessage: z.string().trim().min(1).max(10000),
   title: z.string().trim().min(1).max(240),
-  description: z.string().trim().min(1).max(60000),
+  description: z.string().trim().min(1).max(maxPublicationDescriptionLength),
 });
 export type Publication = z.infer<typeof publicationSchema>;
+export const reviewPrioritySchema = z.enum(["P0", "P1", "P2", "P3"]);
+export type ReviewPriority = z.infer<typeof reviewPrioritySchema>;
+export const implementationSchema = z.strictObject({
+  summary: z.string().min(1),
+  validation: z.array(
+    z.strictObject({
+      command: z.string().min(1),
+      outcome: z.enum(["passed", "failed", "not-run"]),
+      details: z.string(),
+    }),
+  ),
+  limitations: z.array(z.string()),
+});
+export type ImplementationReport = z.infer<typeof implementationSchema>;
+export interface Readiness {
+  draft: boolean;
+  reasons: string[];
+}
+export interface ReviewRound {
+  round: number;
+  snapshot: Snapshot;
+  validation: ValidationResult[];
+  validationStatus: "skipped" | "passed" | "failed";
+  agentReport?: ImplementationReport;
+  review: Review;
+  readiness: Readiness;
+}
 export const reviewSchema = z
   .strictObject({
     complete: z.boolean(),
@@ -50,6 +78,7 @@ export const reviewSchema = z
     findings: z.array(
       z.strictObject({
         body: z.string().min(1),
+        priority: reviewPrioritySchema.default("P2"),
         path: z.string().nullable().default(null),
         line: z.number().int().positive().nullable().default(null),
       }),
@@ -128,6 +157,7 @@ export interface HostingAdapter {
     issue: Issue;
     publication: Publication;
     runId: string;
+    draft: boolean;
   }): Promise<ChangeRequest>;
   head(change: ChangeRequest): Promise<string>;
   publishReview(input: {
@@ -212,7 +242,11 @@ export interface RunRecord {
   head?: string;
   snapshot?: Snapshot;
   validation?: ValidationResult[];
+  validationStatus?: "skipped" | "passed" | "failed";
   publication?: Publication;
+  agentReport?: ImplementationReport;
+  reviewRounds?: ReviewRound[];
+  readiness?: Readiness;
   contributionCandidates?: ContributionCandidate[];
   contributingProviders?: string[];
   change?: ChangeRequest;

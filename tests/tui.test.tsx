@@ -1188,3 +1188,47 @@ test("project navigation at its boundary preserves the displayed run's session s
     view.unmount();
   }
 });
+
+test("completed draft details expose unresolved review and agent-reported evidence", async () => {
+  const { source, run } = monitorFixture();
+  run.outcome = "completed";
+  run.readiness = { draft: true, reasons: ["Blocking review findings remain"] };
+  run.review = {
+    complete: false,
+    summary: "Partial review",
+    limitations: ["Dependency not inspected"],
+    findings: [
+      {
+        priority: "P1",
+        body: "Missing authorization",
+        path: "api.ts",
+        line: 12,
+      },
+    ],
+  };
+  run.agentReport = {
+    summary: "Implemented",
+    validation: [
+      {
+        command: "task-specific check",
+        outcome: "failed",
+        details: "Permission test failed",
+      },
+    ],
+    limitations: ["Integration service unavailable"],
+  };
+  const view = render(
+    <Monitor source={source} size={{ columns: 160, rows: 80 }} />,
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("\r");
+    await until(() => view.lastFrame()!.includes("Run details"));
+    assert.match(view.lastFrame()!, /Missing authorization/);
+    assert.match(view.lastFrame()!, /Dependency not inspected/);
+    assert.match(view.lastFrame()!, /task-specific check.*failed/);
+    assert.match(view.lastFrame()!, /Integration service unavailable/);
+  } finally {
+    view.unmount();
+  }
+});

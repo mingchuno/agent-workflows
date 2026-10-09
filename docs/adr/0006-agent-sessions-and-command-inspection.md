@@ -10,3 +10,10 @@ permits ordinary shell processing and scratch writes, at the cost of relying on
 stage instructions and mutation detection rather than enforced inspection-only
 permissions; it preserves separate durable steps and explicit interrupted-work
 retry rules.
+
+Default implementation now reviews the uncommitted checkout snapshot before
+publication. Implementation and repair return structured agent-reported validation;
+configured command checks remain optional and separately recorded. Bounded repairs
+resume implementation, while every review starts independently. Publication still
+resumes implementation unless explicitly configured fresh. Local incomplete review
+produces draft delivery with limitations; standalone incomplete review still blocks.

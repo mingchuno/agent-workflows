@@ -196,7 +196,7 @@ After a blocked/failed task that cannot be recovered:
 3. Preserve unfinished work on a developer-owned commit/branch or move it to a safe location. Resolve merge/rebase state yourself. Do not rely on DBOS to restore files.
 4. Once the checkout is clean, request `retry RUN`. This creates a new attempt and branch from the configured base, keeping the old run and files/commits inspectable. Use `retry RUN --refresh-issue` to capture the current hosted issue description and validation selection in the new run. The hosted issue must retain its identity, be open, and have the required labels; its selected validation profile must be configured.
 
-In the implementation workflow, a failed review after publication remains a failed automation attempt, even if its draft request exists. Explicit retry starts the full workflow as a new attempt; it does not silently modify the old request. Human review/merging remains separate. A stale review never claims coverage of a changed remote head.
+In the implementation workflow, review occurs before publication. An operational failure during review fails the attempt; unresolved findings or incomplete inspection deliver a completed draft instead. Review-summary publication failure remains a recoverable failed attempt even when the request already exists. Explicit retry starts the full workflow as a new attempt; it does not silently modify the old request. Human review/merging remains separate. A stale review never claims coverage of a changed remote head.
 
 ## Existing PR/MR reviews
 
@@ -230,3 +230,20 @@ the commit step before push or hosting publication.
 Validation records say exactly which command ran, when, its exit code and artifact path. No-change work skips publication. Generated commit/request text is validated and saved before Git/API writes. Logs, prompts and errors redact configured credentials and recognized secret environment values; this does not sanitize arbitrary repository content or secrets unknown to the runner.
 
 Back up both PostgreSQL and the state directory if history/artifacts matter. The checkout and runtime session stores are separate local state. Losing them cannot be repaired from DBOS checkpoints alone. Do not change a custom workflow's step order or rename projects while its runs are pending; use a new workflow version and finish or explicitly resolve existing runs first.
+
+## Default workflow delivery
+
+Issue Runs review validated local changes before committing. Blocking findings and
+failed configured checks trigger at most two repair rounds by default. Each round
+resumes implementation, reruns configured checks, and starts an independent review.
+
+A ready result creates a non-draft request. Unresolved findings, failed checks, or
+incomplete review create a draft with evidence and still complete the Run. Inspect
+`readiness` and `reviewRounds` to distinguish delivery from readiness. Empty command
+validation is skipped; agent-reported checks retain separate provenance. No-change
+work creates no request. Operational failures do not become completed draft delivery.
+
+Publication recovery reuses the final commit, review, draft decision and publication
+identity, including incomplete draft summaries. It never repeats repair or review.
+After a workflow-version change, recovery of old executions is refused; finish or
+retire old work before using a fresh runner identity.

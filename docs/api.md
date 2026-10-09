@@ -135,11 +135,13 @@ see [recovery rules](operations.md#publication-recovery) and
 | `prepareReview()` | Fetch same-repository source/target revisions and detach at the pinned head |
 | `prepare()`                              | Require clean Git state; fetch base and create unique branch                 |
 | `implement()`                            | Fresh implementation session; reject unexpected commits or branch changes    |
-| `validate()`                             | Run commands and verify unchanged checkout; false means no change                |
+| `validate()`                             | Record configured-check failures and verify unchanged checkout; false means no change                |
 | `writePublication()`                     | Resume implementation unless `useNewSession`; validate text and finalize run/co-author trailers |
 | `commit()` / `push()`                    | Separate reconciled Git effects using the verified change set                |
-| `publish()`                              | Find existing request by branch before creating a draft                      |
-| `review()`                               | Fresh reviewer with implementation permissions; inspect exact base/head and preserve checkout |
+| `publish()`                              | Find existing request by branch before creating with computed draft readiness                      |
+| `fix()` | Resume implementation session to repair blocking findings and failed checks |
+| `recordReadiness()` | Record a review round and compute draft readiness from review and configured checks |
+| `review()`                               | Fresh reviewer; inspect local snapshot or exact published base/head and preserve checkout |
 | `publishReview()`                        | Reject stale head; prepare review positions; reconcile review marker    |
 | `complete(outcome?)`                     | Require clean checkout and persist terminal outcome                          |
 | `step(name, operation)`                  | Custom durable operation receiving current `RunRecord`                       |
@@ -344,3 +346,20 @@ The accepted command ID identifies the new execution so uncertain dispatch can
 be reconciled after a crash. Live checks still run in the first non-replayed
 operation. See [ADR 0003](adr/0003-run-and-execution-identity.md) for the complete
 identity and recovery decision.
+
+### Implementation evidence
+
+`implement()` and `fix()` require structured output: `summary`, `validation`
+(an array of `{ command, outcome, details }`, where outcome is `passed`, `failed`,
+or `not-run`), and `limitations`. These results are agent-reported, not
+workflow-executed validation. `RunRecord.agentReport` holds the latest report;
+`reviewRounds` retains snapshots, configured checks, reports, reviews and readiness.
+Review findings accept `priority` P0/P1/P2/P3, defaulting to P2 when omitted.
+
+`RunRecord.readiness` contains `draft` and `reasons`. Hosting `createChange` receives
+the computed `draft` flag. Default completion means the request was delivered;
+draft readiness remains inspectable independently of the completed outcome.
+
+Publication descriptions reserve space for authoritative delivery evidence. Long
+prose or evidence is shortened with an explicit notice; complete reports and
+findings remain in the Run and are available through `inspect`.
