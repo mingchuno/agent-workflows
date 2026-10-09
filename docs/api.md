@@ -73,11 +73,20 @@ Optional options:
 | `workspace` | `Workspace` | Defaults to `ExistingCheckout`. |
 | `workflow` | `(operations: Operations) => Promise<void>` | Override the implementation workflow; review subjects always use `reviewWorkflow`. |
 | `workflowVersion` | `string` | Durable workflow version; change it when custom step order changes. |
+| `reloadConfiguration` | `() => Promise<Configuration>` | Optional source for queued `reload` commands; reread settings without changing the process environment. |
 
 Paths are resolved once during construction; checkout roots are canonicalized
 and ownership is checked at startup. The runner reads configured prompt files at
 construction. One `Runner` owns the DBOS runtime per Node process; do not start
 two runners in one process or point concurrent runners at the same checkout.
+
+To enable explicit reload for an SDK runner, supply `reloadConfiguration` and
+submit `await runner.store.request("reload", "")`. Inspect `commands()` for the
+result. The runner parses, resolves and validates the candidate against its
+startup topology before applying it. A runner without a reload source reports a
+failed command. Active executions retain their settings; queued executions use
+the new configuration at startup. The [configuration reference](configuration.md#live-reload)
+lists fields that require restart. The SDK creates no CLI control record.
 
 ## Runner methods
 
@@ -92,7 +101,8 @@ two runners in one process or point concurrent runners at the same checkout.
 | `recover(runId, commandId?)` | `Promise<string>` | Admit a new execution ID for a failed publication step in the default workflow. |
 | `shutdown()` | `Promise<void>` | Stop intake, cancel and await active work, close DBOS and release ownership. |
 
-`runner.config` contains parsed, resolved configuration. `runner.store` exposes
+`runner.config` contains the current parsed, resolved configuration; a successful
+reload replaces the object. Treat it as read-only. `runner.store` exposes
 persisted records and commands. Always call `shutdown()` in `finally`, including
 when startup fails. `start()` begins polling but does not wait for an intake scan;
 call `poll()` when you need to await a scan.
@@ -293,7 +303,7 @@ Use a runner ID matching the configuration's `id`; it scopes every query.
 | `invocations(runId)` | Agent invocation and session records for a run. |
 | `events(afterSequence?, runId?)` | Ordered events after a sequence, up to 1000 per call. Advance the cursor to page. |
 | `subscribe(listener, { after?, intervalMs? })` | Poll for events; returns an unsubscribe function. Persist `after` if delivery must resume across restarts. |
-| `request(kind, target)` | Queue a `pause`, `resume`, `stop`, `retry`, `retry-refresh`, or `recover` command; returns its command ID. |
+| `request(kind, target)` | Queue a `pause`, `resume`, `stop`, `retry`, `retry-refresh`, `recover`, or `reload` command; returns its command ID. Reload uses an empty target and applies to the runner scope. |
 | `commands()` | Command IDs, targets, and pending/success/failure status. |
 | `recoveryPlan(runId)` | Persisted recovery eligibility and reason; live checks still happen at admission. |
 | `close()` | Release the Store database connection. |

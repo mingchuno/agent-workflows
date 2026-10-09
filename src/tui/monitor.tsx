@@ -61,9 +61,10 @@ export function Monitor({
   );
   const showNotificationNotice =
     Boolean(notificationWriter) && now < notificationNoticeUntil;
+  const dashboard = screen === "dashboard";
   const layout = monitorLayout(
     columns,
-    rows - (showNotificationNotice ? 1 : 0),
+    rows - (showNotificationNotice ? 1 : 0) - (dashboard ? 1 : 0),
     screen === "details",
   );
   const { wide, height, paneWidth, summaryWidth } = layout;
@@ -239,11 +240,12 @@ export function Monitor({
     available.stop ? "s stop" : "",
     available.retry ? "r retry" : "",
     available.recover ? "c recover" : "",
+    "R reload",
     "? help",
     "q close",
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(columns < 120 ? " " : " · ");
   return (
     <Box width={columns} height={rows} flexDirection="column">
       <Text bold color={colorFor("running")} wrap="truncate">
@@ -381,18 +383,26 @@ export function Monitor({
           columns,
         )}
       </Text>
+      {dashboard && (
+        <Text color={colorFor("running")} wrap="truncate">
+          {cells(
+            "Tab pane · ↑↓ select/scroll · ←→ project · Enter details",
+            columns,
+          )}
+        </Text>
+      )}
       <Text color={colorFor("running")} wrap="truncate">
         {cells(
           [
-            screen === "dashboard"
-              ? "Tab pane · ↑↓ select/scroll · ←→ project · Enter details"
+            dashboard
+              ? ""
               : columns < 120
-                ? "↑↓/Pg · Esc"
+                ? "↑↓/Pg Esc"
                 : "↑↓ scroll · PgUp/PgDn page · Esc back",
             controls,
           ]
             .filter(Boolean)
-            .join(" · "),
+            .join(columns < 120 ? " " : " · "),
           columns,
         )}
       </Text>

@@ -8,6 +8,7 @@ All commands accept `--config PATH` before the subcommand.
 | ---------------------------------- | --------------------------------------------------------------- |
 | `init`                             | Write a starter config; refuse overwrite                        |
 | `run [--project ID ...]`           | Start selected projects in the foreground                       |
+| `reload [--timeout-ms MS]`         | Reload the active server's configuration and prompt files; wait for acknowledgement |
 | `status [--json]`                  | Projects, runs and command outcomes                             |
 | `inspect RUN`                      | Full run and invocation/session records as JSON                 |
 | `logs RUN [--invocation ID]`       | Local stage, agent and validation artifacts                     |
@@ -19,6 +20,22 @@ All commands accept `--config PATH` before the subcommand.
 | `monitor [--notify]`               | Attach an interactive terminal view; optionally alert on outcomes |
 
 Control commands return a command ID and `pending`; inspect `status --json` or the monitor for success/failure. With no runner, commands stay pending. Run and monitor are separate processes. Closing the monitor never cancels work. Ctrl-C on the runner stops intake, cancels active work, waits for process termination and releases ownership. Queued tasks remain durable for the next start.
+
+`reload` additionally waits for the server result, exiting successfully only when
+the server acknowledges success. Its default wait is 10 seconds; `--timeout-ms`
+changes that limit. A timeout leaves the command pending and does not cancel it.
+The TUI keeps showing pending until acknowledgement. See the
+[live-reload boundary](configuration.md#live-reload) for supported changes.
+
+The CLI runner publishes an owner-only control record in the local OS temporary
+directory, keyed by the absolute configuration path. It contains the original
+runner ID, environment selector/path, database URL digest and process identity;
+it stores no credentials. `reload` uses it so invalid JSON or an edited runner
+ID cannot redirect the command. Use the same absolute configuration path and
+startup database environment. Without an active local record, `reload` fails
+without submitting a command. Normal shutdown removes the record; a later start
+replaces a record whose process has exited. SDK runners use the Store command
+channel directly.
 
 The monitor uses a full-screen view and restores the terminal when closed.
 It refreshes persisted workflow state and open logs every 400 ms. Database
@@ -62,7 +79,7 @@ fallback. An overflowing document shows its visible line range in the heading.
 | Progress | `[`/`]` inspect step history; End follows latest event |
 | Sessions | `a` focuses session list; Up/Down selects invocation; `l` opens log |
 | Validation | `v` opens validation logs |
-| Controls | `p` pauses/resumes intake; `s` stops; `r` retries; `c` recovers publication |
+| Controls | `p` pauses/resumes intake; `s` stops; `r` retries; `F` retries with refreshed issue; `c` recovers publication; `R` reloads configuration |
 | Monitor | `?` opens the shortcut dialog; `q` or Ctrl-C closes only the monitor |
 | Shortcut dialog | Tab/Shift+Tab or Left/Right changes category; Up/Down scrolls; Esc closes |
 | Logs | Up/Down or `j`/`k` scroll; PgUp/PgDn page; Left/Right pan long lines |

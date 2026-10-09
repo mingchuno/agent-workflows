@@ -398,6 +398,56 @@ test("compact, wide and resized screens stay within terminal bounds", async () =
   }
 });
 
+test("F preserves refreshed-issue retry after R becomes reload", async () => {
+  const { source, run, requests } = monitorFixture();
+  run.outcome = "failed";
+  const view = render(<Monitor source={source} size={wide} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("F");
+    await until(() => view.lastFrame()!.includes("Confirm retry-refresh"));
+    view.stdin.write("\t");
+    await until(() => view.lastFrame()!.includes("> Confirm"));
+    view.stdin.write("\r");
+    await until(() => requests.length === 1);
+    assert.deepEqual(requests, ["retry-refresh:run"]);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("reload shortcut works without a selected run and displays server acknowledgement", async () => {
+  const { source, requests } = monitorFixture();
+  source.runs = async () => [];
+  let status = "pending";
+  let error: string | null = null;
+  source.commands = async () => [
+    { id: "command", kind: "reload", target: "", status, error },
+  ];
+  const view = render(<Monitor source={source} size={wide} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Database connected"));
+    view.stdin.write("R");
+    await until(() => requests.length === 1);
+    assert.deepEqual(requests, ["reload:"]);
+    await until(() => view.lastFrame()!.includes("reload: pending"));
+    view.stdin.write("R");
+    await settle();
+    assert.equal(requests.length, 1);
+    status = "success";
+    await until(() => view.lastFrame()!.includes("reload: success"));
+    status = "pending";
+    view.stdin.write("R");
+    await until(() => requests.length === 2);
+    status = "failed";
+    error = "Configuration changes require restart: id";
+    await until(() => view.lastFrame()!.includes("reload: failed"));
+    assert.match(view.lastFrame()!, /require restart: id/);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("pending command survives project navigation and blocks duplicate submission", async () => {
   const { source, run, requests } = monitorFixture();
   source.projects = async () =>
@@ -855,6 +905,25 @@ test("80-column details keep every active control visible", async () => {
   );
   try {
     await until(() => view.lastFrame()!.includes("Implement feature"));
+    const dashboardFooter = view
+      .lastFrame()!
+      .split("\n")
+      .filter((line) => line.trim())
+      .at(-1)!;
+    for (const control of [
+      "l log",
+      "v checks",
+      "p pause",
+      "r retry",
+      "c recover",
+      "R reload",
+      "? help",
+      "q close",
+    ])
+      assert.ok(
+        dashboardFooter.includes(control),
+        `Missing dashboard control ${control}: ${dashboardFooter}`,
+      );
     view.stdin.write("\r");
     await settle();
     const footer = view.lastFrame()!.split("\n").at(-1)!;
@@ -865,6 +934,7 @@ test("80-column details keep every active control visible", async () => {
       "v checks",
       "r retry",
       "c recover",
+      "R reload",
       "? help",
       "q close",
     ]) {

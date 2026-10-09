@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import {
   basename,
@@ -12,6 +14,212 @@ import {
 import { test } from "node:test";
 import { configSchema } from "../src/config.js";
 import { command } from "../src/runtime/process.js";
+import { Store } from "../src/store.js";
+import { repository } from "./fixtures.js";
+import { waitFor } from "./runner-fixtures.js";
+
+test("CLI reload targets its original server despite invalid JSON and preserves startup path/project selection", {
+  skip: !process.env.TEST_DATABASE_URL,
+}, async () => {
+  const { project } = await repository();
+  const directory = await mkdtemp(join(tmpdir(), "aw-cli-reload-"));
+  const base = join(directory, "base");
+  const configs = join(directory, "configs");
+  await mkdir(base);
+  await mkdir(configs);
+  const scans: string[] = [];
+  let holdScans = false;
+  const heldResponses: ServerResponse[] = [];
+  const server = createServer((request, response) => {
+    scans.push(request.url!);
+    response.setHeader("content-type", "application/json");
+    if (holdScans) heldResponses.push(response);
+    else response.end("[]");
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const address = server.address() as { port: number };
+  project.hosting.origin = `http://127.0.0.1:${address.port}`;
+  project.workflows.implementation.enabled = false;
+  project.checkout = relative(base, project.checkout);
+  const config = configSchema.parse({
+    id: "cli_reload_" + randomUUID().replaceAll("-", ""),
+    stateDirectory: "state",
+    projects: [
+      project,
+      { ...project, id: "unselected", checkout: "missing-checkout" },
+    ],
+  });
+  const configPath = join(configs, "config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({ ...config, envFile: "runner.env" }),
+  );
+  await writeFile(
+    join(base, "runner.env"),
+    `AGENT_WORKFLOWS_DATABASE_URL=${process.env.TEST_DATABASE_URL}\nFIXTURE_TOKEN=fixture-token\n`,
+  );
+  await writeFile(
+    join(base, "instructions.md"),
+    "Reloaded relative instructions",
+  );
+  const args = [
+    "--import",
+    import.meta.resolve("tsx"),
+    resolve("src/cli.ts"),
+    "--config",
+    configPath,
+  ];
+  const env = {
+    ...process.env,
+    AGENT_WORKFLOWS_DATABASE_URL: undefined,
+    FIXTURE_TOKEN: undefined,
+  };
+  const crashed = await command(
+    process.execPath,
+    [
+      "--import",
+      resolve("tests/fixtures/cli-control-fault-loader.mjs"),
+      ...args,
+      "--config-base-directory",
+      base,
+      "run",
+      "--project",
+      "fixture",
+    ],
+    { cwd: directory, env, allowFailure: true },
+  );
+  assert.equal(crashed.exitCode, 77, crashed.stderr);
+  const abort = new AbortController();
+  let output = "";
+  let ended = false;
+  const running = command(
+    process.execPath,
+    [...args, "--config-base-directory", base, "run", "--project", "fixture"],
+    {
+      cwd: directory,
+      env,
+      signal: abort.signal,
+      onOutput: (chunk) => {
+        output += chunk;
+      },
+    },
+  ).then(
+    (result) => {
+      ended = true;
+      return result.stderr;
+    },
+    (error) => {
+      ended = true;
+      return String(error);
+    },
+  );
+  const store = new Store(process.env.TEST_DATABASE_URL!, config.id);
+  try {
+    await waitFor(async () => {
+      if (ended) throw new Error(`Runner exited: ${output}\n${await running}`);
+      return output.includes("started");
+    });
+    await store.initialize();
+    const reload = () =>
+      command(process.execPath, [...args, "reload"], {
+        cwd: directory,
+        env,
+        allowFailure: true,
+      });
+    await writeFile(configPath, "{invalid JSON");
+    const invalid = await reload();
+    assert.equal(invalid.exitCode, 1);
+    assert.match(invalid.stdout, /"status":"failed"/);
+    await writeFile(
+      configPath,
+      JSON.stringify({ ...config, id: "other", envFile: "runner.env" }),
+    );
+    const identity = await reload();
+    assert.equal(identity.exitCode, 1);
+    assert.match(identity.stdout, /require restart: id/);
+    await writeFile(
+      configPath,
+      JSON.stringify({ ...config, envFile: "missing.env" }),
+    );
+    const environment = await reload();
+    assert.equal(environment.exitCode, 1);
+    assert.match(environment.stdout, /require restart: envFile/);
+    config.projects[0]!.workflows.implementation.enabled = true;
+    config.projects[0]!.workflows.implementation.labels = ["reloaded-label"];
+    config.projects[0]!.pollIntervalMs = 100;
+    config.projects[0]!.stages.implementation.promptFile = "instructions.md";
+    await writeFile(
+      configPath,
+      JSON.stringify({ ...config, envFile: "runner.env" }),
+    );
+    const success = await reload();
+    assert.equal(success.exitCode, 0, success.stderr);
+    assert.match(success.stdout, /"status":"pending"/);
+    assert.match(success.stdout, /"status":"success"/);
+    await waitFor(async () =>
+      scans.some((url) => url.includes("labels=reloaded-label")),
+    );
+    assert.deepEqual(
+      (await store.projects()).map((item) => item.id),
+      ["fixture"],
+    );
+    holdScans = true;
+    await waitFor(async () => heldResponses.length > 0);
+    const timedOut = await command(
+      process.execPath,
+      [...args, "reload", "--timeout-ms", "100"],
+      {
+        cwd: directory,
+        env,
+        allowFailure: true,
+      },
+    );
+    assert.equal(timedOut.exitCode, 1);
+    assert.match(timedOut.stderr, /still pending; timeout does not cancel it/);
+    const pendingId = JSON.parse(timedOut.stdout.trim()).commandId as string;
+    assert.equal(
+      (await store.commands()).find((item) => item.id === pendingId)!.status,
+      "pending",
+    );
+    holdScans = false;
+    for (const response of heldResponses) response.end("[]");
+    await waitFor(
+      async () =>
+        (await store.commands()).find((item) => item.id === pendingId)
+          ?.status === "success",
+    );
+    const wrongConnection = await command(
+      process.execPath,
+      [...args, "reload"],
+      {
+        cwd: directory,
+        env: {
+          ...env,
+          AGENT_WORKFLOWS_DATABASE_URL: "postgresql://localhost/different",
+        },
+        allowFailure: true,
+      },
+    );
+    assert.match(wrongConnection.stderr, /Database connection differs/);
+  } finally {
+    holdScans = false;
+    for (const response of heldResponses) response.end("[]");
+    abort.abort();
+    await running;
+    await store.close();
+    await new Promise<void>((done, reject) =>
+      server.close((error) => (error ? reject(error) : done())),
+    );
+    await rm(directory, { recursive: true, force: true });
+  }
+  const offline = await command(process.execPath, [...args, "reload"], {
+    cwd: process.cwd(),
+    env,
+    allowFailure: true,
+  });
+  assert.equal(offline.exitCode, 1);
+  assert.match(offline.stderr, /No active runner control record/);
+});
 
 test("CLI init creates valid configuration and refuses overwrites", async () => {
   const directory = await mkdtemp(join(tmpdir(), "aw-cli-"));

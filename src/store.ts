@@ -589,7 +589,14 @@ export class Store {
     };
   }
   async request(
-    kind: "pause" | "resume" | "stop" | "retry" | "retry-refresh" | "recover",
+    kind:
+      | "pause"
+      | "resume"
+      | "stop"
+      | "retry"
+      | "retry-refresh"
+      | "recover"
+      | "reload",
     target: string,
   ): Promise<string> {
     const id = randomUUID();

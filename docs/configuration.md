@@ -37,6 +37,34 @@ The state directory is a sibling of the checkout, outside the repository.
 token does not configure Git push authentication; configure the checkout's Git
 remote separately. See [provider setup](providers.md).
 
+## Live reload
+
+After editing the JSON or referenced prompt files, run
+`agent-workflows --config PATH reload` or press `R` in the attached monitor.
+Reload is explicit; files are not watched. The server rereads its original path
+with the original path base and `run --project` selection. It validates the whole
+candidate and resolves prompt files before replacing the active configuration.
+Invalid JSON, schema errors, unreadable/blank prompts, and restart-only changes
+leave the previous configuration active.
+
+| Live changes | Restart required |
+| --- | --- |
+| Agent profiles, stage prompts, prompt-file contents, stage deadlines and publication session policy | Runner ID, database selector/connection, state directory |
+| Validation commands/profiles, co-author settings, base branch, Git remote name and branch template | Project IDs/membership, checkout paths, hosting provider/origin/repository/token selector |
+| Poll intervals, workflow enablement, labels and rereview policy | `envFile` selection, environment variables and credentials |
+
+Active executions retain their configuration and resolved prompts. Queued runs
+use current settings when their execution starts; their recorded subject and
+branch remain unchanged. Workflow enablement controls intake, so disabling a
+workflow does not cancel admitted runs. In-flight scans finish before reload is
+acknowledged, and the next scan uses the new settings. Changed execution inputs
+still prevent publication recovery and require retry.
+
+The server does not reread dotenv contents on reload. Restart to apply environment
+or credential edits. Project membership changes require restart even when the
+runner started with a project subset; settings for unselected projects are not
+applied to the active runner.
+
 ## Schema at a glance
 
 A **required** field has no default. Optional fields use the defaults shown
@@ -161,7 +189,7 @@ stage accepts:
 | --- | --- | --- | --- |
 | `profile` | partial `AgentProfile` | Project `agent` | Agent settings for this stage. |
 | `prompt` | nonblank string | Installed stage prompt | Literal task instructions. |
-| `promptFile` | nonblank path string | Installed stage prompt | UTF-8 task instructions read at runner construction. |
+| `promptFile` | nonblank path string | Installed stage prompt | UTF-8 task instructions read at runner construction and explicit reload. |
 | `timeoutMs` | positive integer | `1800000` | Entire stage deadline, including profile validation and format correction. |
 | `useNewSession` | boolean, publication only | `false` | Start publication in a fresh session instead of resuming implementation. |
 
@@ -229,7 +257,7 @@ contain exactly one configured profile name (`A-Z`, `a-z`, digits, `_`, or `-`);
 duplicate, malformed, and unknown selections fail the run before checkout
 preparation or agent invocation. The issue body is saved with the run, so edits
 to the hosted issue do not change an existing run. A plain retry creates a new
-run from its recorded issue. Use `retry RUN --refresh-issue` (or `R` in the
+run from its recorded issue. Use `retry RUN --refresh-issue` (or `F` in the
 monitor) to snapshot the current hosted issue and its validation selection for
 the new run. Later issue edits do not change that run.
 
@@ -345,9 +373,9 @@ These exact defaults are checked against the runtime source.
 
 Use either nonblank literal `prompt` text or a `promptFile` path, never both.
 Files must contain nonblank UTF-8 text. Relative paths use the same configuration
-base as state and checkout paths; absolute paths are allowed. Files load once
-when the runner is constructed. Restart to apply edits. No templating,
-interpolation, or includes are supported. SDK callers use `pathBaseDirectory` as
+base as state and checkout paths; absolute paths are allowed. Files load at
+construction and explicit reload; active executions keep their resolved contents.
+No templating, interpolation, or includes are supported. SDK callers use `pathBaseDirectory` as
 the general base. `promptBaseDirectory`, when supplied, overrides it for prompt
 files only.
 
@@ -420,4 +448,5 @@ source mutation rather than preventing command side effects.
 Review output includes `complete` and `limitations`. Incomplete reviews preserve
 partial findings locally and block normal review publication. Invocation records
 retain prompts, contracts, session IDs and resume origins. Changed effective
-prompts block publication recovery; file edits do not alter a running instance.
+prompts block publication recovery; file edits take effect only after reload or
+restart and do not alter an active execution.

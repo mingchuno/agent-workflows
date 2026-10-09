@@ -26,7 +26,8 @@ export type MonitorAction =
   | "stop"
   | "retry"
   | "retry-refresh"
-  | "recover";
+  | "recover"
+  | "reload";
 
 export function useMonitorData(
   source: MonitorSource,

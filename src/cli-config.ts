@@ -17,15 +17,42 @@ export async function readCliConfiguration(
   path: string,
   resolveEnvironmentFile: (path: string) => string,
 ): Promise<Configuration> {
-  const { envFile, ...configuration } = cliConfigurationSchema.parse(
-    JSON.parse(await readFile(path, "utf8")),
-  );
-  if (envFile !== undefined)
-    await loadEnvironmentFile(resolveEnvironmentFile(envFile));
-  return configuration;
+  return (await openCliConfiguration(path, resolveEnvironmentFile)).config;
 }
 
-async function loadEnvironmentFile(path: string): Promise<void> {
+/** Capture the startup environment source; reload never mutates process.env. */
+export async function openCliConfiguration(
+  path: string,
+  resolveEnvironmentFile: (path: string) => string,
+) {
+  const { envFile, ...config } = await readConfigurationFile(path);
+  if (envFile !== undefined)
+    await loadEnvironmentFile(resolveEnvironmentFile(envFile));
+  return {
+    config,
+    envFile:
+      envFile === undefined ? undefined : resolveEnvironmentFile(envFile),
+    async reload(): Promise<Configuration> {
+      const { envFile: candidateEnvFile, ...candidate } =
+        await readConfigurationFile(path);
+      if (candidateEnvFile !== envFile)
+        throw new Error("Configuration changes require restart: envFile");
+      const ids = (configuration: Configuration) =>
+        configuration.projects.map((project) => project.id).sort();
+      if (JSON.stringify(ids(config)) !== JSON.stringify(ids(candidate)))
+        throw new Error(
+          "Configuration changes require restart: projects (IDs or membership)",
+        );
+      return candidate;
+    },
+  };
+}
+
+async function readConfigurationFile(path: string) {
+  return cliConfigurationSchema.parse(JSON.parse(await readFile(path, "utf8")));
+}
+
+export async function loadEnvironmentFile(path: string): Promise<void> {
   let contents: string;
   try {
     contents = await readFile(path, "utf8");

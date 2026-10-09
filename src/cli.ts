@@ -8,10 +8,19 @@ import { render } from "ink";
 import React from "react";
 import { createAgents } from "./adapters/agents.js";
 import { createHosting } from "./adapters/hosting.js";
-import { readCliConfiguration } from "./cli-config.js";
+import {
+  loadEnvironmentFile,
+  openCliConfiguration,
+  readCliConfiguration,
+} from "./cli-config.js";
+import {
+  publishRunnerControl,
+  readRunnerControl,
+} from "./cli-runner-control.js";
 import type { Configuration } from "./config.js";
 import { defaultValidationTimeoutMs } from "./defaults.js";
 import { subjectReference } from "./domain.js";
+import { sha256 } from "./prompts.js";
 import { Runner } from "./runner.js";
 import { Store } from "./store.js";
 import { createTerminalNotificationWriter, Monitor } from "./tui/index.js";
@@ -53,7 +62,7 @@ function configBaseDirectory(): string {
     );
   return canonical;
 }
-function databaseUrl(config: Configuration): string {
+function databaseUrl(config: Pick<Configuration, "databaseUrlEnv">): string {
   const value = process.env[config.databaseUrlEnv];
   if (!value)
     throw new Error(`Set ${config.databaseUrlEnv} to a PostgreSQL URL`);
@@ -136,25 +145,40 @@ program
   .command("run")
   .option("-p, --project <ids...>", "run selected project IDs")
   .action(async (options: { project?: string[] }) => {
-    const config = await configuration();
-    if (options.project) {
+    const path = configPath();
+    const base = configBaseDirectory();
+    const source = await openCliConfiguration(path, (path) =>
+      resolve(base, path),
+    );
+    const selectProjects = (config: Configuration): Configuration => {
+      if (!options.project) return config;
       const wanted = new Set(options.project);
       for (const id of wanted)
         if (!config.projects.some((project) => project.id === id))
-          throw new Error(`Unknown project ${id}`);
-      config.projects = config.projects.filter((project) =>
-        wanted.has(project.id),
-      );
-    }
+          throw new Error(`Selected project ${id} removed; restart required`);
+      return {
+        ...config,
+        projects: config.projects.filter((project) => wanted.has(project.id)),
+      };
+    };
+    const config = selectProjects(source.config);
     const runner = new Runner({
-      pathBaseDirectory: configBaseDirectory(),
+      pathBaseDirectory: base,
       config,
+      reloadConfiguration: async () => selectProjects(await source.reload()),
       databaseUrl: databaseUrl(config),
       hosting: createHosting,
       agents: createAgents(),
     });
+    let releaseControl: (() => Promise<void>) | undefined;
     try {
       await runner.start();
+      releaseControl = await publishRunnerControl(path, {
+        id: config.id,
+        databaseUrlEnv: config.databaseUrlEnv,
+        databaseUrlHash: sha256(databaseUrl(config)),
+        envFile: source.envFile,
+      });
       console.log(
         `Runner ${config.id} started. Use status or monitor in another terminal.`,
       );
@@ -163,7 +187,53 @@ program
         process.once("SIGTERM", resolve);
       });
     } finally {
-      await runner.shutdown();
+      try {
+        await runner.shutdown();
+      } finally {
+        await releaseControl?.();
+      }
+    }
+  });
+program
+  .command("reload")
+  .description(
+    "Reload the active runner's original configuration and prompt files",
+  )
+  .option("--timeout-ms <ms>", "maximum wait for acknowledgement", "10000")
+  .action(async (options: { timeoutMs: string }) => {
+    const timeoutMs = Number(options.timeoutMs);
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
+      throw new Error("--timeout-ms must be a positive integer");
+    const control = await readRunnerControl(configPath());
+    if (control.envFile) await loadEnvironmentFile(control.envFile);
+    const connection = databaseUrl(control);
+    if (sha256(connection) !== control.databaseUrlHash)
+      throw new Error(
+        "Database connection differs from the running server; use its startup environment",
+      );
+    const store = new Store(connection, control.id);
+    try {
+      await store.initialize();
+      const commandId = await store.request("reload", "");
+      console.log(JSON.stringify({ commandId, status: "pending" }));
+      const deadline = Date.now() + timeoutMs;
+      while (true) {
+        const command = (await store.commands()).find(
+          (item) => item.id === commandId,
+        );
+        if (command && command.status !== "pending") {
+          console.log(JSON.stringify(command));
+          if (command.status !== "success") process.exitCode = 1;
+          break;
+        }
+        if (Date.now() >= deadline)
+          throw new Error(
+            `Reload command ${commandId} is still pending; timeout does not cancel it`,
+          );
+        await new Promise((done) => setTimeout(done, 100));
+      }
+    } finally {
+      await store.close();
     }
   });
 program

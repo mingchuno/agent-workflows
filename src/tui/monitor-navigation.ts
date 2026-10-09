@@ -80,6 +80,8 @@ export function transitionNavigation(
       state: { ...state, screen: "dashboard", focus: "runs", offset: 0 },
     };
   if (input === "?") return { state: { ...state, modal: { type: "help" } } };
+  if (input === "R" && !context.pending)
+    return { state, effect: { type: "command", kind: "reload", target: "" } };
   if (key.upArrow || key.downArrow || key.pageUp || key.pageDown)
     return { state: moveVertically(state, key, context) };
   if (input === "l") return { state: openAgentLog(state, context) };
@@ -102,7 +104,7 @@ export function transitionNavigation(
       ? "stop"
       : input === "r"
         ? "retry"
-        : input === "R"
+        : input === "F"
           ? "retry-refresh"
           : input === "c"
             ? "recover"

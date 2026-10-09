@@ -43,6 +43,8 @@ export interface RunnerOptions {
   pathBaseDirectory?: string;
   promptBaseDirectory?: string;
   config: Configuration;
+  /** Reread configuration without changing the process environment. */
+  reloadConfiguration?: () => Promise<Configuration>;
   databaseUrl: string;
   hosting: (project: Project) => HostingAdapter;
   agents: Record<string, AgentAdapter>;
@@ -52,11 +54,16 @@ export interface RunnerOptions {
 }
 export class Runner {
   readonly store: Store;
-  readonly config: Configuration;
+  private currentConfig: Configuration;
+  get config(): Configuration {
+    return this.currentConfig;
+  }
   private readonly controllers = new Map<string, AbortController>();
   private readonly active = new Map<string, Promise<unknown>>();
   private readonly hosting = new Map<string, HostingAdapter>();
   private readonly promptBaseDirectory: string;
+  private readonly pathBaseDirectory: string;
+  private reloading = false;
   private workflow!: (runId: string) => Promise<void>;
   private readonly ownership = new CheckoutOwnership();
   private stopping = false;
@@ -66,11 +73,12 @@ export class Runner {
   private readonly lastPoll = new Map<string, number>();
   private readonly polling = new Map<string, Promise<void>>();
   constructor(readonly options: RunnerOptions) {
-    this.config = configSchema.parse(options.config);
+    this.currentConfig = configSchema.parse(options.config);
     const pathBaseDirectory = canonicalDirectory(
       options.pathBaseDirectory ?? process.cwd(),
       "Configuration path base",
     );
+    this.pathBaseDirectory = pathBaseDirectory;
     this.config.stateDirectory = resolve(
       pathBaseDirectory,
       this.config.stateDirectory,
@@ -164,6 +172,7 @@ export class Runner {
       ),
     ])(text);
   async poll(projectId?: string): Promise<void> {
+    if (this.reloading || this.stopping) return;
     await Promise.all(
       this.config.projects
         .filter((p) => !projectId || p.id === projectId)
@@ -256,11 +265,42 @@ export class Runner {
           await this.retry(request.target, request.id, { refreshIssue: true });
         else if (request.kind === "recover")
           await this.recover(request.target, request.id);
+        else if (request.kind === "reload") await this.reload();
         else throw new Error("Unknown command");
         await this.store.finishCommand(request.id);
       } catch (error) {
         await this.store.finishCommand(request.id, this.redact(String(error)));
       }
+    }
+  }
+  private async reload(): Promise<void> {
+    if (!this.options.reloadConfiguration)
+      throw new Error("Runner has no configuration reload source");
+    this.reloading = true;
+    try {
+      const candidate = configSchema.parse(
+        await this.options.reloadConfiguration(),
+      );
+      candidate.stateDirectory = await assertStateDirectory(
+        this.config.projects[0]!.checkout,
+        resolve(this.pathBaseDirectory, candidate.stateDirectory),
+      );
+      for (const project of candidate.projects) {
+        project.checkout = await realpath(
+          resolve(this.pathBaseDirectory, project.checkout),
+        );
+      }
+      assertReloadableConfiguration(this.config, candidate);
+      for (const project of candidate.projects)
+        projectPrompts(project, this.promptBaseDirectory);
+      // Let scans using the old configuration finish before acknowledging reload.
+      // No new scans begin while reloading, and tick dispatches only afterward.
+      await Promise.allSettled(this.polling.values());
+      if (this.stopping) throw new Error("Runner is shutting down");
+      this.currentConfig = candidate;
+      this.lastPoll.clear();
+    } finally {
+      this.reloading = false;
     }
   }
   private pollDueProjects(): void {
@@ -360,10 +400,12 @@ export class Runner {
     runId: string,
     controller: AbortController,
   ): Promise<void> {
+    // Pin one configuration generation before the first asynchronous step.
+    const configuration = this.config;
     const run = await DBOS.runStep(() => this.initializeExecution(runId), {
       name: "load-run",
     });
-    const project = this.projectForRun(run);
+    const project = this.projectForRun(run, configuration);
     const workspace = this.options.workspace ?? new ExistingCheckout();
     let recoveryChecked = false;
     const operations = new Operations(runId, {
@@ -620,8 +662,8 @@ export class Runner {
       },
     });
   }
-  private projectForRun(run: RunRecord): Project {
-    const project = this.config.projects.find(
+  private projectForRun(run: RunRecord, configuration = this.config): Project {
+    const project = configuration.projects.find(
       (item) => item.id === run.projectId,
     );
     if (!project) throw new Error("Project removed from configuration");
@@ -647,6 +689,32 @@ export class Runner {
     await this.ownership.release();
     await this.store.close();
   }
+}
+
+function assertReloadableConfiguration(
+  current: Configuration,
+  candidate: Configuration,
+): void {
+  const changed: string[] = [];
+  for (const key of ["id", "databaseUrlEnv", "stateDirectory"] as const)
+    if (current[key] !== candidate[key]) changed.push(key);
+  const currentIds = current.projects.map((project) => project.id).sort();
+  const candidateIds = candidate.projects.map((project) => project.id).sort();
+  if (JSON.stringify(currentIds) !== JSON.stringify(candidateIds))
+    changed.push("projects (IDs or membership)");
+  for (const project of candidate.projects) {
+    const previous = current.projects.find((item) => item.id === project.id);
+    if (!previous) continue;
+    if (previous.checkout !== project.checkout)
+      changed.push(`projects.${project.id}.checkout`);
+    for (const key of ["provider", "origin", "repository", "tokenEnv"] as const)
+      if (previous.hosting[key] !== project.hosting[key])
+        changed.push(`projects.${project.id}.hosting.${key}`);
+  }
+  if (changed.length)
+    throw new Error(
+      `Configuration changes require restart: ${changed.join(", ")}`,
+    );
 }
 
 function canonicalDirectory(path: string, label: string): string {
