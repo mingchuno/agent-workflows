@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/mingchuno/agent-workflows/compare/v0.7.0...v0.8.0) (2026-10-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **workflow:** Implementation agents return structured validation reports, and hosting creation receives explicit draft readiness.
+
+### Features
+
+* **config:** Add live runner configuration reload ([215bac3](https://github.com/mingchuno/agent-workflows/commit/215bac3e268fcb22d3d83b62fb7cb111790c5814))
+* **workflow:** Review and repair before publication ([fc54084](https://github.com/mingchuno/agent-workflows/commit/fc5408435ebaf075e70e909261ab4c19a4137963)), closes [#23](https://github.com/mingchuno/agent-workflows/issues/23)
+
 ## [0.7.0](https://github.com/mingchuno/agent-workflows/compare/v0.6.0...v0.7.0) (2026-10-04)
 
 
