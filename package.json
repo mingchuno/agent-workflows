@@ -1,6 +1,6 @@
 {
   "name": "@mingchuno/agent-workflows",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Local durable coding workflows on DBOS",
   "type": "module",
   "license": "MIT",
