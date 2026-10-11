@@ -12,8 +12,12 @@ export function useLogController(path: string, columns: number, rows: number) {
   const [top, setTop] = useState(0);
   const [horizontal, setHorizontal] = useState(0);
   const [raw, setRaw] = useState(false);
-  const [lines, setLines] = useState<string[]>([]);
-  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState({
+    lines: [] as string[],
+    total: 0,
+    position: 0,
+  });
+  const { lines, total } = page;
   const [message, setMessage] = useState("Loading log…");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -33,12 +37,12 @@ export function useLogController(path: string, columns: number, rows: number) {
         const nextTop = following
           ? Math.max(0, file.count - height)
           : Math.min(top, Math.max(0, file.count - 1));
-        const page = await file.page(nextTop, height, controller.signal);
+        const nextLines = await file.page(nextTop, height, controller.signal);
         if (controller.signal.aborted) return;
         position.current = nextTop;
         if (!following && nextTop !== top) setTop(nextTop);
-        setTotal(file.count);
-        setLines(page);
+        // Publish the range and its rows together; requested navigation may be ahead.
+        setPage({ lines: nextLines, total: file.count, position: nextTop });
         setMessage((current) =>
           !file.count
             ? "No output yet; waiting for log data"
@@ -48,7 +52,7 @@ export function useLogController(path: string, columns: number, rows: number) {
         );
       } catch (error) {
         if (!controller.signal.aborted) {
-          setLines([]);
+          setPage((current) => ({ ...current, lines: [] }));
           setMessage(`Log unavailable: ${String(error)}`);
         }
       } finally {
@@ -127,7 +131,7 @@ export function useLogController(path: string, columns: number, rows: number) {
     draft,
     query,
     searching,
-    position: position.current,
+    position: page.position,
     scroll,
     dismissSearch() {
       cancelSearch();

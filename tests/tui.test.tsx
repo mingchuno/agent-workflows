@@ -6,6 +6,11 @@ import { test } from "node:test";
 import { render } from "ink-testing-library";
 import stringWidth from "string-width";
 import { Monitor } from "../src/tui/index.js";
+import { LogFile } from "../src/tui/log-file.js";
+import {
+  initialNavigation,
+  transitionNavigation,
+} from "../src/tui/monitor-navigation.js";
 import { monitorFixture, settle, until } from "./tui-fixtures.js";
 
 const wide = { columns: 120, rows: 30 };
@@ -230,7 +235,7 @@ test("horizontal log panning preserves record rows and live follow", async () =>
   }
 });
 
-test("completed log panning preserves a manually selected line range", async () => {
+test("completed log panning preserves a manually selected line range", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "aw-tui-"));
   const { run, sessions, source } = monitorFixture();
   run.outcome = "completed";
@@ -241,6 +246,28 @@ test("completed log panning preserves a manually selected line range", async () 
   records[3] = "short";
   records[4] = `${"b".repeat(20)}completed-anchor`;
   await writeFile(sessions[0]!.log, `${records.join("\n")}\n`);
+  let releasePage!: () => void;
+  const pageGate = new Promise<void>((resolve) => {
+    releasePage = resolve;
+  });
+  let pageRequested = false;
+  const originalPage = LogFile.prototype.page;
+  t.mock.method(
+    LogFile.prototype,
+    "page",
+    async function (
+      this: LogFile,
+      start: number,
+      count: number,
+      signal: AbortSignal,
+    ) {
+      if (this.path === sessions[0]!.log && start === 1) {
+        pageRequested = true;
+        await pageGate;
+      }
+      return originalPage.call(this, start, count, signal);
+    },
+  );
   const view = render(<Monitor source={source} size={wide} />);
   try {
     await until(() => view.lastFrame()!.includes("Implement feature"));
@@ -251,6 +278,10 @@ test("completed log panning preserves a manually selected line range", async () 
       view.lastFrame()!.includes("LIVE FOLLOW · Readable · lines 7–30/30"),
     );
     for (let index = 0; index < 5; index++) view.stdin.write("\u001b[A");
+    await until(() => pageRequested);
+    assert.match(view.lastFrame()!, /lines 7–30\/30/);
+    assert.doesNotMatch(view.lastFrame()!, /completed-anchor/);
+    releasePage();
     await until(() =>
       view.lastFrame()!.includes("SCROLLING · Readable · lines 2–25/30"),
     );
@@ -275,9 +306,32 @@ test("completed log panning preserves a manually selected line range", async () 
     );
     assert.match(view.lastFrame()!, /SCROLLING · Readable · lines 2–25\/30/);
   } finally {
+    releasePage();
     view.unmount();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("default selection synchronization retains confirmation for the displayed run", () => {
+  const state = {
+    ...initialNavigation,
+    modal: {
+      type: "confirmation" as const,
+      kind: "retry-refresh" as const,
+      runId: "run",
+      title: "Implement feature",
+    },
+  };
+  const selected = transitionNavigation(state, {
+    type: "selection",
+    selection: { projectId: "demo", runId: "run" },
+  }).state;
+  assert.deepEqual(selected.modal, state.modal);
+  const changed = transitionNavigation(selected, {
+    type: "selection",
+    selection: { projectId: "demo", runId: "another-run" },
+  }).state;
+  assert.equal(changed.modal, undefined);
 });
 
 test("selection survives new rows and stale selected-run responses", async () => {
@@ -405,7 +459,7 @@ test("F preserves refreshed-issue retry after R becomes reload", async () => {
   run.outcome = "failed";
   const view = render(<Monitor source={source} size={wide} />);
   try {
-    await until(() => view.lastFrame()!.includes("Implement feature"));
+    await until(() => view.lastFrame()!.includes("r retry"));
     view.stdin.write("F");
     await until(() => view.lastFrame()!.includes("Confirm retry-refresh"));
     view.stdin.write("\t");

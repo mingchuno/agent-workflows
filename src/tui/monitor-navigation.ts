@@ -249,7 +249,11 @@ function synchronizeSelection(
     sessionId: undefined,
     stepSequence: undefined,
     offset: 0,
-    modal: state.modal?.type === "confirmation" ? undefined : state.modal,
+    modal:
+      state.modal?.type === "confirmation" &&
+      state.modal.runId !== selection.runId
+        ? undefined
+        : state.modal,
   };
 }
 
