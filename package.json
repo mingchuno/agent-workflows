@@ -41,6 +41,7 @@
     "release:publish": "node scripts/publish.mjs",
     "lint:pr": "node scripts/lint-pr-title.mjs",
     "start": "node --import tsx -- src/cli.ts",
+    "tui:preview": "node --import tsx -- tests/tui-demo.tsx",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome check .",

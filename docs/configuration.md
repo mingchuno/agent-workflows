@@ -471,7 +471,6 @@ errors. Commands run in order and stop at the first failure. Implementation and
 repair report their own checks separately as agent-reported evidence. Neither
 empty configured checks nor unexecuted checks are displayed as passing.
 
-This breaking version adds structured implementation output and review priorities.
-Custom agent adapters must return the documented implementation JSON contract.
-Stop the old runner, resolve unfinished work, and use a fresh runner ID for older
-durable state. Workflow-version checks refuse incompatible publication recovery.
+Custom agent adapters must return the [implementation result contract](api.md#implementation-evidence).
+When changing workflow versions, stop the runner and resolve unfinished work
+before starting with a fresh runner ID. Incompatible publication recovery is refused.

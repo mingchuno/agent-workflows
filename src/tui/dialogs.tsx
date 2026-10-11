@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import { type ReactNode, useState } from "react";
-import { colorFor, wrapLines } from "./format.js";
+import { asciiChrome, colorFor, wrapLines } from "./format.js";
 import { Lines } from "./views.js";
 
 type DialogSize = { columns: number; rows: number };
@@ -32,7 +32,7 @@ function Dialog({
       <Box
         width={width}
         height={height}
-        borderStyle="round"
+        borderStyle={asciiChrome() ? "classic" : "single"}
         borderColor={colorFor("running")}
         paddingX={2}
         paddingY={1}
@@ -53,8 +53,13 @@ const helpPages = [
       ["Tab", "Next pane"],
       ["Shift+Tab", "Previous pane"],
       ["↑ / ↓", "Select a run or session"],
-      ["← / →", "Select project"],
-      ["Enter", "Open run details"],
+      ["Left / Right", "Select project"],
+      ["/", "Search runs by title, reference or ID"],
+      ["f / n", "Cycle filters / jump to next attention"],
+      ["Enter", "Open selected-run workspace"],
+      ["1-6 / Tab", "Select investigation section"],
+      ["d / x", "Full diagnostic / action eligibility"],
+      ["t", "Expand full subject in Overview"],
       ["Esc", "Return from details"],
       ["↑ / ↓", "Scroll summary or details"],
       ["PgUp / PgDn", "Page through details"],

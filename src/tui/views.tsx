@@ -1,30 +1,19 @@
 import { Box, Text } from "ink";
-import stringWidth from "string-width";
 import type { RunRecord } from "../domain.js";
 import { subjectReference } from "../domain.js";
-import { recoveryUnavailable } from "../recovery.js";
 import type { EventRecord, InvocationRecord } from "../store.js";
+import { needsAttention } from "./discovery.js";
 import {
-  cells,
+  chromeText,
   colorFor,
   duration,
-  elapsedRun,
   executionDuration,
   wrapLines,
 } from "./format.js";
+import { ellipsis, phaseLabel, subjectKind } from "./presentation.js";
 
-type AvailableActions = {
-  stop: boolean;
-  retry: boolean;
-  recover: boolean;
-};
-
-// The detail panel contributes four columns of border and padding.
-const detailWideBreakpoint = 136;
 const detailLabelWidth = 19;
 const hangingLabelMarker = "\u{e000}";
-const conciseErrorWidth = 120;
-const detailColumnGap = " │ ";
 
 function localTimestamp(value?: string): string {
   if (!value) return "not recorded";
@@ -67,21 +56,6 @@ function json(value: unknown): string {
   return JSON.stringify(value) ?? "unavailable";
 }
 
-function conciseError(run: RunRecord): string {
-  const error = run.error ?? run.executions?.at(-1)?.error;
-  if (!error)
-    return run.outcome === "cancelled"
-      ? "Run was cancelled."
-      : run.outcome === "blocked"
-        ? "Run is blocked."
-        : "Run requires operator attention.";
-  const firstLine = error.split("\n", 1)[0]!.replace(/^Error:\s*/i, "");
-  const summary = cells(firstLine, conciseErrorWidth);
-  return cells(firstLine, conciseErrorWidth + 1) === summary
-    ? summary
-    : `${cells(firstLine, conciseErrorWidth - 1)}…`;
-}
-
 function label(label: string, value: string): string {
   return `${hangingLabelMarker}${label.padEnd(detailLabelWidth)}${value}`;
 }
@@ -104,10 +78,10 @@ export function wrapDetailLines(lines: string[], width: number): string[] {
   });
 }
 
-function deliveryLines(run: RunRecord): string[] {
+export function deliveryLines(run: RunRecord): string[] {
   if (!run.readiness) return [];
   return [
-    "DELIVERY",
+    "Delivery",
     label("Readiness", run.readiness.draft ? "draft" : "ready for review"),
     ...run.readiness.reasons,
     label("Review rounds", String(run.reviewRounds?.length ?? 0)),
@@ -119,9 +93,10 @@ function deliveryLines(run: RunRecord): string[] {
     ...(run.review?.limitations.map(
       (limitation) => `Review limitation: ${limitation}`,
     ) ?? []),
-    "AGENT-REPORTED VALIDATION (not workflow-executed)",
+    "Agent-reported validation (not workflow-executed)",
     ...(run.agentReport?.validation.map(
-      (check) => `${check.command} · ${check.outcome} · ${check.details}`,
+      (check) =>
+        `${check.command} ${chromeText("·")} ${check.outcome} ${chromeText("·")} ${check.details}`,
     ) ?? []),
     ...(run.agentReport?.limitations.map(
       (limitation) => `Agent limitation: ${limitation}`,
@@ -130,12 +105,12 @@ function deliveryLines(run: RunRecord): string[] {
   ];
 }
 
-function validationLines(run: RunRecord, now: number): string[] {
+export function validationLines(run: RunRecord, now: number): string[] {
   return [
-    "VALIDATION",
+    "Workflow validation",
     ...(run.validation?.length
       ? run.validation.flatMap((check) => [
-          `${check.command} ${check.args.join(" ")} · exit ${check.exitCode} · ${duration(check.startedAt, check.finishedAt, now)}`,
+          `${check.command} ${check.args.join(" ")} ${chromeText("·")} exit ${check.exitCode} ${chromeText("·")} ${duration(check.startedAt, check.finishedAt, now)}`,
         ])
       : [
           run.validationStatus === "skipped"
@@ -145,26 +120,12 @@ function validationLines(run: RunRecord, now: number): string[] {
   ];
 }
 
-function validationSummary(run: RunRecord): string {
-  const checks = run.validation ?? [];
-  if (!checks.length)
-    return run.validationStatus === "skipped"
-      ? "not configured (skipped)"
-      : "not recorded";
-  const successful = checks.filter((check) => check.exitCode === 0).length;
-  const failed = checks.length - successful;
+export function sessionLines(
+  sessions: InvocationRecord[],
+  now: number,
+): string[] {
   return [
-    `${checks.length} recorded`,
-    successful ? `${successful} exit 0` : "",
-    failed ? `${failed} nonzero` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-function sessionLines(sessions: InvocationRecord[], now: number): string[] {
-  return [
-    "AGENT SESSIONS",
+    "Agent sessions",
     ...(sessions.length
       ? sessions.flatMap((session) => {
           const effective = readableProfile(
@@ -177,9 +138,9 @@ function sessionLines(sessions: InvocationRecord[], now: number): string[] {
             session.provider,
           )
             ? `Effective ${effective}`
-            : `Requested ${readableProfile(session.requested, session.provider)} → Effective ${effective}`;
+            : `Requested ${readableProfile(session.requested, session.provider)} ${chromeText("→")} Effective ${effective}`;
           return [
-            `${session.step} · invocation ${session.attempt} · ${session.outcome} · ${duration(session.startedAt, session.finishedAt, now)}`,
+            `${session.step} ${chromeText("·")} invocation ${session.attempt} ${chromeText("·")} ${session.outcome} ${chromeText("·")} ${duration(session.startedAt, session.finishedAt, now)}`,
             profile,
           ];
         })
@@ -187,9 +148,9 @@ function sessionLines(sessions: InvocationRecord[], now: number): string[] {
   ];
 }
 
-function executionLines(run: RunRecord, now: number): string[] {
+export function executionLines(run: RunRecord, now: number): string[] {
   const executions = [...(run.executions ?? [])].reverse();
-  if (!executions.length) return ["CURRENT EXECUTION", "not started"];
+  if (!executions.length) return ["Current execution", "not started"];
   return executions.flatMap((execution, index) => {
     const executionTime = execution.startedAt
       ? executionDuration(execution, now).replace("—", "unavailable")
@@ -223,7 +184,7 @@ function executionLines(run: RunRecord, now: number): string[] {
     const lines =
       index === 0
         ? [
-            "CURRENT EXECUTION",
+            "Current execution",
             label("Outcome", execution.outcome),
             label("Phase", execution.phase),
             label("Execution duration", executionTime),
@@ -234,8 +195,8 @@ function executionLines(run: RunRecord, now: number): string[] {
             ...recovery,
           ]
         : [
-            `PRIOR EXECUTION ${executions.length - index}`,
-            `${execution.outcome} · ${execution.phase} · duration ${executionTime} · queue ${queueWait}`,
+            `Prior execution ${executions.length - index}`,
+            `${execution.outcome} ${chromeText("·")} ${execution.phase} ${chromeText("·")} duration ${executionTime} ${chromeText("·")} queue ${queueWait}`,
             `${localTimestamp(execution.startedAt)} → ${localTimestamp(execution.finishedAt)}`,
             ...recovery,
           ];
@@ -243,144 +204,15 @@ function executionLines(run: RunRecord, now: number): string[] {
   });
 }
 
-function padToWidth(value: string, width: number): string {
-  return `${value}${" ".repeat(Math.max(0, width - stringWidth(value)))}`;
-}
-
-function composeDetailColumns(
-  left: string[],
-  right: string[],
-  width: number,
-): string[] {
-  const leftWidth = Math.floor((width - detailColumnGap.length) * 0.58);
-  const rightWidth = width - leftWidth - detailColumnGap.length;
-  const leftLines = wrapDetailLines(left, leftWidth);
-  const rightLines = wrapDetailLines(right, rightWidth);
-  return Array.from(
-    { length: Math.max(leftLines.length, rightLines.length) },
-    (_, index) =>
-      `${padToWidth(leftLines[index] ?? "", leftWidth)}${detailColumnGap}${rightLines[index] ?? ""}`,
-  );
-}
-
-function stepText(event?: EventRecord): string {
-  if (!event) return "No steps recorded";
-  const payload = event.payload as {
-    name?: string;
-    status?: string;
-    attempt?: number;
-    executionId?: string;
-  };
-  return `${payload.name ?? "step"} · ${payload.status ?? "recorded"} · attempt ${payload.attempt ?? "—"}`;
-}
-export function summaryLines(
-  run: RunRecord,
-  now: number,
-  event?: EventRecord,
-): string[] {
-  return [
-    `${subjectReference(run.subject)} ${run.subject.title}`,
-    `${run.outcome.toUpperCase()} · ${run.phase}`,
-    `Attempt ${run.attempt} · Execution ${executionDuration(run.executions?.at(-1), now)}`,
-    "",
-    "PROGRESS",
-    stepText(event),
-    "",
-    "VALIDATION",
-    ...(run.validation?.map(
-      (check) => `${check.command}: exit ${check.exitCode}`,
-    ) ?? ["No checks recorded"]),
-    "",
-    "NEXT ACTION",
-    ...(run.error
-      ? [
-          `Error: ${run.error.split("\n")[0]}`,
-          "Enter details for the full error and recovery evidence",
-        ]
-      : [
-          run.outcome === "running"
-            ? "Workflow is running"
-            : run.outcome === "queued"
-              ? "Waiting for runner and project intake"
-              : ["failed", "blocked", "cancelled"].includes(run.outcome)
-                ? "Inspect details before retry or recovery"
-                : "Workflow finished; inspect the outcome",
-        ]),
-    ...(run.change ? [`Change request: ${run.change.url}`] : []),
-  ];
-}
-export function detailLines(
+export function technicalLines(
   run: RunRecord,
   sessions: InvocationRecord[],
-  now: number,
-  recoveryReason = recoveryUnavailable(run),
-  width = 76,
-  available: AvailableActions = {
-    stop: false,
-    retry: false,
-    recover: false,
-  },
 ): string[] {
-  const validation = validationSummary(run);
-  const recovery =
-    run.outcome === "failed"
-      ? recoveryReason
-        ? "restricted"
-        : "eligible"
-      : "not applicable";
-  const attention = ["failed", "blocked", "cancelled"].includes(run.outcome)
-    ? [
-        "",
-        "ATTENTION",
-        label("Problem", conciseError(run)),
-        label(
-          "Recovery",
-          recoveryReason ?? "Eligible; runner checks still apply",
-        ),
-        label(
-          "Action",
-          [
-            available.recover ? "c recover" : "",
-            available.retry ? "r retry" : "",
-            available.stop ? "s stop" : "",
-          ]
-            .filter(Boolean)
-            .join(" · ") || "none available",
-        ),
-      ]
-    : [];
-  const executions = executionLines(run, now);
-  const evidence = [
-    ...deliveryLines(run),
-    ...validationLines(run, now),
-    "",
-    ...sessionLines(sessions, now),
-  ];
-  const evidenceArea =
-    width >= detailWideBreakpoint
-      ? composeDetailColumns(executions, evidence, width)
-      : [...executions, "", ...evidence];
   const executionsByRecency = [...(run.executions ?? [])].reverse();
-  const executionErrors = executionsByRecency.filter(
-    (execution) => execution.error,
-  );
-  const diagnostics =
-    run.error || executionErrors.length
-      ? [
-          "",
-          "DIAGNOSTICS",
-          ...(run.error ? [label("Run error", run.error)] : []),
-          ...executionErrors.map((execution, index) =>
-            label(
-              index === 0 ? "Current error" : "Prior error",
-              execution.error!,
-            ),
-          ),
-        ]
-      : [];
-  const technical = [
+  return [
     "",
-    "TECHNICAL DETAILS",
+    "Technical details",
+    label("Subject", run.subject.title),
     label("Run ID", run.id),
     label(
       run.subject.kind === "issue" ? "Issue URL" : "Change URL",
@@ -425,22 +257,49 @@ export function detailLines(
       label("Effective profile", json(session.effective)),
     ]),
   ];
+}
+
+export function diagnosticLines(run: RunRecord): string[] {
   return [
-    `${subjectReference(run.subject)} ${run.subject.title}`,
-    label("Outcome", run.outcome),
-    label("Phase", run.phase),
-    label("Attempt", String(run.attempt)),
-    label("Total elapsed", elapsedRun(run, now).replace("—", "unavailable")),
-    label("Branch", run.branch || "unavailable"),
-    label(
-      "Health",
-      `Error ${run.error || run.executions?.some((execution) => execution.error) ? "recorded" : "none"} · Validation ${validation} · Recovery ${recovery}`,
-    ),
-    ...attention,
+    "Full diagnostic",
+    ...(run.error ? ["Run error", run.error] : []),
+    ...[...(run.executions ?? [])]
+      .reverse()
+      .flatMap((execution, index) =>
+        execution.error
+          ? [
+              "",
+              index === 0
+                ? "Current execution error"
+                : `Prior execution error (${execution.id})`,
+              execution.error,
+            ]
+          : [],
+      ),
+    ...(!run.error && !run.executions?.some((execution) => execution.error)
+      ? [
+          "No diagnostic recorded. Open relevant stage or validation logs when available.",
+        ]
+      : []),
+  ];
+}
+export function activityLines(
+  sessions: InvocationRecord[],
+  events: EventRecord[],
+  now: number,
+): string[] {
+  return [
+    "Recorded activity",
+    ...events
+      .slice(-20)
+      .reverse()
+      .map((event) => {
+        const payload = event.payload as { name?: string; status?: string };
+        return `${event.createdAt || "Time not recorded"} ${chromeText("·")} ${payload.name ?? "step"} ${chromeText("·")} ${payload.status ?? "recorded"}`;
+      }),
+    ...(!events.length ? ["No steps recorded"] : []),
     "",
-    ...evidenceArea,
-    ...diagnostics,
-    ...technical,
+    ...sessionLines(sessions, now),
   ];
 }
 export function Lines({
@@ -448,52 +307,24 @@ export function Lines({
   width,
   height,
   offset = 0,
-  outcome,
+  renderLine,
 }: {
   lines: string[];
   width: number;
   height: number;
   offset?: number;
-  outcome?: string;
+  renderLine?: (line: string) => React.ReactNode;
 }) {
   const wrapped = wrapDetailLines(lines, width);
   const start = Math.min(offset, Math.max(0, wrapped.length - height));
-  const summaryOutcomeIndex = wrapped.findIndex((line) =>
-    line.startsWith("Outcome"),
-  );
   return (
     <Box flexDirection="column" width={width} height={height} overflow="hidden">
-      {wrapped.slice(start, start + height).map((line, index) => {
-        const absoluteIndex = start + index;
-        const divider = line.indexOf(detailColumnGap);
-        const left = divider >= 0 ? line.slice(0, divider) : line;
-        const right =
-          divider >= 0
-            ? line.slice(divider + detailColumnGap.length)
-            : undefined;
-        const isHeading = (value: string) =>
-          /^[A-Z][A-Z0-9 ]+$/.test(value.trim());
-        return (
-          <Box key={`${absoluteIndex}`} height={1} flexShrink={0}>
-            <Text
-              wrap="truncate"
-              color={
-                absoluteIndex === summaryOutcomeIndex
-                  ? colorFor(outcome ?? "")
-                  : undefined
-              }
-            >
-              <Text bold={isHeading(left)}>{left || " "}</Text>
-              {right !== undefined ? (
-                <>
-                  <Text>{detailColumnGap}</Text>
-                  <Text bold={isHeading(right)}>{right}</Text>
-                </>
-              ) : null}
-            </Text>
-          </Box>
-        );
-      })}
+      {wrapped.slice(start, start + height).map((line, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: stateless terminal rows are identified by their absolute document line.
+        <Text key={`${start + index}`} wrap="truncate">
+          {renderLine ? renderLine(line) : line || " "}
+        </Text>
+      ))}
     </Box>
   );
 }
@@ -503,14 +334,16 @@ export function RunList({
   width,
   height,
   now,
+  emptyMessage = "No runs yet. Waiting for eligible issues.",
 }: {
   runs: RunRecord[];
   selected?: string;
   width: number;
   height: number;
   now: number;
+  emptyMessage?: string;
 }) {
-  const count = Math.max(1, Math.floor(height / 3));
+  const count = Math.max(1, Math.floor(height / 2));
   const current = Math.max(
     0,
     runs.findIndex((run) => run.id === selected),
@@ -520,31 +353,36 @@ export function RunList({
     Math.min(current - Math.floor(count / 2), runs.length - count),
   );
   return (
-    <Box flexDirection="column" height={height} overflow="hidden">
+    <Box flexDirection="column" width={width} height={height} overflow="hidden">
       {runs.length ? (
-        runs.slice(start, start + count).map((run) => (
-          <Box key={run.id} flexDirection="column" height={3}>
-            <Text
-              inverse={run.id === selected}
-              bold={run.id === selected}
-              wrap="truncate"
-            >
-              {cells(
-                `${run.id === selected ? ">" : " "} ${subjectReference(run.subject)} ${run.subject.title}`,
-                width,
-              )}
-            </Text>
-            <Text color={colorFor(run.outcome)} wrap="truncate">
-              {cells(
-                `  ${run.outcome} · ${run.phase} · ${executionDuration(run.executions?.at(-1), now)}`,
-                width,
-              )}
-            </Text>
-            <Text dimColor>{cells(`  attempt ${run.attempt}`, width)}</Text>
-          </Box>
-        ))
+        runs.slice(start, start + count).map((run) => {
+          const repeated = runs.some(
+            (other) => other.id !== run.id && other.taskKey === run.taskKey,
+          );
+          const reference = `${subjectReference(run.subject)} ${subjectKind(run)}`;
+          return (
+            <Box key={run.id} flexDirection="column" height={2} flexShrink={0}>
+              <Text
+                inverse={run.id === selected}
+                bold={run.id === selected}
+                wrap="truncate"
+              >
+                {ellipsis(
+                  `${run.id === selected ? ">" : " "} ${needsAttention(run) ? "! " : ""}${reference} ${run.subject.title}`,
+                  width,
+                )}
+              </Text>
+              <Text color={colorFor(run.outcome)} wrap="truncate">
+                {ellipsis(
+                  `  ${run.outcome} ${chromeText("·")} ${run.outcome === "completed" && run.readiness?.draft ? "Draft delivered" : phaseLabel(run.phase)} ${chromeText("·")} a${run.attempt} ${chromeText("·")} ${executionDuration(run.executions?.at(-1), now)}${repeated ? ` ${chromeText("·")} #${run.attempt} ${run.id.slice(-8)}` : ""}`,
+                  width,
+                )}
+              </Text>
+            </Box>
+          );
+        })
       ) : (
-        <Text>No runs yet. Waiting for eligible issues.</Text>
+        <Lines lines={[emptyMessage]} width={width} height={height} />
       )}
     </Box>
   );

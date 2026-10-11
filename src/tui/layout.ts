@@ -1,42 +1,16 @@
-import { screenChromeRows } from "./constants.js";
-
-const panelHorizontalChrome = 4;
-const panelVerticalChrome = 3;
-
-/** Pane content sizes shared by rendering and keyboard scrolling. */
-export function monitorLayout(
-  columns: number,
-  rows: number,
-  compactChrome = false,
-) {
-  const wide = columns >= 110;
-  const height = Math.max(1, rows - (compactChrome ? 4 : screenChromeRows));
-  const paneWidth = wide ? Math.floor(columns * 0.43) : columns;
-  const summaryWidth = wide ? columns - paneWidth : columns;
-  const summaryPanelHeight = wide ? height - 6 : height;
-  const sessionsPanelHeight = wide ? 6 : height;
+/** Reserve a 42-cell identity list and a 60-cell operator workspace before splitting. */
+export function monitorLayout(columns: number, rows: number) {
+  const wide = columns >= 112;
+  const height = Math.max(1, rows - 6);
+  const paneWidth = wide ? Math.max(42, Math.floor(columns * 0.42)) : columns;
+  const summaryWidth = wide ? columns - paneWidth - 3 : columns;
   return {
     wide,
     height,
     paneWidth,
     summaryWidth,
-    summaryPanelHeight,
-    sessionsPanelHeight,
-    details: {
-      width: columns - panelHorizontalChrome,
-      height: height - panelVerticalChrome,
-    },
-    runs: {
-      width: paneWidth - panelHorizontalChrome,
-      height: height - panelVerticalChrome,
-    },
-    summary: {
-      width: summaryWidth - panelHorizontalChrome,
-      height: summaryPanelHeight - panelVerticalChrome,
-    },
-    sessions: {
-      width: summaryWidth - panelHorizontalChrome,
-      height: sessionsPanelHeight - panelVerticalChrome,
-    },
+    runs: { width: paneWidth, height: height - 1 },
+    details: { width: columns, height: height - 5 },
+    summary: { width: summaryWidth, height: height - 5 },
   };
 }

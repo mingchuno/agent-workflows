@@ -53,9 +53,11 @@ test("dashboard has titles, bottom controls, details and confirmed commands", as
     assert.ok(frame.indexOf("Tab pane") > frame.indexOf("Agent sessions"));
     view.stdin.write("\r");
     await settle();
-    view.stdin.write("\u001b[6~");
+    view.stdin.write("6");
     await settle();
     assert.match(view.lastFrame()!, /session-123/);
+    view.stdin.write("\u001b[6~");
+    await settle();
     assert.match(view.lastFrame()!, /requested/);
     view.stdin.write("\u001b");
     await settle();
@@ -507,31 +509,34 @@ test("scrolling details clamps at the bottom so Up moves immediately", async () 
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
+    view.stdin.write("6");
+    await settle();
     for (let i = 0; i < 4; i++) {
       view.stdin.write("\u001b[6~");
       await settle();
     }
-    const firstAtBottom = view.lastFrame()!.split("\n")[4];
+    const firstAtBottom = view.lastFrame()!.match(/lines (\d+)[–-]/)?.[1];
     view.stdin.write("\u001b[A");
     await settle();
-    assert.notEqual(view.lastFrame()!.split("\n")[4], firstAtBottom);
+    assert.notEqual(
+      view.lastFrame()!.match(/lines (\d+)[–-]/)?.[1],
+      firstAtBottom,
+    );
   } finally {
     view.unmount();
   }
 });
 
-test("run details lead with operator facts and use the responsive evidence hierarchy", async () => {
+test("overview leads with identity and separates checks from activity evidence", async () => {
   const { source, run, sessions } = monitorFixture();
-  run.subject.number = 7;
-  run.subject.title = "Redesign TUI Run details around operator hierarchy";
   run.validation = [
     {
       command: "pnpm",
       args: ["test"],
       exitCode: 0,
-      log: "/tmp/validation.log",
-      startedAt: "2026-09-20T10:00:10Z",
-      finishedAt: "2026-09-20T10:00:20Z",
+      log: "/tmp/check.log",
+      startedAt: run.createdAt,
+      finishedAt: run.updatedAt,
     },
   ];
   sessions[0]!.requested = {
@@ -546,75 +551,44 @@ test("run details lead with operator facts and use the responsive evidence hiera
   };
   const view = render(<Monitor source={source} size={designTarget} />);
   try {
-    await until(() => view.lastFrame()!.includes("operator hierarchy"));
+    await until(() => view.lastFrame()!.includes("l log"));
     view.stdin.write("\r");
     await settle();
-    const frame = view.lastFrame()!;
-    assert.match(
-      frame,
-      /#7 Redesign TUI Run details around operator hierarchy/,
-    );
-    assert.match(frame, /Outcome\s+running/i);
-    assert.match(frame, /Phase\s+implementation/i);
-    assert.match(frame, /Attempt\s+1/i);
-    assert.match(frame, /Total elapsed/i);
-    assert.match(frame, /Branch\s+agent\/1/i);
-    assert.match(frame, /Error\s+none/i);
-    assert.match(frame, /Validation\s+1 recorded · 1 exit 0/i);
-    assert.doesNotMatch(frame, /ATTENTION/);
-    assert.ok(frame.indexOf("CURRENT EXECUTION") < frame.indexOf("VALIDATION"));
-    assert.ok(frame.indexOf("VALIDATION") < frame.indexOf("AGENT SESSIONS"));
-    assert.match(
-      frame,
-      /Requested codex \/ requested \/ medium → Effective codex \//,
-    );
-    assert.match(frame, /effective \/ high/);
-    assert.doesNotMatch(frame, /\{"provider":"codex"/);
+    assert.match(view.lastFrame()!, /demo \/ #1 ISSUE Implement feature/);
+    assert.match(view.lastFrame()!, /RUNNING.*Implementation/);
+    assert.match(view.lastFrame()!, /Branch.*agent\/1/);
+    assert.doesNotMatch(view.lastFrame()!, /Requested codex/);
+    view.stdin.write("3");
+    await settle();
+    assert.match(view.lastFrame()!, /pnpm test.*exit 0/);
+    view.stdin.write("2");
+    await settle();
+    assert.match(view.lastFrame()!, /Requested codex \/ requested \/ medium/);
+    assert.match(view.lastFrame()!, /Effective codex \/ effective \/ high/);
   } finally {
     view.unmount();
   }
 });
 
-test("details switch at the evidence breakpoint without changing section order", async () => {
+test("compact lists and split workspaces retain identity across resize", async () => {
   const { source } = monitorFixture();
   const view = render(
-    <Monitor source={source} size={{ columns: 139, rows: 48 }} />,
+    <Monitor source={source} size={{ columns: 111, rows: 30 }} />,
   );
   try {
     await until(() => view.lastFrame()!.includes("Implement feature"));
+    assert.doesNotMatch(view.lastFrame()!, /Overview [·|] Enter inspect/);
+    view.rerender(
+      <Monitor source={source} size={{ columns: 112, rows: 30 }} />,
+    );
+    await settle();
+    assert.match(view.lastFrame()!, /Overview [·|] Enter inspect/);
     view.stdin.write("\r");
     await settle();
-    const stacked = view.lastFrame()!;
-    assert.ok(
-      stacked
-        .split("\n")
-        .every(
-          (line) =>
-            !(
-              line.includes("CURRENT EXECUTION") && line.includes("VALIDATION")
-            ),
-        ),
-    );
-    assert.ok(
-      stacked.indexOf("CURRENT EXECUTION") < stacked.indexOf("VALIDATION"),
-    );
-    assert.ok(
-      stacked.indexOf("VALIDATION") < stacked.indexOf("AGENT SESSIONS"),
-    );
-
-    view.rerender(
-      <Monitor source={source} size={{ columns: 140, rows: 48 }} />,
-    );
+    view.rerender(<Monitor source={source} size={{ columns: 80, rows: 24 }} />);
     await settle();
-    assert.ok(
-      view
-        .lastFrame()!
-        .split("\n")
-        .some(
-          (line) =>
-            line.includes("CURRENT EXECUTION") && line.includes("VALIDATION"),
-        ),
-    );
+    assert.match(view.lastFrame()!, /demo \/ #1 ISSUE Implement feature/);
+    assert.match(view.lastFrame()!, /RUNNING/);
   } finally {
     view.unmount();
   }
@@ -637,7 +611,7 @@ test("details reserve attention for outcomes that require it", async () => {
       await until(() => view.lastFrame()!.includes("Implement feature"));
       view.stdin.write("\r");
       await settle();
-      assert.equal(view.lastFrame()!.includes("ATTENTION"), expectsAttention);
+      assert.equal(view.lastFrame()!.includes("Problem"), expectsAttention);
     } finally {
       view.unmount();
     }
@@ -658,6 +632,8 @@ test("matching requested and effective profiles render once as effective", async
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
+    view.stdin.write("2");
+    await settle();
     assert.match(view.lastFrame()!, /Effective codex \/ same-model \/ medium/);
     assert.doesNotMatch(
       view.lastFrame()!,
@@ -668,10 +644,9 @@ test("matching requested and effective profiles render once as effective", async
   }
 });
 
-test("attention, diagnostics and technical evidence preserve action and exact values", async () => {
+test("overview explains action restrictions and exact diagnostics remain accessible", async () => {
   const { source, run } = monitorFixture();
   run.outcome = run.executions![0]!.outcome = "failed";
-  run.phase = run.executions![0]!.phase = "implementation";
   run.error = "Error: concise failure\ncomplete diagnostic evidence";
   run.subject.url = "https://example.test/issues/1?exact=yes";
   const view = render(<Monitor source={source} size={designTarget} />);
@@ -679,47 +654,44 @@ test("attention, diagnostics and technical evidence preserve action and exact va
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
-    const frame = view.lastFrame()!;
-    assert.match(frame, /ATTENTION/);
-    assert.match(frame, /concise failure/);
-    assert.match(frame, /Recovery\s+Recovery does not support implementation/);
-    assert.match(frame, /Action\s+r retry/);
-    assert.ok(frame.indexOf("ATTENTION") < frame.indexOf("CURRENT EXECUTION"));
-    for (let index = 0; index < 8; index++) {
-      view.stdin.write("\u001b[6~");
-      await settle();
-    }
-    const bottom = view.lastFrame()!;
-    assert.match(bottom, /DIAGNOSTICS/);
-    assert.match(bottom, /complete diagnostic evidence/);
-    assert.match(bottom, /TECHNICAL DETAILS/);
-    assert.match(bottom, /https:\/\/example\.test\/issues\/1\?exact=yes/);
-    assert.match(bottom, /Run ID\s+run/);
+    assert.match(view.lastFrame()!, /Evidence.*concise failure/);
+    assert.match(
+      view.lastFrame()!,
+      /Recovery.*Recovery does not support implementation/,
+    );
+    assert.match(view.lastFrame()!, /Action.*r retry/);
+    view.stdin.write("d");
+    await settle();
+    assert.match(view.lastFrame()!, /complete diagnostic evidence/);
+    view.stdin.write("6");
+    await settle();
+    assert.match(
+      view.lastFrame()!,
+      /https:\/\/example\.test\/issues\/1\?exact=yes/,
+    );
+    assert.match(view.lastFrame()!, /Run ID.*run/);
   } finally {
     view.unmount();
   }
 });
 
-test("attention bounds single-line errors while Diagnostics preserves them", async () => {
+test("overview bounds provider payloads while diagnostics preserve the tail", async () => {
   const { source, run } = monitorFixture();
-  const exactError = `Error: ${"provider failure payload ".repeat(80)}tail marker`;
-  run.outcome = run.executions![0]!.outcome = "failed";
-  run.executions![0]!.finishedAt = "2026-09-20T10:02:01Z";
-  run.error = exactError;
+  run.outcome = "failed";
+  run.error = `Error: ${"provider failure payload ".repeat(80)}tail marker`;
   const view = render(<Monitor source={source} size={designTarget} />);
   try {
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
-    const firstFrame = view.lastFrame()!;
-    assert.match(firstFrame, /Problem\s+provider failure payload/);
-    assert.match(firstFrame, /…/);
-    assert.match(firstFrame, /CURRENT EXECUTION/);
-    const problem = firstFrame
-      .split("\n")
-      .find((line) => line.includes("Problem"))!;
-    assert.doesNotMatch(problem, /tail marker/);
-    assert.match(firstFrame, /tail marker/);
+    assert.match(view.lastFrame()!, /Evidence.*provider failure payload/);
+    assert.match(view.lastFrame()!, /…|\.\.\./);
+    assert.doesNotMatch(view.lastFrame()!, /tail marker/);
+    view.stdin.write("d");
+    await settle();
+    view.stdin.write("\u001b[F");
+    await settle();
+    assert.match(view.lastFrame()!, /tail marker/);
   } finally {
     view.unmount();
   }
@@ -750,10 +722,10 @@ test("health summary distinguishes successful and failed validation", async () =
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
-    assert.match(
-      view.lastFrame()!,
-      /Validation\s+2 recorded · 1 exit 0 · 1 nonzero/,
-    );
+    view.stdin.write("3");
+    await settle();
+    assert.match(view.lastFrame()!, /pnpm check.*exit 0/);
+    assert.match(view.lastFrame()!, /pnpm test.*exit 1/);
   } finally {
     view.unmount();
   }
@@ -825,11 +797,16 @@ test("details show latest execution first and l selects the current running sess
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
+    view.stdin.write("4");
+    await settle();
     const frame = view.lastFrame()!;
     assert.ok(
-      frame.indexOf("CURRENT EXECUTION") < frame.indexOf("PRIOR EXECUTION 1"),
+      frame.indexOf("Current execution") < frame.indexOf("Prior execution 1"),
     );
-    assert.match(frame, /failed · push · duration 0m 59s · queue 0m 1s/);
+    assert.match(
+      frame,
+      /failed [·|] push [·|] duration 0m 59s [·|] queue 0m 1s/,
+    );
     assert.match(frame, /l log: implementation invocation 1 \(running\)/);
     view.stdin.write("l");
     await until(() => view.lastFrame()!.includes("RUNNING CURRENT LOG"));
@@ -850,7 +827,7 @@ test("details expose overflow range and ignore dashboard-only navigation keys", 
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
-    assert.match(view.lastFrame()!, /lines 1–\d+ of \d+/);
+    assert.match(view.lastFrame()!, /lines 1[–-]\d+ of \d+/);
     for (const input of ["a", "[", "]", "p"]) {
       view.stdin.write(input);
       await settle();
@@ -861,13 +838,13 @@ test("details expose overflow range and ignore dashboard-only navigation keys", 
     assert.match(view.lastFrame()!, /q close/);
     view.stdin.write("\u001b[6~");
     await settle();
-    assert.match(view.lastFrame()!, /lines \d+–\d+ of \d+/);
+    assert.match(view.lastFrame()!, /lines \d+[–-]\d+ of \d+/);
   } finally {
     view.unmount();
   }
 });
 
-test("80-column details keep every active control visible", async () => {
+test("80-column details keep primary controls visible and secondary actions discoverable", async () => {
   const { source, run, sessions } = monitorFixture();
   let releaseSessions!: () => void;
   const sessionLoad = new Promise<void>((resolve) => {
@@ -924,8 +901,6 @@ test("80-column details keep every active control visible", async () => {
     for (const control of [
       "l log",
       "v checks",
-      "p pause",
-      "r retry",
       "c recover",
       "R reload",
       "? help",
@@ -939,11 +914,8 @@ test("80-column details keep every active control visible", async () => {
     await settle();
     const footer = view.lastFrame()!.split("\n").at(-1)!;
     for (const control of [
-      "↑↓/Pg",
-      "Esc",
-      "l current log",
+      "l log",
       "v checks",
-      "r retry",
       "c recover",
       "R reload",
       "? help",
@@ -952,6 +924,10 @@ test("80-column details keep every active control visible", async () => {
       assert.match(footer, new RegExp(control.replace("?", "\\?")));
     }
     assert.ok(stringWidth(footer) <= 80);
+    view.stdin.write("x");
+    await settle();
+    assert.match(view.lastFrame()!, /r retry: Available/);
+    assert.match(view.lastFrame()!, /Continue the failed publication step/);
   } finally {
     view.unmount();
   }
@@ -970,17 +946,19 @@ test("details scroll from the clamped position after a live resize", async () =>
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
+    view.stdin.write("d");
+    await settle();
     for (let index = 0; index < 10; index++) {
       view.stdin.write("\u001b[6~");
       await settle();
     }
     view.rerender(<Monitor source={source} size={designTarget} />);
     await settle();
-    const before = view.lastFrame()!.match(/lines (\d+)–/)?.[1];
+    const before = view.lastFrame()!.match(/lines (\d+)[–-]/)?.[1];
     assert.ok(before);
     view.stdin.write("\u001b[A");
     await settle();
-    const after = view.lastFrame()!.match(/lines (\d+)–/)?.[1];
+    const after = view.lastFrame()!.match(/lines (\d+)[–-]/)?.[1];
     assert.equal(Number(after), Number(before) - 1);
   } finally {
     view.unmount();
@@ -996,10 +974,16 @@ test("NO_COLOR details retain textual hierarchy and status", async () => {
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
-    assert.match(view.lastFrame()!, /Outcome\s+running/);
-    assert.match(view.lastFrame()!, /CURRENT EXECUTION/);
-    assert.match(view.lastFrame()!, /VALIDATION/);
-    assert.match(view.lastFrame()!, /AGENT SESSIONS/);
+    assert.match(view.lastFrame()!, /RUNNING.*Implementation/);
+    view.stdin.write("4");
+    await settle();
+    assert.match(view.lastFrame()!, /Current execution/);
+    view.stdin.write("3");
+    await settle();
+    assert.match(view.lastFrame()!, /Workflow validation/);
+    view.stdin.write("2");
+    await settle();
+    assert.match(view.lastFrame()!, /Agent sessions/);
   } finally {
     if (previous === undefined) delete process.env.NO_COLOR;
     else process.env.NO_COLOR = previous;
@@ -1079,9 +1063,11 @@ test("help and confirmation restore the scrolled details after a terminal resize
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
+    view.stdin.write("d");
+    await settle();
     view.stdin.write("\u001b[6~");
     await settle();
-    const line = view.lastFrame()!.match(/lines (\d+)–/)?.[1];
+    const line = view.lastFrame()!.match(/lines (\d+)[–-]/)?.[1];
     assert.ok(Number(line) > 1);
     for (const shortcut of ["?", "s"]) {
       view.stdin.write(shortcut);
@@ -1102,7 +1088,7 @@ test("help and confirmation restore the scrolled details after a terminal resize
       view.stdin.write("\u001b");
       await settle();
       assert.match(view.lastFrame()!, /Run details/);
-      assert.equal(view.lastFrame()!.match(/lines (\d+)–/)?.[1], line);
+      assert.equal(view.lastFrame()!.match(/lines (\d+)[–-]/)?.[1], line);
     }
     assert.deepEqual(requests, []);
   } finally {
@@ -1148,13 +1134,15 @@ test("batched detail scroll keys each advance the viewport", async () => {
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await settle();
-    const before = Number(view.lastFrame()!.match(/lines (\d+)–/)?.[1]);
+    view.stdin.write("d");
+    await settle();
+    const before = Number(view.lastFrame()!.match(/lines (\d+)[–-]/)?.[1]);
     view.stdin.write("\u001b[B");
     view.stdin.write("\u001b[B");
     view.stdin.write("\u001b[B");
     await settle();
     assert.equal(
-      Number(view.lastFrame()!.match(/lines (\d+)–/)?.[1]),
+      Number(view.lastFrame()!.match(/lines (\d+)[–-]/)?.[1]),
       before + 3,
     );
   } finally {
@@ -1172,15 +1160,19 @@ test("project navigation at its boundary preserves the displayed run's session s
   });
   const view = render(<Monitor source={source} size={wide} />);
   try {
-    await until(() => view.lastFrame()!.includes("review · invocation 2"));
+    await until(
+      () =>
+        view.lastFrame()!.includes("review · invocation 2") ||
+        view.lastFrame()!.includes("review | invocation 2"),
+    );
     view.stdin.write("a");
     await settle();
     view.stdin.write("\u001b[B");
     await settle();
-    assert.match(view.lastFrame()!, /> review · invocation 2/);
+    assert.match(view.lastFrame()!, /> review [·|] invocation 2/);
     view.stdin.write("\u001b[D");
     await settle();
-    assert.match(view.lastFrame()!, /> review · invocation 2/);
+    assert.match(view.lastFrame()!, /> review [·|] invocation 2/);
     view.stdin.write("l");
     await settle();
     assert.match(view.lastFrame()!, /Logs · review · invocation 2/);
@@ -1224,6 +1216,8 @@ test("completed draft details expose unresolved review and agent-reported eviden
     await until(() => view.lastFrame()!.includes("Implement feature"));
     view.stdin.write("\r");
     await until(() => view.lastFrame()!.includes("Run details"));
+    view.stdin.write("3");
+    await settle();
     assert.match(view.lastFrame()!, /Missing authorization/);
     assert.match(view.lastFrame()!, /Dependency not inspected/);
     assert.match(view.lastFrame()!, /task-specific check.*failed/);

@@ -1,62 +1,71 @@
-/** Manual terminal fixture: node --import tsx tests/tui-demo.tsx */
+/** Live read-only scenarios: node --import tsx tests/tui-demo.tsx [mixed|empty|offline|stale|pending|long-error] */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { render } from "ink";
 import { Monitor } from "../src/tui/index.js";
-import { monitorFixture } from "./tui-fixtures.js";
+import { consoleFixture } from "./tui-demo-fixtures.js";
 
-const { source, run, sessions } = monitorFixture();
+const { source, runs, sessions } = consoleFixture();
 const directory = await mkdtemp(join(tmpdir(), "aw-monitor-demo-"));
-run.subject.title = "Load CLI environment files for runner and workflow steps";
-run.subject.number = 3;
-run.executions![0]!.startedAt = new Date(Date.now() - 137000).toISOString();
-run.createdAt = run.executions![0]!.createdAt = new Date(
-  Date.now() - 145000,
-).toISOString();
-sessions[0]!.log = join(directory, "agent.jsonl");
-await writeFile(
-  sessions[0]!.log,
-  Array.from({ length: 80 }, (_, index) =>
-    JSON.stringify({
-      type: "item.completed",
-      item: {
-        type: "agent_message",
-        text: `Activity ${index}: inspecting workflow configuration`,
-      },
-    }),
-  ).join("\n") + "\n",
-);
-source.runs = async () => [
-  run,
-  {
-    ...run,
-    id: "failed",
-    subject: {
-      ...run.subject,
-      number: 2,
-      title: "Publish validated change request",
-    },
-    outcome: "failed",
-    phase: "change-request",
-    error:
-      "Resource not accessible by personal access token. Check repository permissions before recovery.",
-    executions: [
-      {
-        ...run.executions![0]!,
-        outcome: "failed",
-        finishedAt: new Date().toISOString(),
-      },
-    ],
-  },
-];
-source.request = async () => {
-  throw new Error("Read-only demonstration; no workflow actions are sent");
-};
+const scenario = process.argv[2] ?? "mixed";
+const timers: ReturnType<typeof setTimeout>[] = [];
+for (const session of sessions) {
+  session.log = join(directory, `${session.id}.jsonl`);
+  await writeFile(
+    session.log,
+    Array.from({ length: 80 }, (_, index) =>
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          type: "agent_message",
+          text: `Activity ${index}: inspecting workflow configuration`,
+        },
+      }),
+    ).join("\n") + "\n",
+  );
+}
+for (const run of runs)
+  for (const check of run.validation ?? []) {
+    check.log = join(directory, `${run.id}-validation.log`);
+    await writeFile(
+      check.log,
+      "FAIL permissions.test.ts\nExpected access denied; received 200\n",
+    );
+  }
+if (scenario === "empty") source.runs = async () => [];
+else if (scenario === "offline")
+  source.runs = async () => {
+    throw new Error("Database temporarily unavailable (mock)");
+  };
+else if (scenario === "stale") {
+  let offline = false;
+  source.runs = async () => {
+    if (offline) throw new Error("Database connection lost (mock)");
+    return runs;
+  };
+  timers.push(
+    setTimeout(() => {
+      offline = true;
+    }, 1500),
+  );
+} else if (scenario === "pending")
+  source.request = async () => "mock-command-awaiting-runner";
+else if (scenario === "long-error")
+  runs[0] = {
+    ...runs[1]!,
+    id: "long-error",
+    taskKey: "long-error",
+    executions: [{ ...runs[1]!.executions![0]!, id: "long-error-execution" }],
+    error: `Error: ${"Provider diagnostic context. ".repeat(80)}tail marker\nUnderlying cause recorded here`,
+  };
+else if (scenario !== "mixed")
+  throw new Error(`Unknown demo scenario: ${scenario}`);
 try {
   await render(<Monitor source={source} />, {
     alternateScreen: true,
   }).waitUntilExit();
 } finally {
+  for (const timer of timers) clearTimeout(timer);
   await rm(directory, { recursive: true, force: true });
 }

@@ -8,6 +8,7 @@ interface RunProjectionInput {
   projectRuns: RunRecord[];
   sessions?: InvocationRecord[];
   pending: boolean;
+  restriction?: string;
 }
 
 /** Operator facts derived from one selected Run; admission remains authoritative. */
@@ -17,6 +18,7 @@ export function projectRunProjection({
   projectRuns,
   sessions = [],
   pending,
+  restriction,
 }: RunProjectionInput) {
   const recoveryReason = run
     ? (recoveryUnavailable(run) ??
@@ -27,24 +29,47 @@ export function projectRunProjection({
         ? "A newer attempt has superseded this run"
         : undefined))
     : undefined;
+  const retryReason =
+    restriction ??
+    (!run
+      ? "Select a run"
+      : pending
+        ? "Waiting for pending command acknowledgement"
+        : !["failed", "blocked", "cancelled"].includes(run.outcome)
+          ? "Only failed, blocked or cancelled runs can be retried"
+          : projectRuns.some(
+                (item) =>
+                  item.taskKey === run.taskKey &&
+                  ["queued", "running"].includes(item.outcome),
+              )
+            ? "An active attempt already exists for this task"
+            : undefined);
+  const stopReason =
+    restriction ??
+    (!run
+      ? "Select a run"
+      : pending
+        ? "Waiting for pending command acknowledgement"
+        : !["queued", "running"].includes(run.outcome)
+          ? "Run is already terminal"
+          : undefined);
+  const recoverReason =
+    restriction ??
+    (pending
+      ? "Waiting for pending command acknowledgement"
+      : (recoveryReason ?? (!run ? "Select a run" : undefined)));
   const executionSessions = currentExecutionSessions(run, sessions);
   return {
     recoveryReason,
+    actionReasons: {
+      stop: stopReason,
+      retry: retryReason,
+      recover: recoverReason,
+    },
     available: {
-      stop: Boolean(
-        run && !pending && ["queued", "running"].includes(run.outcome),
-      ),
-      retry: Boolean(
-        run &&
-          !pending &&
-          ["failed", "blocked", "cancelled"].includes(run.outcome) &&
-          !projectRuns.some(
-            (item) =>
-              item.taskKey === run.taskKey &&
-              ["queued", "running"].includes(item.outcome),
-          ),
-      ),
-      recover: Boolean(run && !pending && !recoveryReason),
+      stop: !stopReason,
+      retry: !retryReason,
+      recover: !recoverReason,
     },
     executionSessions,
     detailLogSession: latestSession(executionSessions),

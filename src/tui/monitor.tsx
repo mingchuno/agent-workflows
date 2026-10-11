@@ -4,7 +4,8 @@ import { currentExecutionId } from "../domain.js";
 import { minimumTerminalSize } from "./constants.js";
 import { type MonitorSource, useMonitorData } from "./data.js";
 import { ConfirmDialog, HelpDialog } from "./dialogs.js";
-import { cells, colorFor, wrapLines } from "./format.js";
+import { runCounts } from "./discovery.js";
+import { chromeCells as cells, chromeText, colorFor } from "./format.js";
 import { monitorLayout } from "./layout.js";
 import { LogViewer } from "./log.js";
 import {
@@ -13,14 +14,12 @@ import {
   transitionNavigation,
 } from "./monitor-navigation.js";
 import type { ExecutionNotificationWriter } from "./notifications.js";
+import { ellipsis } from "./presentation.js";
 import { projectRunProjection } from "./projection.js";
-import {
-  detailLines,
-  Lines,
-  RunList,
-  summaryLines,
-  wrapDetailLines,
-} from "./views.js";
+import { Shortcuts } from "./shortcuts.js";
+import { Lines, RunList, wrapDetailLines } from "./views.js";
+import { workspaceLines } from "./workspace.js";
+import { RunWorkspace } from "./workspace-view.js";
 
 const notificationNoticeDurationMs = 2000;
 
@@ -50,7 +49,12 @@ export function Monitor({
     navigation;
   const confirmation = modal?.type === "confirmation" ? modal : undefined;
   const logs = modal?.type === "logs" ? modal : undefined;
-  const data = useMonitorData(source, selection, notificationWriter);
+  const data = useMonitorData(
+    source,
+    selection,
+    notificationWriter,
+    navigation,
+  );
   const { projects, project, projectRuns, run, sessions, events } = data;
   const dismissModal = () =>
     setNavigation(
@@ -65,19 +69,24 @@ export function Monitor({
   const dashboard = screen === "dashboard";
   const layout = monitorLayout(
     columns,
-    rows - (showNotificationNotice ? 1 : 0) - (dashboard ? 1 : 0),
-    screen === "details",
+    rows -
+      (showNotificationNotice ? 1 : 0) -
+      (navigation.searchDraft !== undefined ? 1 : 0),
   );
   const { wide, height, paneWidth, summaryWidth } = layout;
   const session = sessions.find((item) => item.id === sessionId) ?? sessions[0];
-  const { executionSessions, detailLogSession, recoveryReason, available } =
-    projectRunProjection({
-      run,
-      project,
-      projectRuns,
-      sessions,
-      pending: Boolean(data.pending),
-    });
+  const projection = projectRunProjection({
+    run,
+    project,
+    projectRuns,
+    sessions,
+    pending: Boolean(data.pending),
+    restriction:
+      data.snapshotStatus !== "connected"
+        ? "Snapshot is unavailable or stale; wait for a successful refresh"
+        : undefined,
+  });
+  const { executionSessions, detailLogSession, available } = projection;
   const event =
     events.find((item) => item.sequence === stepSequence) ?? events.at(-1);
   useEffect(() => {
@@ -97,33 +106,54 @@ export function Monitor({
         }).state,
     );
   }, [project?.id, run?.id]);
-  const detailDocument = run
-    ? detailLines(
+  const viewport = screen === "details" ? layout.details : layout.summary;
+  const section = screen === "details" ? navigation.section : "Overview";
+  const document = run
+    ? workspaceLines({
         run,
+        projection,
         sessions,
+        events,
+        section,
         now,
-        recoveryReason,
-        layout.details.width,
-        available,
-      )
+        width: viewport.width,
+      })
     : ["Run no longer available"];
-  const wrappedDetailLines = wrapDetailLines(
-    detailDocument,
-    layout.details.width,
-  );
-  const detailOffset = Math.min(
+  if (
+    screen === "dashboard" &&
+    run &&
+    !["failed", "blocked", "cancelled"].includes(run.outcome)
+  ) {
+    const payload = event?.payload as
+      | { name?: string; status?: string }
+      | undefined;
+    document.splice(
+      1,
+      0,
+      ...(payload
+        ? [
+            `Latest step: ${payload.name ?? "step"} ${chromeText("·")} ${payload.status ?? "recorded"}`,
+          ]
+        : []),
+      ...sessions
+        .slice(0, 2)
+        .map(
+          (item) =>
+            `${item.id === session?.id ? ">" : " "} ${item.step} ${chromeText("·")} invocation ${item.attempt} ${chromeText("·")} ${item.outcome}`,
+        ),
+    );
+  }
+  if (run && navigation.expandedTitle && section === "Overview")
+    document.unshift("Full subject", run.subject.title, "");
+  const wrappedDocument = wrapDetailLines(document, viewport.width);
+  const displayedOffset = Math.min(
     offset,
-    Math.max(0, wrappedDetailLines.length - layout.details.height),
+    Math.max(0, wrappedDocument.length - viewport.height),
   );
   const terminalIsLargeEnough =
     columns >= minimumTerminalSize.columns && rows >= minimumTerminalSize.rows;
   useInput((input, key) => {
-    const viewport = screen === "details" ? layout.details : layout.summary;
-    const scrollLines = run
-      ? screen === "details"
-        ? wrappedDetailLines
-        : wrapLines(summaryLines(run, now, event), viewport.width)
-      : [];
+    const scrollLines = wrappedDocument;
     const navigationEvent: NavigationEvent = {
       type: "key",
       input,
@@ -132,7 +162,8 @@ export function Monitor({
         terminalIsLargeEnough,
         projects,
         project,
-        runs: projectRuns,
+        runs: data.visibleRuns,
+        projectRuns,
         run,
         sessions,
         session,
@@ -143,7 +174,7 @@ export function Monitor({
         available,
         pending: Boolean(data.pending),
         scrollMaximum: Math.max(0, scrollLines.length - viewport.height),
-        pageSize: layout.details.height,
+        pageSize: viewport.height,
       },
     };
     const { effect } = transitionNavigation(navigation, navigationEvent);
@@ -200,18 +231,12 @@ export function Monitor({
   const freshness = data.lastUpdated
     ? `refreshed ${Math.max(0, Math.floor((now - data.lastUpdated) / statusRefreshIntervalMs))}s ago`
     : "freshness unavailable";
-  const status = `${data.connection} · ${freshness}`;
-  const sessionIndex = Math.max(
-    0,
-    sessions.findIndex((item) => item.id === session?.id),
-  );
-  const sessionLines = sessions.length
-    ? sessions
-        .slice(Math.max(0, sessionIndex - 1), sessionIndex + 3)
-        .map(
-          (item) =>
-            `${item.id === session?.id ? ">" : " "} ${item.step} · invocation ${item.attempt} · ${item.outcome}`,
-        )
+  const status = `${columns < 120 ? data.connection.replace(/^Database /, "DB ") : data.connection} · ${freshness}`;
+  const selectedSessionLines = sessions.length
+    ? sessions.map(
+        (item) =>
+          `${item.id === session?.id ? ">" : " "} ${item.step} ${chromeText("·")} invocation ${item.attempt} ${chromeText("·")} ${item.outcome}`,
+      )
     : ["No agent sessions recorded"];
   const detailsLogControl = detailLogSession
     ? columns < 120
@@ -223,148 +248,142 @@ export function Monitor({
       ? "l stage diagnostic"
       : "";
   const controls = [
-    screen === "details"
-      ? detailsLogControl
-      : sessions.length || run?.stageLogs?.length
-        ? "l log"
-        : "",
-    run?.validation?.length
+    available.recover
+      ? "c recover"
+      : available.retry
+        ? "r retry"
+        : available.stop
+          ? "s stop"
+          : "",
+    run &&
+    (dashboard ? detailsLogControl || sessions.length : detailsLogControl)
       ? columns < 120
-        ? "v checks"
-        : "v validation"
+        ? "l log"
+        : detailsLogControl || "l log"
       : "",
-    screen === "dashboard" && project
-      ? project.paused
-        ? "p resume"
-        : "p pause"
-      : "",
-    available.stop ? "s stop" : "",
-    available.retry ? "r retry" : "",
-    available.recover ? "c recover" : "",
+    run?.validation?.length ? "v checks" : "",
+    "x actions",
     "R reload",
     "? help",
     "q close",
   ]
     .filter(Boolean)
-    .join(columns < 120 ? " " : " · ");
+    .join(" · ");
+  const emptyMessage =
+    data.snapshotStatus === "loading"
+      ? "Loading workflow snapshot..."
+      : data.snapshotStatus === "unavailable"
+        ? "Snapshot unavailable. Check database access; this monitor retries automatically."
+        : projectRuns.length
+          ? "No matching runs. Press / to edit search or f to change filter."
+          : "No runs yet. Waiting for eligible issues.";
+  const showList = dashboard && (wide || focus === "runs");
+  const showWorkspace = !dashboard || wide || focus !== "runs";
+  const workspaceWidth = dashboard && wide ? summaryWidth : columns;
+  const showSessions = dashboard && focus === "sessions";
   return (
     <Box width={columns} height={rows} flexDirection="column">
-      <Text bold color={colorFor("running")} wrap="truncate">
+      <Text bold wrap="truncate">
         {cells(
-          `Agent Workflows · ${screen === "dashboard" ? "Monitor" : "Run details"}`,
+          `Agent Workflows${project ? ` / ${project.id}` : ""} / ${dashboard ? "Monitor" : "Run details"}`,
           columns,
         )}
       </Text>
       <Text wrap="truncate">
         {cells(
-          project
-            ? `${project.id} · intake ${project.paused ? "paused" : "enabled"} · ${projectRuns.filter((item) => item.outcome === "queued").length} queued${project.blocked ? ` · BLOCKED: ${project.blocked}` : ""}`
-            : "No projects registered. Start the runner to populate this view.",
+          data.stateNotice ??
+            (project
+              ? `Intake ${project.paused ? "paused" : "enabled"} · Left/Right project (${projects.findIndex((item) => item.id === project.id) + 1}/${projects.length})${project.blocked ? ` · Project BLOCKED: ${project.blocked}` : ""}`
+              : data.snapshotStatus === "connected"
+                ? "No projects registered. Start the runner to populate this view."
+                : "Waiting for project snapshot"),
           columns,
         )}
       </Text>
+      <Text
+        wrap="truncate"
+        color={
+          projectRuns.some((item) =>
+            ["failed", "blocked", "cancelled"].includes(item.outcome),
+          )
+            ? colorFor("blocked")
+            : undefined
+        }
+      >
+        {cells(
+          `${data.snapshotStatus === "loading" || data.snapshotStatus === "unavailable" ? "Run counts unavailable" : runCounts(projectRuns)}${data.snapshotStatus === "stale" ? " · Stale snapshot" : ""}`,
+          columns,
+        )}
+      </Text>
+      {navigation.searchDraft !== undefined && (
+        <Text wrap="truncate">
+          {cells(
+            `Search runs: ${navigation.searchDraft}_ · Enter apply · Esc cancel`,
+            columns,
+          )}
+        </Text>
+      )}
       <Box height={height} flexDirection="row" overflow="hidden">
-        {screen === "details" ? (
-          <Box
-            borderStyle="round"
-            width={columns}
-            height={height}
-            paddingX={1}
-            flexDirection="column"
-          >
-            <Text bold>
-              {wrappedDetailLines.length > layout.details.height
-                ? `Details · lines ${detailOffset + 1}–${Math.min(detailOffset + layout.details.height, wrappedDetailLines.length)} of ${wrappedDetailLines.length}`
-                : "Details"}
+        {showList && (
+          <Box width={paneWidth} height={height} flexDirection="column">
+            <Text bold wrap="truncate">
+              {ellipsis(
+                `Runs / ${navigation.filter} (${data.visibleRuns.length})${navigation.query ? ` / ${navigation.query}` : ""}`,
+                paneWidth,
+              )}
             </Text>
-            <Lines
-              lines={detailDocument}
-              width={layout.details.width}
-              height={layout.details.height}
-              offset={detailOffset}
-              outcome={run?.outcome}
+            <RunList
+              runs={data.visibleRuns}
+              selected={run?.id}
+              width={layout.runs.width}
+              height={layout.runs.height}
+              now={now}
+              emptyMessage={emptyMessage}
             />
           </Box>
-        ) : (
-          <>
-            {(wide || focus === "runs") && (
-              <Box
-                width={paneWidth}
-                height={height}
-                borderStyle="round"
-                borderColor={focus === "runs" ? colorFor("running") : undefined}
-                flexDirection="column"
-                paddingX={1}
-              >
-                <Text bold>
-                  {focus === "runs" ? "> " : ""}Runs · {projectRuns.length}
-                </Text>
-                <RunList
-                  runs={projectRuns}
-                  selected={run?.id}
-                  width={layout.runs.width}
-                  height={layout.runs.height}
-                  now={now}
-                />
-              </Box>
-            )}
-            {(wide || focus !== "runs") && (
-              <Box width={summaryWidth} height={height} flexDirection="column">
-                {(wide || focus === "summary") && (
-                  <Box
-                    width={summaryWidth}
-                    height={layout.summaryPanelHeight}
-                    borderStyle="round"
-                    borderColor={
-                      focus === "summary" ? colorFor("running") : undefined
-                    }
-                    paddingX={1}
-                    flexDirection="column"
-                  >
-                    <Text bold>
-                      {focus === "summary" ? "> " : ""}Summary · Enter details
-                    </Text>
-                    <Lines
-                      lines={
-                        run
-                          ? summaryLines(run, now, event)
-                          : ["Select a run to inspect progress"]
-                      }
-                      width={layout.summary.width}
-                      height={layout.summary.height}
-                      offset={offset}
-                    />
-                  </Box>
-                )}
-                {(wide || focus === "sessions") && (
-                  <Box
-                    width={summaryWidth}
-                    height={layout.sessionsPanelHeight}
-                    borderStyle="round"
-                    borderColor={
-                      focus === "sessions" ? colorFor("running") : undefined
-                    }
-                    paddingX={1}
-                    flexDirection="column"
-                  >
-                    <Text bold>
-                      {focus === "sessions" ? "> " : ""}Agent sessions ·{" "}
-                      {sessions.length} · l log
-                    </Text>
-                    <Lines
-                      lines={sessionLines}
-                      width={layout.sessions.width}
-                      height={layout.sessions.height}
-                    />
-                  </Box>
-                )}
-              </Box>
-            )}
-          </>
         )}
+        {dashboard && wide && (
+          <Box width={3} height={height}>
+            <Text dimColor>{" | "}</Text>
+          </Box>
+        )}
+        {showWorkspace &&
+          (run ? (
+            <RunWorkspace
+              run={run}
+              section={section}
+              now={now}
+              dashboard={dashboard}
+              detailError={data.detailError}
+              content={{
+                lines: document,
+                width: workspaceWidth,
+                height: viewport.height,
+                offset: displayedOffset,
+              }}
+              sessions={
+                showSessions
+                  ? {
+                      lines: selectedSessionLines,
+                      offset: Math.max(
+                        0,
+                        sessions.findIndex((item) => item.id === session?.id) -
+                          2,
+                      ),
+                    }
+                  : undefined
+              }
+            />
+          ) : (
+            <Lines
+              lines={[emptyMessage]}
+              width={workspaceWidth}
+              height={height}
+            />
+          ))}
       </Box>
       {showNotificationNotice && (
-        <Text color={colorFor("running")} wrap="truncate">
+        <Text wrap="truncate">
           {cells(
             "Notifications enabled; delivery is best-effort and depends on terminal settings",
             columns,
@@ -374,39 +393,27 @@ export function Monitor({
       <Text
         wrap="truncate"
         color={
-          data.connection.startsWith("Connection error")
+          data.snapshotStatus === "stale" ||
+          data.snapshotStatus === "unavailable"
             ? colorFor("failed")
             : undefined
         }
       >
         {cells(
-          `${data.message ? `${data.message} · ` : ""}${columns < 120 ? status.replace("Database ", "DB ") : status} · runner liveness unverified · closing leaves workflows running`,
+          data.message ||
+            `${data.snapshotStatus === "stale" ? "Stale snapshot · " : ""}${status} · runner liveness unverified`,
           columns,
         )}
       </Text>
-      {dashboard && (
-        <Text color={colorFor("running")} wrap="truncate">
-          {cells(
-            "Tab pane · ↑↓ select/scroll · ←→ project · Enter details",
-            columns,
-          )}
-        </Text>
-      )}
-      <Text color={colorFor("running")} wrap="truncate">
-        {cells(
-          [
-            dashboard
-              ? ""
-              : columns < 120
-                ? "↑↓/Pg Esc"
-                : "↑↓ scroll · PgUp/PgDn page · Esc back",
-            controls,
-          ]
-            .filter(Boolean)
-            .join(columns < 120 ? " " : " · "),
-          columns,
-        )}
-      </Text>
+      <Shortcuts
+        text={
+          dashboard
+            ? "Up/Down select · Enter inspect · f filter · n attention · / search · Tab pane"
+            : "Up/Down scroll · PgUp/PgDn page · Tab section · d diagnostic · Esc back · t subject"
+        }
+        width={columns}
+      />
+      <Shortcuts text={controls} width={columns} />
     </Box>
   );
 }

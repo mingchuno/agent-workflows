@@ -3,7 +3,15 @@ import type { RunRecord } from "../domain.js";
 import { currentExecutionId, subjectReference } from "../domain.js";
 import type { EventRecord, InvocationRecord, ProjectState } from "../store.js";
 import type { MonitorAction } from "./data.js";
+import {
+  discoverRuns,
+  needsAttention,
+  type RunFilter,
+  runFilters,
+} from "./discovery.js";
 import type { LogSource } from "./log.js";
+import { type RunSection, runSections } from "./sections.js";
+import { terminalText } from "./text.js";
 
 type Focus = "runs" | "summary" | "sessions";
 type RunAction = "stop" | "retry" | "retry-refresh" | "recover";
@@ -22,6 +30,11 @@ export interface MonitorNavigation {
   sessionId?: string;
   stepSequence?: number;
   offset: number;
+  section: RunSection;
+  expandedTitle: boolean;
+  filter: RunFilter;
+  query: string;
+  searchDraft?: string;
   modal?: Modal;
 }
 export const initialNavigation: MonitorNavigation = {
@@ -29,6 +42,10 @@ export const initialNavigation: MonitorNavigation = {
   screen: "dashboard",
   focus: "runs",
   offset: 0,
+  section: "Overview",
+  expandedTitle: false,
+  filter: "All",
+  query: "",
 };
 
 interface NavigationContext {
@@ -36,6 +53,7 @@ interface NavigationContext {
   projects: ProjectState[];
   project?: ProjectState;
   runs: RunRecord[];
+  projectRuns: RunRecord[];
   run?: RunRecord;
   sessions: InvocationRecord[];
   session?: InvocationRecord;
@@ -73,6 +91,46 @@ export function transitionNavigation(
   if (key.ctrl || key.meta || key.eventType === "release") return { state };
   // Dialogs/logs own keyboard input, except when hidden by the resize screen.
   if (state.modal && context.terminalIsLargeEnough) return { state };
+  if (state.searchDraft !== undefined) {
+    if (key.escape) return { state: { ...state, searchDraft: undefined } };
+    if (key.return)
+      return {
+        state: {
+          ...state,
+          query: state.searchDraft,
+          searchDraft: undefined,
+          selection: discoverySelection(
+            context,
+            state.filter,
+            state.searchDraft,
+          ),
+          offset: 0,
+        },
+      };
+    if (key.backspace || key.delete)
+      return {
+        state: {
+          ...state,
+          searchDraft: Array.from(state.searchDraft).slice(0, -1).join(""),
+        },
+      };
+    if (
+      !key.tab &&
+      !key.upArrow &&
+      !key.downArrow &&
+      !key.leftArrow &&
+      !key.rightArrow
+    )
+      return {
+        state: {
+          ...state,
+          searchDraft:
+            state.searchDraft +
+            terminalText(input).replaceAll("\n", "").replaceAll("\t", ""),
+        },
+      };
+    return { state };
+  }
   if (input === "q") return { state, effect: { type: "exit" } };
   if (!context.terminalIsLargeEnough) return { state };
   if (key.escape)
@@ -126,7 +184,47 @@ export function transitionNavigation(
         },
       },
     };
-  if (state.screen === "details") return { state };
+  if (input === "t")
+    return {
+      state: {
+        ...state,
+        screen: "details",
+        section: "Overview",
+        expandedTitle: !state.expandedTitle,
+        offset: 0,
+      },
+    };
+  if (input === "d")
+    return {
+      state: { ...state, screen: "details", section: "Diagnostics", offset: 0 },
+    };
+  if (input === "x")
+    return {
+      state: { ...state, screen: "details", section: "Actions", offset: 0 },
+    };
+  if (state.screen === "details") {
+    if (key.home || key.end)
+      return {
+        state: { ...state, offset: key.home ? 0 : context.scrollMaximum },
+      };
+    const section = runSections[Number(input) - 1];
+    if (/^[1-7]$/.test(input) && section)
+      return { state: { ...state, section, offset: 0 } };
+    if (key.tab)
+      return {
+        state: {
+          ...state,
+          section:
+            runSections[
+              (runSections.indexOf(state.section) +
+                (key.shift ? runSections.length - 1 : 1)) %
+                runSections.length
+            ]!,
+          offset: 0,
+        },
+      };
+    return { state };
+  }
   return dashboardInput(state, input, key, context);
 }
 
@@ -146,6 +244,8 @@ function synchronizeSelection(
     ...state,
     selection,
     displayedRunId: selection.runId,
+    section: "Overview",
+    expandedTitle: false,
     sessionId: undefined,
     stepSequence: undefined,
     offset: 0,
@@ -159,6 +259,46 @@ function dashboardInput(
   key: Key,
   context: NavigationContext,
 ): Transition {
+  if (input === "/") return { state: { ...state, searchDraft: state.query } };
+  if (input === "f")
+    return {
+      state: {
+        ...state,
+        filter:
+          runFilters[
+            (runFilters.indexOf(state.filter) + 1) % runFilters.length
+          ]!,
+        selection: discoverySelection(
+          context,
+          runFilters[
+            (runFilters.indexOf(state.filter) + 1) % runFilters.length
+          ]!,
+          state.query,
+        ),
+        offset: 0,
+      },
+    };
+  if (input === "n") {
+    const start = context.projectRuns.findIndex(
+      (run) => run.id === context.run?.id,
+    );
+    const ordered = [
+      ...context.projectRuns.slice(start + 1),
+      ...context.projectRuns.slice(0, start + 1),
+    ];
+    const next = ordered.find(needsAttention);
+    return {
+      state: next
+        ? {
+            ...state,
+            selection: { projectId: context.project?.id, runId: next.id },
+            filter: "Attention",
+            query: "",
+            focus: "runs",
+          }
+        : state,
+    };
+  }
   if (key.tab)
     return {
       state: {
@@ -178,14 +318,23 @@ function dashboardInput(
     return {
       state: {
         ...state,
-        selection: { projectId: next?.id },
+        selection: {
+          projectId: next?.id,
+          ...(next?.id === context.project?.id
+            ? { runId: context.run?.id }
+            : {}),
+        },
+        filter: next?.id === context.project?.id ? state.filter : "All",
+        query: next?.id === context.project?.id ? state.query : "",
         focus: "runs",
         offset: 0,
       },
     };
   }
   if (key.return && context.run)
-    return { state: { ...state, screen: "details", offset: 0 } };
+    return {
+      state: { ...state, screen: "details", section: "Overview", offset: 0 },
+    };
   if (input === "[" || input === "]") {
     const next = adjacent(
       context.events,
@@ -287,4 +436,14 @@ function openAgentLog(
 
 function adjacent<T>(items: T[], index: number, delta: number): T | undefined {
   return items[Math.max(0, Math.min(items.length - 1, index + delta))];
+}
+
+function discoverySelection(
+  context: NavigationContext,
+  filter: RunFilter,
+  query: string,
+): Selection {
+  const matches = discoverRuns(context.projectRuns, filter, query);
+  const next = matches.find((run) => run.id === context.run?.id) ?? matches[0];
+  return { projectId: context.project?.id, runId: next?.id };
 }

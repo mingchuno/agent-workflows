@@ -227,7 +227,9 @@ test("terminal transitions notify even when selected Run details fail", async ()
     assert.deepEqual(notifications, [
       { project: "demo", issue: "#1", outcome: "failed" },
     ]);
-    await until(() => view.lastFrame()!.includes("Connection error"));
+    await until(() =>
+      view.lastFrame()!.includes("Selected-run evidence unavailable"),
+    );
   } finally {
     view.unmount();
   }

@@ -6,7 +6,7 @@ A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues i
 
 Supports Codex and Copilot SDKs, GitHub, and GitLab.com/self-hosted GitLab. Human review and merging remain separate.
 
-## Why use this SDK over DBOS directly?
+## When to use it
 
 DBOS provides durable execution, checkpoints and queues. This SDK supplies the
 coding-workflow behavior a client would otherwise build around it:
@@ -78,51 +78,15 @@ queue. See [workflow configuration](docs/configuration.md#workflows).
 
 ## SDK
 
-The SDK accepts the same project configuration as the CLI. Parse the JSON with
-`configSchema`, pass the database URL explicitly, and set `pathBaseDirectory`
-when the file contains relative paths:
+Use the SDK when you need to embed the runner or compose a custom workflow.
+It accepts the same project settings as the CLI; your application supplies the
+database URL and loads its own environment.
 
-```ts
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import {
-  configSchema,
-  createAgents,
-  createHosting,
-  Runner,
-} from "@mingchuno/agent-workflows";
-
-const configPath = resolve("agent-workflows.json");
-const config = configSchema.parse(
-  JSON.parse(await readFile(configPath, "utf8")),
-);
-const databaseUrl = process.env[config.databaseUrlEnv];
-if (!databaseUrl) throw new Error(`Set ${config.databaseUrlEnv}`);
-
-const runner = new Runner({
-  config,
-  databaseUrl,
-  pathBaseDirectory: dirname(configPath),
-  hosting: createHosting,
-  agents: createAgents(),
-});
-try {
-  await runner.start();
-  await new Promise<void>((done) => {
-    process.once("SIGINT", done);
-    process.once("SIGTERM", done);
-  });
-} finally {
-  await runner.shutdown();
-}
-```
-
-See the [complete runner](examples/run.ts) for a custom workflow. The
-[SDK reference](docs/api.md) covers runner methods, custom workflows, adapters,
-and inspection. The [configuration reference](docs/configuration.md) lists every
-JSON field and default. The [custom workflow](examples/custom-workflow.ts),
-[configuration](examples/config.ts), and [inspection](examples/observe.ts)
-examples are type-checked with the library.
+Start with the [SDK startup example](docs/api.md#run-from-an-application).
+The [API reference](docs/api.md) covers runner methods, adapters, queued controls
+and inspection. Type-checked examples show a [complete runner](examples/run.ts),
+[custom workflow](examples/custom-workflow.ts), [configuration](examples/config.ts)
+and [inspection](examples/observe.ts).
 
 ## Documentation
 
@@ -153,6 +117,33 @@ pnpm install --frozen-lockfile
 pnpm verify
 pnpm pack:smoke
 ```
+
+### Preview the TUI
+
+From this checkout, open a terminal of at least 80×24 and run:
+
+```sh
+pnpm tui:preview
+# Optional scenarios:
+pnpm tui:preview long-error
+pnpm tui:preview stale
+```
+
+The preview renders the real monitor with mock runs and temporary logs. It needs
+no database, configuration or provider credentials and makes no remote calls.
+The default `mixed` scenario includes running, queued, failed, blocked and finished
+runs across projects. Other scenarios are `empty`, `offline`, `stale`, `long-error`
+and `pending` (commands stay unacknowledged).
+
+Try `n` to find a run needing attention, Enter to open it, `d` for diagnostics,
+`x` for action reasons, `/` to search, and `?` for help. Press `q` to exit.
+For appearance checks, use `AW_TUI_THEME=light pnpm tui:preview`,
+`AW_TUI_THEME=dark pnpm tui:preview` or `NO_COLOR=1 pnpm tui:preview`.
+
+To monitor real local runs from source, use `pnpm start monitor` with your normal
+configuration and database. See the [monitor guide](docs/operations.md#monitor).
+
+### Checks
 
 Use `pnpm start --help` to run the CLI from source. `pnpm build` emits the runtime and declarations into `dist/src` and copies migrations to `dist/drizzle`.
 

@@ -1,6 +1,6 @@
 # Prerequisites and provider capabilities
 
-Install Node.js 22.12+, Git and PostgreSQL 17+. Native PostgreSQL and a local PostgreSQL container are both supported. Tests were developed against PostgreSQL 17 and Node 24 on macOS; A Linux fixture CI job is supplied; remote CI has not been run for this working tree. The database must be writable by the configured role so DBOS and the application can create their schemas.
+Install Node.js 22.12+, Git and PostgreSQL 17+. Native PostgreSQL and a local PostgreSQL container are both supported. The database must be writable by the configured role so DBOS and the application can create their schemas.
 
 Authenticate the selected local agent runtime before starting. Codex SDK uses the bundled Codex executable and its local authentication/configuration; Copilot SDK manages a local Copilot runtime. Subscription/access policy and model availability belong to those runtimes. See [official Codex SDK documentation](https://developers.openai.com/codex/sdk/) and [Copilot SDK documentation](https://github.com/github/copilot-sdk/tree/main/docs). Routine tests never invoke paid models.
 
@@ -67,7 +67,7 @@ Issue intake paginates and excludes PRs. Default publication is non-draft only a
 
 ## GitLab.com and self-hosted GitLab
 
-Supported range: GitLab **17.x–19.x**, REST API v4. Startup checks the metadata endpoint and rejects versions outside this range. Controlled version-shaped HTTP fixtures test the shared issue/MR/review contract; no real GitLab instance has been smoke-tested in this implementation run.
+Supported range: GitLab **17.x–19.x**, REST API v4. Startup checks the metadata endpoint and rejects versions outside this range. Automated tests use controlled HTTP fixtures. Verify access to your instance with the [explicit smoke procedure](#explicit-smoke-verification).
 
 ```json
 {

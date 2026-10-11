@@ -2,114 +2,150 @@
 
 ## CLI and monitor
 
-All commands accept `--config PATH` before the subcommand.
+Start the runner and attach the monitor in separate terminals:
 
-| Command                            | Effect                                                          |
-| ---------------------------------- | --------------------------------------------------------------- |
-| `init`                             | Write a starter config; refuse overwrite                        |
-| `run [--project ID ...]`           | Start selected projects in the foreground                       |
-| `reload [--timeout-ms MS]`         | Reload the active server's configuration and prompt files; wait for acknowledgement |
-| `status [--json]`                  | Projects, runs and command outcomes                             |
-| `inspect RUN`                      | Full run and invocation/session records as JSON                 |
-| `logs RUN [--invocation ID]`       | Local stage, agent and validation artifacts                     |
-| `pause PROJECT` / `resume PROJECT` | Queue an intake control command                                 |
-| `stop RUN`                         | Queue cancellation; success means active local work has stopped |
-| `recover RUN`                      | Continue a failed publication step using completed checkpoints |
-| `retry RUN`                        | Queue an explicit new attempt after checkout validation         |
-| `retry RUN --refresh-issue`        | Queue a new attempt using the current hosted issue              |
-| `monitor [--notify]`               | Attach an interactive terminal view; optionally alert on outcomes |
+```sh
+agent-workflows run
+# In a second terminal:
+agent-workflows monitor
+```
 
-Control commands return a command ID and `pending`; inspect `status --json` or the monitor for success/failure. With no runner, commands stay pending. Run and monitor are separate processes. Closing the monitor never cancels work. Ctrl-C on the runner stops intake, cancels active work, waits for process termination and releases ownership. Queued tasks remain durable for the next start.
+All commands accept `--config PATH` before the subcommand. For example,
+`agent-workflows --config ./work.json monitor`.
 
-`reload` additionally waits for the server result, exiting successfully only when
-the server acknowledges success. Its default wait is 10 seconds; `--timeout-ms`
-changes that limit. A timeout leaves the command pending and does not cancel it.
-The TUI keeps showing pending until acknowledgement. See the
-[live-reload boundary](configuration.md#live-reload) for supported changes.
+| Command | Effect |
+| --- | --- |
+| `init` | Write a starter config; refuse overwrite |
+| `run [--project ID ...]` | Start selected projects in the foreground |
+| `reload [--timeout-ms MS]` | Reload configuration and prompt files; wait for acknowledgement |
+| `status [--json]` | Show projects, runs and command outcomes |
+| `inspect RUN` | Show complete run and invocation/session records as JSON |
+| `logs RUN [--invocation ID]` | Read local stage, agent and validation artifacts |
+| `pause PROJECT` / `resume PROJECT` | Pause/resume new intake |
+| `stop RUN` | Cancel work; success means active local work has stopped |
+| `recover RUN` | Continue failed publication using completed checkpoints |
+| `retry RUN` | Request a new attempt after checkout validation |
+| `retry RUN --refresh-issue` | Request a new attempt using the current hosted issue |
+| `monitor [--notify]` | Attach the TUI; optionally enable outcome notifications |
 
-The CLI runner publishes an owner-only control record in the local OS temporary
-directory, keyed by the absolute configuration path. It contains the original
-runner ID, environment selector/path, database URL digest and process identity;
-it stores no credentials. `reload` uses it so invalid JSON or an edited runner
-ID cannot redirect the command. Use the same absolute configuration path and
-startup database environment. Without an active local record, `reload` fails
-without submitting a command. Normal shutdown removes the record; a later start
-replaces a record whose process has exited. SDK runners use the Store command
-channel directly.
+Control commands return a command ID with `pending`. Check `status --json` or the
+monitor for acknowledgement; with no runner, commands stay pending. Closing the
+monitor leaves work running. Ctrl-C on the runner stops intake, cancels active
+work, waits for processes to stop and releases ownership. Queued tasks remain
+available for the next start.
 
-The monitor uses a full-screen view and restores the terminal when closed.
-It refreshes persisted workflow state and open logs every 400 ms. Database
-connectivity is shown separately from command acknowledgements; it does not
-prove that a runner is alive. Requires an interactive terminal of at least
-80 columns by 24 rows. Wide terminals show run list, summary and sessions;
-compact terminals show the focused pane. Titles and identifiers are available
-in full in scrollable details. `NO_COLOR=1` disables semantic colors.
+### Reload configuration
 
-`monitor --notify` emits one desktop notification when an Execution first
-reaches `completed`, `failed`, `blocked`, `cancelled`, `no-change` or
-`ineligible` during that monitor session. The initial snapshot is silent;
-later terminal Executions are detected across every visible project, including
-Executions first seen after a database reconnection. Delivery uses OSC 9 and is
-best-effort: notifications are not persisted, retried or acknowledged, and a
-terminal write failure does not affect monitoring or workflow state. Current
-iTerm2, Kitty, WezTerm and Ghostty releases are supported; other OSC 9
-implementations may work, while Windows Terminal is not supported in this
-version. Terminal permissions and settings determine whether an alert appears,
-including whether foreground alerts are suppressed.
+`reload` waits up to 10 seconds for acknowledgement. A timeout leaves the command
+pending; it does not cancel it. Use `--timeout-ms` to change the wait. See
+[what can be reloaded](configuration.md#live-reload).
 
-The notification payload is display-only and contains only
-`agent-workflows: <project> · <issue reference> · <outcome>`. It excludes issue
-titles, diagnostics, paths and internal Run, Execution and session identifiers.
-Under tmux, the monitor emits one layer of DCS passthrough wrapping. tmux 3.3
-and later requires `set -g allow-passthrough on`; the CLI does not change tmux
-configuration.
+Use the same absolute configuration path and startup database environment as the
+runner. Reload can still reach that runner when edited JSON is invalid or its ID
+has changed. Without an active local control record, it fails before submitting
+anything. The owner-only record lives in the OS temporary directory, contains
+identity metadata without credentials, and is removed on normal shutdown or
+replaced after the old process exits. SDK runners use the Store command channel.
 
-Run details is one responsive, vertically scrollable document. It leads with
-the issue, outcome, phase, attempt, total elapsed time and branch, and adds an
-attention summary only when operator action may be required. At 140 columns
-and above, execution history appears beside validation and agent-session
-evidence; narrower terminals stack those sections in the same reading order.
-The primary design target is 160×48, with 80×24 retained as the functional
-fallback. An overflowing document shows its visible line range in the heading.
+## Monitor
+
+Use an interactive terminal of at least 80×24. At 112 columns and above, the run
+list and selected-run workspace appear side by side. Smaller terminals open the
+workspace with Enter. Subject, state, phase and attempt stay visible while you
+scroll evidence. To try it without a database, use the
+[local mock preview](../README.md#preview-the-tui).
+
+### Find a run
+
+- Left/Right changes project; Up/Down selects a run.
+- `f` cycles All, Attention, Active, Queued and Finished. Attention includes
+  failed, blocked and cancelled runs.
+- `/` searches the current project's references, titles, project and run IDs.
+  Search is literal and case-insensitive. Enter applies it; Esc cancels editing.
+  To clear it, open `/`, delete the query and press Enter.
+- `n` clears search, switches to Attention and selects the next run needing action.
+
+Polling keeps selection stable, even when the selected run leaves its filter.
+It stays visible until you navigate or reapply discovery. A brief notice reports
+state changes without moving focus.
+
+### Investigate a failure
+
+Start in Overview: read the failed operation, recorded evidence and suggested next
+checks. Provider messages identify possible causes; they are not verified diagnoses.
+Press `d` for the full diagnostic or `x` for available actions and restrictions.
+Retry creates a new run and branch. Recovery continues publication in the same run
+using checkpoints; the runner rechecks eligibility before acting.
+
+| Workspace key | Section or action |
+| --- | --- |
+| `1` / Enter | Overview |
+| `2` | Activity |
+| `3` | Checks |
+| `4` | Executions, queue waits and durations |
+| `5` / `d` | Diagnostics |
+| `6` | Technical: exact IDs, paths, profiles and timestamps |
+| `7` / `x` | Actions and eligibility reasons |
+| `t` | Expand/collapse the full subject in Overview |
+| Tab / Shift+Tab | Next/previous section |
+| Up/Down, PgUp/PgDn, Home/End | Scroll evidence |
+| Esc | Return to the list with selection intact |
+
+Execution duration excludes queue waiting and gaps before recovery. Terminal
+execution durations freeze at completion. Missing timing evidence is shown as
+not started, not recorded or unavailable.
+
+### Controls and logs
 
 | Context | Keys |
 | --- | --- |
-| Dashboard | Left/Right project; Tab/Shift+Tab pane; Up/Down selection or scroll |
-| Details | Enter opens; Up/Down or PgUp/PgDn scroll; Esc returns; `l` opens the latest current-execution session, or the stage diagnostic before a session exists |
-| Progress | `[`/`]` inspect step history; End follows latest event |
-| Sessions | `a` focuses session list; Up/Down selects invocation; `l` opens log |
-| Validation | `v` opens validation logs |
-| Controls | `p` pauses/resumes intake; `s` stops; `r` retries; `F` retries with refreshed issue; `c` recovers publication; `R` reloads configuration |
-| Monitor | `?` opens the shortcut dialog; `q` or Ctrl-C closes only the monitor |
-| Shortcut dialog | Tab/Shift+Tab or Left/Right changes category; Up/Down scrolls; Esc closes |
-| Logs | Up/Down or `j`/`k` scroll; PgUp/PgDn page; Left/Right pan long lines |
-| Logs | Home/End or `g`/`G` first/last page; `f` resumes live follow |
-| Logs | Tab selects next log; `R` toggles readable/raw presentation |
-| Search | `/` opens; Enter applies; `n`/`N` next/previous matching record |
-| Back | Esc dismisses search/help first, then returns from logs |
+| Dashboard | Tab/Shift+Tab switches run, overview and session focus; `a` focuses sessions |
+| Controls | `p` pauses/resumes intake on the dashboard; `s` stops; `r` retries; `F` retries with refreshed issue; `c` recovers; `R` reloads configuration |
+| Logs | `l` opens the selected session log, or the latest running invocation/stage diagnostic in the workspace; `v` opens validation logs |
+| Log navigation | Up/Down or `j`/`k` scroll; PgUp/PgDn pages; Left/Right pans; Home/End or `g`/`G` first/last page; `f` resumes follow |
+| Log presentation | Tab selects next log; `R` toggles readable/raw; `/` searches; `n`/`N` next/previous match |
+| Help | `?` opens grouped shortcuts; Tab/Shift+Tab or Left/Right changes category; Up/Down scrolls |
+| Close | Esc dismisses search/help before leaving logs; `q` or Ctrl-C closes the monitor |
 
-Stop, retry and publication recovery require confirmation of the selected issue;
-The centered dialog defaults to Cancel. Tab/Shift+Tab or Left/Right switches
-between Cancel and Confirm; Enter activates the highlighted option and Esc
-cancels. Unavailable actions are omitted from the footer.
-A pending command stays pending until the runner acknowledges it, including
-while switching projects. Logs and search cannot send workflow commands.
+Stop, retry and recovery open a confirmation dialog with Cancel selected.
+Tab/Shift+Tab or Left/Right selects Cancel or Confirm; Enter activates it and
+Esc cancels. The footer offers the primary run action; `x` explains the others.
+Pending commands remain visible while switching projects. Search and log input
+cannot send workflow commands.
 
-Search is literal and covers the entire selected file, not only the visible page.
-Lowercase queries ignore case; any uppercase character makes the query
-case-sensitive. Search wraps at file boundaries. Scrolling or searching pauses
-follow so arriving output does not move the view. Known agent events render as
-readable messages/tool activity; unknown events remain visible as JSON. Raw
-presentation preserves the stored text except unsafe terminal control codes.
+Log search covers the entire selected file and wraps at its boundaries. Lowercase
+queries ignore case; any uppercase character makes the query case-sensitive.
+Scrolling or searching pauses follow. Known agent events become readable messages
+and tool activity; unknown events remain JSON. Raw mode preserves stored text
+except unsafe terminal control codes.
 
-Execution duration includes eligibility, preparation and waits within one
-execution. It excludes queue waiting and gaps before publication recovery.
-Details show each execution, its queue wait and the run's total elapsed time.
-Completed execution durations freeze at their first terminal outcome. Records
-without timing evidence use factual labels such as `not started`, `not recorded`
-or `unavailable`. Noninteractive tools use `status --json` and `inspect`. Run
-details keeps complete errors under Diagnostics and exact identifiers, paths,
-profiles and ISO timestamps under Technical details.
+### Connection and appearance
+
+The monitor refreshes state and open logs every 400 ms. Database connectivity
+does not prove the runner is alive. Loading, confirmed empty, unavailable and stale
+are distinct states. A failed refresh keeps the last snapshot and disables run
+controls until refresh succeeds. Evidence-query failures appear separately.
+
+The palette uses terminal colors by default. Set `AW_TUI_THEME=light` or `dark`
+for a matching semantic palette, `NO_COLOR=1` to disable colors, or `AW_TUI_ASCII=1`
+for ASCII punctuation. `TERM=dumb` disables color and selects ASCII automatically.
+Unicode subjects and diagnostic content retain their original text.
+
+### Desktop notifications
+
+`monitor --notify` emits one notification when an execution first reaches
+completed, failed, blocked, cancelled, no-change or ineligible. The initial
+snapshot is silent; later terminal executions across all visible projects are
+included, even after reconnection. Alerts use OSC 9 and are best-effort: they are
+not persisted, retried or acknowledged, and delivery failure does not affect runs.
+
+Supported terminals include iTerm2, Kitty, WezTerm and Ghostty. Windows Terminal
+is unsupported. Terminal permissions and foreground-alert settings control
+whether notifications appear. Under tmux 3.3+, enable `set -g allow-passthrough on`
+yourself; the monitor adds one layer of DCS passthrough wrapping.
+
+Alerts contain only `agent-workflows: <project> · <issue reference> · <outcome>`.
+They exclude titles, diagnostics, paths and internal identifiers.
 
 ## Observability landscape
 
