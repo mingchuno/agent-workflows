@@ -16,6 +16,85 @@ async function confirmAction(page: Page, label: string) {
     .click();
 }
 
+test("browser distinguishes draft readiness from completed delivery", {
+  skip: !process.env.TEST_DATABASE_URL,
+}, async () => {
+  const runner = await webRunner();
+  const browser = await chromium.launch();
+  try {
+    await runner.store.setProject("fixture", { paused: true });
+    const { run } = await seedWebEvidence(runner);
+    await runner.store.patchRun(run.id, {
+      phase: "push",
+      readiness: { draft: true, reasons: ["Blocking findings remain"] },
+    });
+    const { url } = await runner.access();
+    const page = await browser.newPage();
+    await page.goto(url);
+    await page.getByRole("button", { name: "Checks", exact: true }).click();
+    for (const outcome of ["failed", "blocked", "running"] as const) {
+      await runner.store.patchRun(run.id, { outcome });
+      await expect(
+        page.locator("main").getByText(outcome, { exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByText(
+          "Draft required; unresolved checks or findings remain.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+      await expect(page.getByText(/Draft delivered/)).not.toBeVisible();
+    }
+    await runner.store.patchRun(run.id, { outcome: "completed" });
+    await expect(
+      page.getByText("Draft delivered; unresolved checks or findings remain.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+  } finally {
+    await browser.close();
+    await runner.stop();
+  }
+});
+
+test("browser keeps activity live beyond the first event page", {
+  skip: !process.env.TEST_DATABASE_URL,
+}, async () => {
+  const runner = await webRunner();
+  const browser = await chromium.launch();
+  try {
+    const { run } = await seedWebEvidence(runner);
+    for (let index = 0; index < 1000; index++)
+      await runner.store.emit(run.id, "step", {
+        name: `Recorded step ${index}`,
+        status: "completed",
+      });
+    const { url } = await runner.access();
+    const page = await browser.newPage();
+    await page.goto(url);
+    await page.getByRole("button", { name: "Activity", exact: true }).click();
+    await expect(
+      page.getByText("Recorded step 999", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Recorded step 0", { exact: true }),
+    ).toHaveCount(1);
+    await runner.store.emit(run.id, "step", {
+      name: "Live step after pagination",
+      status: "running",
+    });
+    await expect(
+      page.getByText("Live step after pagination", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Recorded step 999", { exact: true }),
+    ).toHaveCount(1);
+  } finally {
+    await browser.close();
+    await runner.stop();
+  }
+});
+
 test("browser stops active work, retries saved and refreshed issues, and closing it leaves execution running", {
   skip: !process.env.TEST_DATABASE_URL,
 }, async () => {

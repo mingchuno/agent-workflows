@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative } from "node:path";
 import { HTTPException } from "hono/http-exception";
 import { createRedactor } from "../runtime/redaction.js";
-import type { Store } from "../store.js";
+import type { EventRecord, Store } from "../store.js";
 import { LogFile, presentLogLine } from "../tui/log-file.js";
 import { projectRunProjection } from "../tui/projection.js";
 import type { LogPage, RunEvidence } from "./contracts.js";
@@ -30,7 +30,7 @@ export class MonitorEvidence {
     const { run, runs } = await this.run(runId);
     const [sessions, events, projects] = await Promise.all([
       this.store.invocations(run.id),
-      this.store.events(0, run.id),
+      this.recordedEvents(run.id),
       this.store.projects(),
     ]);
     const projection = projectRunProjection({
@@ -51,6 +51,17 @@ export class MonitorEvidence {
         ({ path: _path, ...log }) => log,
       ),
     };
+  }
+
+  private async recordedEvents(runId: string): Promise<EventRecord[]> {
+    const events: EventRecord[] = [];
+    let cursor = 0;
+    for (;;) {
+      const page = await this.store.events(cursor, runId);
+      if (!page.length) return events;
+      events.push(...page);
+      cursor = page.at(-1)!.sequence;
+    }
   }
 
   private recordedLogs(

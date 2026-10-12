@@ -94,13 +94,15 @@ export function Overview({ run }: { run: RunRecord }) {
 }
 
 export function Checks({ run }: { run: RunRecord }) {
+  const draftStatus =
+    run.outcome === "completed" ? "Draft delivered" : "Draft required";
   return (
     <>
       <h3>Delivery and readiness</h3>
       <p>
         {run.readiness
           ? run.readiness.draft
-            ? "Draft delivered; unresolved checks or findings remain."
+            ? `${draftStatus}; unresolved checks or findings remain.`
             : "Ready for review."
           : "Readiness not recorded."}
       </p>
