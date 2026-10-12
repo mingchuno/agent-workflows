@@ -21,10 +21,16 @@ for (const required of [
   "dist/src/cli.js",
   "dist/src/adapters/agent-worker.js",
   "dist/drizzle/meta/_journal.json",
+  "dist/web/index.html",
+  "dist/web/fonts/Source-Sans-3-LICENSE.txt",
   "LICENCE",
 ])
   assert.ok(files.includes(required), `Missing package file: ${required}`);
 assert.ok(files.some((file) => /^dist\/drizzle\/.*\.sql$/.test(file)));
+assert.ok(
+  files.some((file) => /^dist\/web\/assets\/.*\.woff2$/.test(file)),
+  "Missing self-hosted browser font",
+);
 const sourceFiles = await readdir("src", { recursive: true });
 const runtimeFiles = sourceFiles
   .filter((file) => /\.tsx?$/.test(file))
@@ -39,7 +45,7 @@ assert.deepEqual(
 );
 assert.ok(
   files.every((file) =>
-    /^(dist\/(src|drizzle)\/|docs\/|examples\/|package\.json$|README\.md$|LICENCE$)/.test(
+    /^(dist\/(src|drizzle|web)\/|docs\/|examples\/|package\.json$|README\.md$|LICENCE$)/.test(
       file,
     ),
   ),
@@ -185,6 +191,23 @@ try {
       /Cannot read environment file.*ENOENT/.test(error.stderr),
   );
   await checkDatabase();
+  run(
+    process.execPath,
+    [
+      "--import",
+      import.meta.resolve("tsx"),
+      "--test",
+      resolve("tests/web-package.test.ts"),
+    ],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PACKED_WEB_CLI: join(installed, "dist/src/cli.js"),
+      },
+      stdio: "inherit",
+    },
+  );
   await recordArtifact(artifact);
   console.log(
     `Packed SDK, CLI and migrations passed outside the checkout. Tarball: ${resolve(artifact.tarball)}`,

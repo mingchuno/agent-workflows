@@ -18,7 +18,7 @@ coding-workflow behavior a client would otherwise build around it:
   cancellation, preservation of unfinished work, and reconciliation of interrupted
   commits, pushes and publication.
 - **Application controls and evidence:** explicit run outcomes, safe retry
-  admission, session/log records, and a shared SDK, CLI and terminal monitor.
+  admission, session/log records, and a shared SDK, CLI, terminal and web monitor.
 
 Clients configure providers and compose operations while DBOS remains responsible
 for durability. [Custom workflows can call DBOS directly](docs/api.md#dbos-sdk-direct-usage).
@@ -47,10 +47,15 @@ secret manager; for GitHub, follow the [PAT creation and required permissions](d
 
 ```sh
 agent-workflows run
-# In a second terminal:
+# Open the printed web monitor URL, or in a second terminal:
 agent-workflows monitor
 agent-workflows status --json
 ```
+
+The local web monitor starts with `run` on port 8787. Use `--no-web` to disable
+it or `--web-port PORT` to change its port. It ships prebuilt with the CLI and
+supports the terminal monitor's inspection and operator actions. See the
+[web monitor guide](docs/operations.md#web-monitor) for access and lifecycle details.
 
 Alternatively, set `"envFile": "./runner.env"` at the top level of
 `agent-workflows.json` to load database, hosting and application variables from
@@ -114,6 +119,7 @@ and [inspection](examples/observe.ts).
 mise trust
 mise install
 pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
 pnpm verify
 pnpm pack:smoke
 ```

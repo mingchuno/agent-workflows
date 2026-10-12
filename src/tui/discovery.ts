@@ -1,15 +1,9 @@
 import type { RunRecord } from "../domain.js";
 import { subjectReference } from "../domain.js";
+import type { RunFilter } from "../monitor/filters.js";
 import { terminalText } from "./text.js";
 
-export const runFilters = [
-  "All",
-  "Attention",
-  "Active",
-  "Queued",
-  "Finished",
-] as const;
-export type RunFilter = (typeof runFilters)[number];
+export { type RunFilter, runFilters } from "../monitor/filters.js";
 export function needsAttention(run: RunRecord): boolean {
   return ["failed", "blocked", "cancelled"].includes(run.outcome);
 }

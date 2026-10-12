@@ -24,6 +24,8 @@ import { sha256 } from "./prompts.js";
 import { Runner } from "./runner.js";
 import { Store } from "./store.js";
 import { createTerminalNotificationWriter, Monitor } from "./tui/index.js";
+import { defaultWebPort } from "./web/contracts.js";
+import { startWebMonitor } from "./web/lifecycle.js";
 
 const launchDirectory = process.cwd();
 const program = new Command()
@@ -144,56 +146,82 @@ program
 program
   .command("run")
   .option("-p, --project <ids...>", "run selected project IDs")
-  .action(async (options: { project?: string[] }) => {
-    const path = configPath();
-    const base = configBaseDirectory();
-    const source = await openCliConfiguration(path, (path) =>
-      resolve(base, path),
-    );
-    const selectProjects = (config: Configuration): Configuration => {
-      if (!options.project) return config;
-      const wanted = new Set(options.project);
-      for (const id of wanted)
-        if (!config.projects.some((project) => project.id === id))
-          throw new Error(`Selected project ${id} removed; restart required`);
-      return {
-        ...config,
-        projects: config.projects.filter((project) => wanted.has(project.id)),
-      };
-    };
-    const config = selectProjects(source.config);
-    const runner = new Runner({
-      pathBaseDirectory: base,
-      config,
-      reloadConfiguration: async () => selectProjects(await source.reload()),
-      databaseUrl: databaseUrl(config),
-      hosting: createHosting,
-      agents: createAgents(),
-    });
-    let releaseControl: (() => Promise<void>) | undefined;
-    try {
-      await runner.start();
-      releaseControl = await publishRunnerControl(path, {
-        id: config.id,
-        databaseUrlEnv: config.databaseUrlEnv,
-        databaseUrlHash: sha256(databaseUrl(config)),
-        envFile: source.envFile,
-      });
-      console.log(
-        `Runner ${config.id} started. Use status or monitor in another terminal.`,
+  .option("--no-web", "disable the local web monitor")
+  .option("--web-port <port>", "local web monitor port", String(defaultWebPort))
+  .action(
+    async (options: { project?: string[]; web: boolean; webPort: string }) => {
+      const webPort = Number(options.webPort);
+      if (!Number.isInteger(webPort) || webPort < 1 || webPort > 65535)
+        throw new Error("--web-port must be an integer between 1 and 65535");
+      const path = configPath();
+      const base = configBaseDirectory();
+      const source = await openCliConfiguration(path, (path) =>
+        resolve(base, path),
       );
-      await new Promise<void>((resolve) => {
-        process.once("SIGINT", resolve);
-        process.once("SIGTERM", resolve);
+      const selectProjects = (config: Configuration): Configuration => {
+        if (!options.project) return config;
+        const wanted = new Set(options.project);
+        for (const id of wanted)
+          if (!config.projects.some((project) => project.id === id))
+            throw new Error(`Selected project ${id} removed; restart required`);
+        return {
+          ...config,
+          projects: config.projects.filter((project) => wanted.has(project.id)),
+        };
+      };
+      const config = selectProjects(source.config);
+      const runner = new Runner({
+        pathBaseDirectory: base,
+        config,
+        reloadConfiguration: async () => selectProjects(await source.reload()),
+        databaseUrl: databaseUrl(config),
+        hosting: createHosting,
+        agents: createAgents(),
       });
-    } finally {
+      let releaseControl: (() => Promise<void>) | undefined;
+      let stopWeb: (() => Promise<void>) | undefined;
+      const stopped = new Promise<void>((done) => {
+        process.once("SIGINT", done);
+        process.once("SIGTERM", done);
+      });
       try {
-        await runner.shutdown();
+        await runner.start();
+        releaseControl = await publishRunnerControl(path, {
+          id: config.id,
+          databaseUrlEnv: config.databaseUrlEnv,
+          databaseUrlHash: sha256(databaseUrl(config)),
+          envFile: source.envFile,
+        });
+        console.log(
+          `Runner ${config.id} started. Use status or monitor in another terminal.`,
+        );
+        if (options.web) {
+          try {
+            stopWeb = startWebMonitor({
+              config: runner.config,
+              databaseUrl: databaseUrl(config),
+              port: webPort,
+            });
+          } catch {
+            console.error(
+              "Web monitor unavailable: could not start server. Workflows continue.",
+            );
+          }
+        }
+        await stopped;
       } finally {
-        await releaseControl?.();
+        try {
+          try {
+            await stopWeb?.();
+          } finally {
+            await runner.shutdown();
+          }
+        } finally {
+          await releaseControl?.();
+        }
       }
-    }
-  });
+    },
+  );
 program
   .command("reload")
   .description(
