@@ -18,8 +18,9 @@ async function confirmAction(page: Page, label: string) {
 
 test("browser distinguishes draft readiness from completed delivery", {
   skip: !process.env.TEST_DATABASE_URL,
-}, async () => {
+}, async (t) => {
   const runner = await webRunner();
+  t.after(() => runner.stop());
   const browser = await chromium.launch();
   try {
     await runner.store.setProject("fixture", { paused: true });
@@ -53,14 +54,14 @@ test("browser distinguishes draft readiness from completed delivery", {
     ).toBeVisible();
   } finally {
     await browser.close();
-    await runner.stop();
   }
 });
 
 test("browser keeps activity live beyond the first event page", {
   skip: !process.env.TEST_DATABASE_URL,
-}, async () => {
+}, async (t) => {
   const runner = await webRunner();
+  t.after(() => runner.stop());
   const browser = await chromium.launch();
   try {
     const { run } = await seedWebEvidence(runner);
@@ -91,14 +92,14 @@ test("browser keeps activity live beyond the first event page", {
     ).toHaveCount(1);
   } finally {
     await browser.close();
-    await runner.stop();
   }
 });
 
 test("browser stops active work, retries saved and refreshed issues, and closing it leaves execution running", {
   skip: !process.env.TEST_DATABASE_URL,
-}, async () => {
+}, async (t) => {
   const runner = await webRunner({ controlledWorkflow: true });
+  t.after(() => runner.stop());
   const browser = await chromium.launch();
   try {
     const { url, origin, cookie } = await runner.access();
@@ -164,17 +165,17 @@ test("browser stops active work, retries saved and refreshed issues, and closing
     );
   } finally {
     await browser.close();
-    await runner.stop();
   }
 });
 
 test("browser publication recovery preserves the run and committed evidence while adding an execution", {
   skip: !process.env.TEST_DATABASE_URL,
-}, async () => {
+}, async (t) => {
   const runner = await webRunner({
     controlledWorkflow: true,
     publicationFailure: true,
   });
+  t.after(() => runner.stop());
   const browser = await chromium.launch();
   try {
     const { url, origin, cookie } = await runner.access();
@@ -218,14 +219,14 @@ test("browser publication recovery preserves the run and committed evidence whil
     ).toBeVisible();
   } finally {
     await browser.close();
-    await runner.stop();
   }
 });
 
 test("operator opens the printed URL, inspects projects and pauses intake in the browser", {
   skip: !process.env.TEST_DATABASE_URL,
-}, async () => {
+}, async (t) => {
   const runner = await webRunner();
+  t.after(() => runner.stop());
   const browser = await chromium.launch();
   try {
     const { url } = await runner.access();
@@ -245,14 +246,14 @@ test("operator opens the printed URL, inspects projects and pauses intake in the
     await page.close();
   } finally {
     await browser.close();
-    await runner.stop();
   }
 });
 
 test("browser preserves selection during live updates and disables commands on stale snapshots", {
   skip: !process.env.TEST_DATABASE_URL,
-}, async () => {
+}, async (t) => {
   const runner = await webRunner();
+  t.after(() => runner.stop());
   const browser = await chromium.launch();
   try {
     const selected = await seedWebEvidence(runner);
@@ -299,14 +300,14 @@ test("browser preserves selection during live updates and disables commands on s
     ).toBeVisible();
   } finally {
     await browser.close();
-    await runner.stop();
   }
 });
 
 test("operator inspects run evidence, searches logs and cancels a retry confirmation", {
   skip: !process.env.TEST_DATABASE_URL,
-}, async () => {
+}, async (t) => {
   const runner = await webRunner();
+  t.after(() => runner.stop());
   const browser = await chromium.launch();
   try {
     await seedWebEvidence(runner);
@@ -348,14 +349,14 @@ test("operator inspects run evidence, searches logs and cancels a retry confirma
     await expect(page.getByRole("dialog")).not.toBeVisible();
   } finally {
     await browser.close();
-    await runner.stop();
   }
 });
 
 test("browser scopes search and filters, switches projects, and inspects prior executions and paged raw logs", {
   skip: !process.env.TEST_DATABASE_URL,
-}, async () => {
+}, async (t) => {
   const runner = await webRunner({ additionalProject: true });
+  t.after(() => runner.stop());
   const browser = await chromium.launch();
   try {
     const first = await seedWebEvidence(runner);
@@ -442,6 +443,5 @@ test("browser scopes search and filters, switches projects, and inspects prior e
     ).toBeVisible();
   } finally {
     await browser.close();
-    await runner.stop();
   }
 });
