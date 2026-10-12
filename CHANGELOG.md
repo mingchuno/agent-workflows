@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0](https://github.com/mingchuno/agent-workflows/compare/v0.8.0...v0.9.0) (2026-10-12)
+
+
+### Features
+
+* **monitor:** add a local web monitor to run command ([#26](https://github.com/mingchuno/agent-workflows/issues/26)) ([69f21b5](https://github.com/mingchuno/agent-workflows/commit/69f21b5ead2ba062257c858fc76a0b95685c68c0))
+* **tui:** Make workflow attention and recovery clear ([72da1e2](https://github.com/mingchuno/agent-workflows/commit/72da1e25a33f89bdce5301e45b847836e96a5478))
+
+
+### Bug Fixes
+
+* **tui:** Keep asynchronous views and controls consistent ([e87c0c0](https://github.com/mingchuno/agent-workflows/commit/e87c0c077b92b35d338aa15aa0498e7c25d79ced))
+
 ## [0.8.0](https://github.com/mingchuno/agent-workflows/compare/v0.7.0...v0.8.0) (2026-10-10)
 
 
