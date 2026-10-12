@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/mingchuno/agent-workflows/compare/v0.9.0...v0.9.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **release:** Install Chromium before publish checks ([aadf6c8](https://github.com/mingchuno/agent-workflows/commit/aadf6c87b2ed95d74c724f3594991f97679d2b7f))
+
 ## [0.9.0](https://github.com/mingchuno/agent-workflows/compare/v0.8.0...v0.9.0) (2026-10-12)
 
 
