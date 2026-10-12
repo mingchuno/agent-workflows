@@ -2,11 +2,11 @@
 
 ## CLI and monitor
 
-Start the runner and attach the monitor in separate terminals:
+Start the runner and open the web monitor URL printed in the terminal:
 
 ```sh
 agent-workflows run
-# In a second terminal:
+# Or attach the existing terminal monitor in a second terminal:
 agent-workflows monitor
 ```
 
@@ -16,7 +16,7 @@ All commands accept `--config PATH` before the subcommand. For example,
 | Command | Effect |
 | --- | --- |
 | `init` | Write a starter config; refuse overwrite |
-| `run [--project ID ...]` | Start selected projects in the foreground |
+| `run [--project ID ...] [--no-web] [--web-port PORT]` | Start selected projects and the local web monitor |
 | `reload [--timeout-ms MS]` | Reload configuration and prompt files; wait for acknowledgement |
 | `status [--json]` | Show projects, runs and command outcomes |
 | `inspect RUN` | Show complete run and invocation/session records as JSON |
@@ -33,6 +33,34 @@ monitor for acknowledgement; with no runner, commands stay pending. Closing the
 monitor leaves work running. Ctrl-C on the runner stops intake, cancels active
 work, waits for processes to stop and releases ownership. Queued tasks remain
 available for the next start.
+
+### Web monitor
+
+`run` starts a separate web-server process on `127.0.0.1:8787`. Use
+`run --web-port 8899` to select another port or `run --no-web` to disable it.
+An occupied port or a web-server failure produces a warning while workflows
+continue; the CLI does not switch ports or automatically open a browser.
+
+Open the exact printed URL. Its launch-specific token grants access without a
+login or token-entry step; the browser then removes the token from the address
+bar and uses an HTTP-only session cookie. Treat the printed link as local access
+credentials. After restarting `run`, open its new link. The server accepts only
+localhost access and its own browser origin for actions; remote hosting is not
+supported.
+
+The browser provides project and run selection, search and outcome filters,
+overview, activity, checks, execution history, agent sessions, diagnostics,
+technical evidence, and recorded logs. Logs support bounded pages, following,
+literal search, and raw/formatted presentation. Operator actions use the same
+command queue and admission policy as the CLI and TUI. Stop, retry and publication
+recovery require confirmation, initially focused on Cancel. A pending command is
+distinct from its runner acknowledgement; stale snapshots disable actions.
+
+Browser state refreshes every second. Closing the page leaves workflows running;
+stopping `run` closes the server. Browser notifications and offline web inspection
+are not provided. Built browser assets ship with the package; no additional
+installation or frontend build is required for users. When running from source,
+run `pnpm build` before `pnpm start run` and rebuild after browser-source changes.
 
 ### Reload configuration
 

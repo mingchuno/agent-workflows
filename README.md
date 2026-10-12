@@ -18,7 +18,7 @@ coding-workflow behavior a client would otherwise build around it:
   cancellation, preservation of unfinished work, and reconciliation of interrupted
   commits, pushes and publication.
 - **Application controls and evidence:** explicit run outcomes, safe retry
-  admission, session/log records, and a shared SDK, CLI and terminal monitor.
+  admission, session/log records, and a shared SDK, CLI, terminal and web monitor.
 
 Clients configure providers and compose operations while DBOS remains responsible
 for durability. [Custom workflows can call DBOS directly](docs/api.md#dbos-sdk-direct-usage).
@@ -47,10 +47,15 @@ secret manager; for GitHub, follow the [PAT creation and required permissions](d
 
 ```sh
 agent-workflows run
-# In a second terminal:
+# Open the printed web monitor URL, or in a second terminal:
 agent-workflows monitor
 agent-workflows status --json
 ```
+
+The local web monitor starts with `run` on port 8787. Use `--no-web` to disable
+it or `--web-port PORT` to change its port. It ships prebuilt with the CLI and
+supports the terminal monitor's inspection and operator actions. See the
+[web monitor guide](docs/operations.md#web-monitor) for access and lifecycle details.
 
 Alternatively, set `"envFile": "./runner.env"` at the top level of
 `agent-workflows.json` to load database, hosting and application variables from
@@ -114,6 +119,7 @@ and [inspection](examples/observe.ts).
 mise trust
 mise install
 pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
 pnpm verify
 pnpm pack:smoke
 ```
@@ -142,6 +148,41 @@ For appearance checks, use `AW_TUI_THEME=light pnpm tui:preview`,
 
 To monitor real local runs from source, use `pnpm start monitor` with your normal
 configuration and database. See the [monitor guide](docs/operations.md#monitor).
+
+### Develop the web UI
+
+```sh
+pnpm web:dev
+```
+
+Open `http://127.0.0.1:5173`. Vite reloads the UI as you edit `web/`.
+The labelled preview uses read-only fixtures shared with the TUI demo; it needs
+no database, configuration or provider credentials. Search, project selection,
+outcome filters and evidence sections work. Operator commands are disabled;
+fixture logs are unavailable. Stop the dev server with Ctrl-C.
+
+```sh
+pnpm web:test   # Fast fixture API checks, no database
+pnpm check     # Runtime and browser TypeScript checks
+pnpm lint
+pnpm verify    # Full build, server, browser and workflow tests
+```
+
+Install Chromium with `pnpm exec playwright install chromium` before browser
+checks. The full suite needs PostgreSQL binaries or `TEST_DATABASE_URL` as
+described below.
+
+For live local workflows, run from this checkout with your normal environment:
+
+```sh
+pnpm web:build
+pnpm start --config /path/to/agent-workflows.json run
+```
+
+Open the access URL printed by the runner. This starts real workflows and
+serves built assets on port 8787 using your workflow configuration;
+rebuild and refresh after UI edits. The fixture dev server does not connect to
+that runner.
 
 ### Checks
 

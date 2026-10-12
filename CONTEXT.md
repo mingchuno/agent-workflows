@@ -5,6 +5,10 @@ review runs with explicit recovery.
 
 ## Language
 
+**Web monitor**:
+The local browser interface for inspecting workflow state and issuing operator
+commands, with the same operational capabilities as the terminal monitor.
+
 **Stage prompt**:
 User-customizable instructions describing an agent stage's task. The workflow
 supplies run evidence and enforces its result contract separately.
