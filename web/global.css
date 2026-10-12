@@ -15,6 +15,11 @@
   --attention-ground: #fff3dd;
   --success: #246348;
   --focus: #247cba;
+  --rail-ink: #edf4fa;
+  --rail-muted: #c6d9e7;
+  --project-selected: #294e6d;
+  --run-ground: #f5f8fb;
+  --selection-line: #a2c7e1;
   font-size: 14px;
 }
 * {
@@ -27,6 +32,7 @@ button,
 input,
 select {
   font: inherit;
+  font-weight: 400;
 }
 button,
 a,
@@ -36,6 +42,7 @@ select {
 }
 button {
   cursor: pointer;
+  touch-action: manipulation;
 }
 button:disabled {
   cursor: not-allowed;
@@ -48,6 +55,7 @@ select {
   background: var(--paper);
   color: var(--ink);
   padding: 9px 12px;
+  min-height: 40px;
 }
 input,
 select {
@@ -112,4 +120,13 @@ pre {
 pre {
   margin: 0;
   tab-size: 2;
+}
+
+@media (pointer: coarse) {
+  button,
+  input,
+  select,
+  summary {
+    min-height: 44px;
+  }
 }

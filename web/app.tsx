@@ -7,6 +7,8 @@ import styles from "./app.module.css";
 import { executionDuration, reference } from "./format.js";
 import { RunWorkspace } from "./workspace.js";
 
+const fixturePreview = import.meta.env.VITE_MONITOR_FIXTURES === "true";
+
 export function App() {
   const [projectId, setProjectId] = useState<string>();
   const [runId, setRunId] = useState<string>();
@@ -38,7 +40,7 @@ export function App() {
     if (selectedProjectId) setProjectId(selectedProjectId);
     if (selectedRunId) setRunId(selectedRunId);
   }, [selectedProjectId, selectedRunId]);
-  const unavailable = snapshot.isError || !snapshot.data;
+  const unavailable = fixturePreview || snapshot.isError || !snapshot.data;
   return (
     <div className={styles.shell}>
       <a className={styles.skip} href="#workspace">
@@ -46,7 +48,9 @@ export function App() {
       </a>
       <aside className={styles.rail} aria-label="Projects">
         <h1>Agent Workflows</h1>
-        <p className={styles.railNote}>Local monitor</p>
+        <p className={styles.railNote}>
+          {fixturePreview ? "Read-only fixtures" : "Local monitor"}
+        </p>
         <h2>Projects</h2>
         {snapshot.data?.projects.map((item) => (
           <button
@@ -137,15 +141,17 @@ export function App() {
           </p>
         )}
       </aside>
-      <main id="workspace" className={styles.workspace}>
+      <main id="workspace" className={styles.workspace} tabIndex={-1}>
         <header className={styles.topbar}>
           <span>{project?.id ?? "Connecting"}</span>
           <span className={styles.connection}>
             {snapshot.isError
               ? "Connection unavailable"
-              : snapshot.data
-                ? "Connected to local monitor"
-                : "Connecting…"}
+              : fixturePreview
+                ? "Fixture preview · read-only"
+                : snapshot.data
+                  ? "Connected to local monitor"
+                  : "Connecting…"}
           </span>
         </header>
         {snapshot.isError && (
@@ -188,8 +194,12 @@ export function App() {
             <p>{project.blocked}</p>
           </div>
         )}
-        <div role="status" className={styles.commandNotice}>
-          {commands.notice || "Commands are acknowledged by the runner."}
+        <div
+          role="status"
+          className={styles.commandNotice}
+          data-visible={!!commands.notice}
+        >
+          {commands.notice}
         </div>
         {run ? (
           <RunWorkspace

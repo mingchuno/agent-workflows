@@ -35,6 +35,8 @@
   },
   "scripts": {
     "build": "node scripts/clean-build.mjs && tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs && pnpm web:build",
+    "web:dev": "node --import tsx tests/web-demo.ts",
+    "web:test": "node --import tsx --test tests/web-demo.test.ts",
     "web:build": "vite build --config web/vite.config.ts",
     "check": "tsc --noEmit && tsc -p web/tsconfig.json",
     "test": "pnpm build && node --test scripts/*.test.mjs && node scripts/test.mjs",

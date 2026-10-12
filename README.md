@@ -149,6 +149,41 @@ For appearance checks, use `AW_TUI_THEME=light pnpm tui:preview`,
 To monitor real local runs from source, use `pnpm start monitor` with your normal
 configuration and database. See the [monitor guide](docs/operations.md#monitor).
 
+### Develop the web UI
+
+```sh
+pnpm web:dev
+```
+
+Open `http://127.0.0.1:5173`. Vite reloads the UI as you edit `web/`.
+The labelled preview uses read-only fixtures shared with the TUI demo; it needs
+no database, configuration or provider credentials. Search, project selection,
+outcome filters and evidence sections work. Operator commands are disabled;
+fixture logs are unavailable. Stop the dev server with Ctrl-C.
+
+```sh
+pnpm web:test   # Fast fixture API checks, no database
+pnpm check     # Runtime and browser TypeScript checks
+pnpm lint
+pnpm verify    # Full build, server, browser and workflow tests
+```
+
+Install Chromium with `pnpm exec playwright install chromium` before browser
+checks. The full suite needs PostgreSQL binaries or `TEST_DATABASE_URL` as
+described below.
+
+For live local workflows, run from this checkout with your normal environment:
+
+```sh
+pnpm web:build
+pnpm start --config /path/to/agent-workflows.json run
+```
+
+Open the access URL printed by the runner. This starts real workflows and
+serves built assets on port 8787 using your workflow configuration;
+rebuild and refresh after UI edits. The fixture dev server does not connect to
+that runner.
+
 ### Checks
 
 Use `pnpm start --help` to run the CLI from source. `pnpm build` emits the runtime and declarations into `dist/src` and copies migrations to `dist/drizzle`.

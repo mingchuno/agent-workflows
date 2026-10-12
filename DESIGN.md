@@ -42,6 +42,9 @@ typography:
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     fontSize: "13px"
     fontWeight: 600
+  mobile-input:
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    fontSize: "16px"
   metadata:
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     fontSize: "12px"
@@ -185,7 +188,7 @@ and the Run pane is 230px beside the workspace. Supporting rail labels and the
 footer disappear. At 600px and below, the shell stacks; Run choices form a
 horizontally scrollable row of 230–260px items. Workspace insets reduce to 16px,
 activity entries stack, fact labels narrow to 105px, and section controls remain
-wrapped with a 40px minimum height. The Run selection remains available rather
+wrapped with a 44px minimum height. The Run selection remains available rather
 than becoming a separate browser drilldown screen.
 
 Navigation is denser than evidence. The desktop workspace uses 32px horizontal
@@ -314,3 +317,13 @@ Do not claim checkout preservation without evidence, infer an ETA, or equate a
 database connection with a live runner. Keep absent evidence distinct from empty
 results. Recovery continues publication in the same run; retry starts a new run.
 Closing the monitor leaves work running.
+
+## Web polish refinements
+
+On phones, project identity leads a compact project row, search and outcome
+filters share a row, and Run choices snap horizontally. Inputs use 16px type
+to avoid focus zoom on mobile browsers. Touch controls are at least 44px high.
+Selected Run titles use the existing blue token; project focus uses rail ink.
+Command feedback appears at the lower viewport edge only after submission.
+The workspace skip link targets a focusable main region. The development preview
+is explicitly labelled as read-only fixtures and disables operator controls.
