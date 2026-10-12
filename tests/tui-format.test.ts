@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { matchIndex } from "../src/monitor/text.js";
 import {
   cells,
   colorFor,
@@ -9,7 +10,6 @@ import {
   wrapLines,
 } from "../src/tui/format.js";
 import { ellipsis } from "../src/tui/presentation.js";
-import { matchIndex } from "../src/tui/text.js";
 import { monitorFixture } from "./tui-fixtures.js";
 
 test("execution duration advances while running and freezes at its own finish", () => {

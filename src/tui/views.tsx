@@ -1,8 +1,8 @@
 import { Box, Text } from "ink";
 import type { RunRecord } from "../domain.js";
 import { subjectReference } from "../domain.js";
+import { needsAttention } from "../monitor/discovery.js";
 import type { EventRecord, InvocationRecord } from "../store.js";
-import { needsAttention } from "./discovery.js";
 import {
   chromeText,
   colorFor,

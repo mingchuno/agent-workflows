@@ -1,10 +1,11 @@
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative } from "node:path";
 import { HTTPException } from "hono/http-exception";
+import { actionAvailability } from "../monitor/actions.js";
+import { LogFile, presentLogLine } from "../monitor/log-file.js";
+import { logPageSize } from "../monitor/log-page.js";
 import { createRedactor } from "../runtime/redaction.js";
 import type { EventRecord, Store } from "../store.js";
-import { LogFile, presentLogLine } from "../tui/log-file.js";
-import { projectRunProjection } from "../tui/projection.js";
 import type { LogPage, RunEvidence } from "./contracts.js";
 
 export class MonitorEvidence {
@@ -33,13 +34,12 @@ export class MonitorEvidence {
       this.recordedEvents(run.id),
       this.store.projects(),
     ]);
-    const projection = projectRunProjection({
+    const projection = actionAvailability({
       run,
       project: projects.find((project) => project.id === run.projectId),
       projectRuns: runs.filter(
         (candidate) => candidate.projectId === run.projectId,
       ),
-      sessions,
       pending: false,
     });
     return {
@@ -112,25 +112,8 @@ export class MonitorEvidence {
     );
     if (!log)
       throw new HTTPException(404, { message: "Recorded log not found" });
-    const root = await realpath(this.stateDirectory);
-    const path = await realpath(log.path);
-    const within = relative(root, path);
-    if (
-      !within ||
-      within === ".." ||
-      within.startsWith("../") ||
-      isAbsolute(within)
-    )
-      throw new HTTPException(403, {
-        message: "Log is outside workflow state",
-      });
-    let file = this.logFiles.get(path);
-    if (!file) {
-      if (this.logFiles.size >= 16)
-        this.logFiles.delete(this.logFiles.keys().next().value!);
-      file = new LogFile(path);
-      this.logFiles.set(path, file);
-    }
+    const path = await this.resolveLogPath(log.path);
+    const file = this.cachedLogFile(path);
     await file.refresh(options.signal);
     const match = options.query
       ? await file.search({
@@ -144,11 +127,11 @@ export class MonitorEvidence {
     const start = Math.max(
       0,
       Math.min(
-        match ?? options.start ?? Math.max(0, file.count - 200),
+        match ?? options.start ?? Math.max(0, file.count - logPageSize),
         Math.max(0, file.count - 1),
       ),
     );
-    const lines = await file.page(start, 200, options.signal);
+    const lines = await file.page(start, logPageSize, options.signal);
     return {
       lines: lines.map((line) =>
         this.redact(presentLogLine(line, options.raw)),
@@ -157,5 +140,31 @@ export class MonitorEvidence {
       total: file.count,
       match,
     };
+  }
+  private async resolveLogPath(recordedPath: string) {
+    const root = await realpath(this.stateDirectory);
+    const path = await realpath(recordedPath);
+    const within = relative(root, path);
+    if (
+      !within ||
+      within === ".." ||
+      within.startsWith("../") ||
+      isAbsolute(within)
+    )
+      throw new HTTPException(403, {
+        message: "Log is outside workflow state",
+      });
+    return path;
+  }
+
+  private cachedLogFile(path: string) {
+    let file = this.logFiles.get(path);
+    if (!file) {
+      if (this.logFiles.size >= 16)
+        this.logFiles.delete(this.logFiles.keys().next().value!);
+      file = new LogFile(path);
+      this.logFiles.set(path, file);
+    }
+    return file;
   }
 }

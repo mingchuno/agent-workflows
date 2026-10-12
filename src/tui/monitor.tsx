@@ -1,10 +1,10 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 import { currentExecutionId } from "../domain.js";
+import { runCounts } from "../monitor/discovery.js";
 import { minimumTerminalSize } from "./constants.js";
 import { type MonitorSource, useMonitorData } from "./data.js";
 import { ConfirmDialog, HelpDialog } from "./dialogs.js";
-import { runCounts } from "./discovery.js";
 import { chromeCells as cells, chromeText, colorFor } from "./format.js";
 import { monitorLayout } from "./layout.js";
 import { LogViewer } from "./log.js";

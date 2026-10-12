@@ -1,7 +1,7 @@
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import type { ExecutionRecord, RunRecord } from "../domain.js";
-import { terminalText } from "./text.js";
+import { terminalText } from "../monitor/text.js";
 
 const millisecondsPerSecond = 1_000;
 const secondsPerMinute = 60;

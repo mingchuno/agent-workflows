@@ -1,7 +1,7 @@
 import stringWidth from "string-width";
 import type { RunRecord } from "../domain.js";
 import { subjectReference } from "../domain.js";
-import { needsAttention } from "./discovery.js";
+import { needsAttention } from "../monitor/discovery.js";
 import { cells, chromeText, executionDuration, wrapLines } from "./format.js";
 import type { projectRunProjection } from "./projection.js";
 

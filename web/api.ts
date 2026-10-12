@@ -1,6 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MonitorCommand, MonitorSnapshot } from "../src/web/contracts.js";
+import {
+  type CommandEvent,
+  type CommandLifecycle,
+  commandNotice,
+  commandPending,
+  transitionCommand,
+} from "./command-lifecycle.js";
 
 export async function readMonitor<T>(
   path: string,
@@ -16,55 +23,53 @@ export async function readMonitor<T>(
   return response.json();
 }
 
+export async function submitMonitorCommand(
+  command: MonitorCommand,
+): Promise<{ id: string }> {
+  const response = await fetch("/api/commands", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(command),
+  });
+  const result = await response.json();
+  if (!response.ok)
+    throw new Error(result.error ?? "Command submission failed");
+  return result;
+}
+
 export function useOperatorCommands(snapshot?: MonitorSnapshot) {
   const client = useQueryClient();
-  const [pending, setPending] = useState<string>();
-  const [notice, setNotice] = useState("");
-  const submitting = useRef(false);
+  const [state, setState] = useState<CommandLifecycle>({ phase: "idle" });
+  // Advance synchronously so two submissions in the same render cannot race.
+  const currentState = useRef(state);
+  const transition = useCallback((event: CommandEvent) => {
+    const next = transitionCommand(currentState.current, event);
+    currentState.current = next;
+    setState(next);
+  }, []);
   const mutation = useMutation({
-    mutationFn: async (command: MonitorCommand) => {
-      const response = await fetch("/api/commands", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(command),
-      });
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(result.error ?? "Command submission failed");
-      return result as { id: string };
-    },
+    mutationFn: submitMonitorCommand,
     onSuccess: ({ id }) => {
-      setPending(id);
+      transition({ type: "accepted", id });
       void client.invalidateQueries({ queryKey: ["snapshot"] });
     },
-    onError: (error) => {
-      setNotice(
-        `Submission failed: ${error.message}. Check status before trying again.`,
-      );
-      submitting.current = false;
-    },
+    onError: (error) => transition({ type: "failed", message: error.message }),
   });
   useEffect(() => {
+    if (state.phase !== "awaiting") return;
     const command = snapshot?.commands.find(
-      (command) => command.id === pending,
+      (command) => command.id === state.pendingCommandId,
     );
     if (!command || command.status === "pending") return;
-    setNotice(
-      `${command.kind}: ${command.status}${command.error ? ` — ${command.error}` : ""}`,
-    );
-    setPending(undefined);
-    submitting.current = false;
+    transition({ type: "acknowledged", command });
     void client.invalidateQueries({ queryKey: ["evidence"] });
-  }, [snapshot, pending, client]);
+  }, [snapshot, state, client, transition]);
   return {
-    pending: mutation.isPending || !!pending,
-    notice,
+    pending: commandPending(state),
+    notice: commandNotice(state),
     submit(command: MonitorCommand) {
-      if (submitting.current) return;
-      submitting.current = true;
-      setNotice(
-        `${command.kind}: pending — waiting for runner acknowledgement`,
-      );
+      if (commandPending(currentState.current)) return;
+      transition({ type: "submit", kind: command.kind });
       mutation.mutate(command);
     },
   };

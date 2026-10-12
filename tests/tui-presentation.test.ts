@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runCounts } from "../src/tui/discovery.js";
+import { runCounts } from "../src/monitor/discovery.js";
 import { failurePresentation } from "../src/tui/presentation.js";
 import { projectRunProjection } from "../src/tui/projection.js";
 import { consoleFixture } from "./tui-demo-fixtures.js";

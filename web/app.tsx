@@ -5,6 +5,7 @@ import type { MonitorSnapshot } from "../src/web/contracts.js";
 import { readMonitor, useOperatorCommands } from "./api.js";
 import styles from "./app.module.css";
 import { executionDuration, reference } from "./format.js";
+import { selectMonitorRuns } from "./selection.js";
 import { RunWorkspace } from "./workspace.js";
 
 const fixturePreview = import.meta.env.VITE_MONITOR_FIXTURES === "true";
@@ -25,15 +26,10 @@ export function App() {
     refetchInterval: 1000,
   });
   const commands = useOperatorCommands(snapshot.data);
-  const project =
-    snapshot.data?.projects.find((project) => project.id === projectId) ??
-    snapshot.data?.projects[0];
-  const projectRuns =
-    snapshot.data?.runs.filter((run) => run.projectId === project?.id) ?? [];
-  const visibleRuns = projectRuns.filter(
-    (run) => run.id === runId || snapshot.data?.visibleRunIds.includes(run.id),
+  const { project, projectRuns, visibleRuns, run } = selectMonitorRuns(
+    snapshot.data,
+    { projectId, runId },
   );
-  const run = visibleRuns.find((run) => run.id === runId) ?? visibleRuns[0];
   const selectedProjectId = project?.id;
   const selectedRunId = run?.id;
   useEffect(() => {

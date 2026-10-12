@@ -2,7 +2,7 @@ import {
   discoverRuns,
   type RunFilter,
   runFilters,
-} from "../src/tui/discovery.js";
+} from "../src/monitor/discovery.js";
 import { consoleFixture } from "./tui-demo-fixtures.js";
 
 /** Read-only HTTP fixtures, shared by the development server and its tests. */

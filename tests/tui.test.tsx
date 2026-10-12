@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { render } from "ink-testing-library";
 import stringWidth from "string-width";
+import { LogFile } from "../src/monitor/log-file.js";
 import { Monitor } from "../src/tui/index.js";
-import { LogFile } from "../src/tui/log-file.js";
 import {
   initialNavigation,
   transitionNavigation,

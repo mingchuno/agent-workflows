@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
+import { LogFile, presentLogLine } from "../monitor/log-file.js";
+import { matchIndex, terminalText } from "../monitor/text.js";
 import { screenChromeRows, tuiRefreshIntervalMs } from "./constants.js";
-import { LogFile, presentLogLine } from "./log-file.js";
-import { matchIndex, terminalText } from "./text.js";
 
 /** Owned by one keyed log screen; unmount cancels polling and search. */
 export function useLogController(path: string, columns: number, rows: number) {

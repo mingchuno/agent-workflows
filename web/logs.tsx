@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
+import { logPageSize } from "../src/monitor/log-page.js";
 import type { LogPage, RecordedLog } from "../src/web/contracts.js";
 import { readMonitor } from "./api.js";
 import styles from "./app.module.css";
+import { navigateLog } from "./log-navigation.js";
 
 export function Logs({ runId, logs }: { runId: string; logs: RecordedLog[] }) {
   const [logId, setLogId] = useState(logs[0]?.id);
@@ -30,16 +32,12 @@ export function Logs({ runId, logs }: { runId: string; logs: RecordedLog[] }) {
 
 function LogReader({ runId, log }: { runId: string; log: RecordedLog }) {
   const viewport = useRef<HTMLElement>(null);
-  const [following, setFollowing] = useState(true);
+  const [navigation, dispatch] = useReducer(navigateLog, { mode: "follow" });
+  const following = navigation.mode === "follow";
+  const start = navigation.mode === "follow" ? undefined : navigation.start;
+  const search = navigation.mode === "search" ? navigation.search : undefined;
   const [raw, setRaw] = useState(false);
-  const [start, setStart] = useState<number>();
   const [query, setQuery] = useState("");
-  const [search, setSearch] = useState<{
-    query: string;
-    direction: string;
-    from: number;
-    request: number;
-  }>();
   const page = useQuery({
     queryKey: ["log", runId, log.id, start, raw, search],
     queryFn: ({ signal }) => {
@@ -57,28 +55,15 @@ function LogReader({ runId, log }: { runId: string; log: RecordedLog }) {
     },
     refetchInterval: following ? 1000 : false,
   });
-  const find = (direction: string) => {
-    setFollowing(false);
-    setSearch({
-      query,
-      direction,
-      from:
-        search && page.data?.match !== undefined
-          ? page.data.match
-          : (page.data?.start ?? 0),
-      request: (search?.request ?? 0) + 1,
-    });
+  const find = (direction: "next" | "previous") => {
+    dispatch({ type: "search", query, direction, page: page.data });
   };
   const updatedAt = page.dataUpdatedAt;
   useEffect(() => {
     if (following && updatedAt && viewport.current)
       viewport.current.scrollTop = viewport.current.scrollHeight;
   }, [following, updatedAt]);
-  const move = (position: number) => {
-    setFollowing(false);
-    setSearch(undefined);
-    setStart(Math.max(0, position));
-  };
+  const move = (start: number) => dispatch({ type: "move", start });
   return (
     <div className={styles.logReader}>
       <div className={styles.logControls}>
@@ -86,9 +71,7 @@ function LogReader({ runId, log }: { runId: string; log: RecordedLog }) {
           type="button"
           aria-pressed={following}
           onClick={() => {
-            setFollowing(!following);
-            setStart(following ? page.data?.start : undefined);
-            setSearch(undefined);
+            dispatch({ type: "toggle-follow", pageStart: page.data?.start });
           }}
         >
           {following ? "Pause following" : "Follow log"}
@@ -188,7 +171,7 @@ function LogReader({ runId, log }: { runId: string; log: RecordedLog }) {
             <button
               type="button"
               disabled={page.data.start === 0}
-              onClick={() => move(page.data!.start - 200)}
+              onClick={() => move(page.data!.start - logPageSize)}
             >
               Previous lines
             </button>
@@ -197,7 +180,7 @@ function LogReader({ runId, log }: { runId: string; log: RecordedLog }) {
               disabled={
                 page.data.start + page.data.lines.length >= page.data.total
               }
-              onClick={() => move(page.data!.start + 200)}
+              onClick={() => move(page.data!.start + logPageSize)}
             >
               Next lines
             </button>

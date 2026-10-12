@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { type RunRecord, subjectReference } from "../domain.js";
+import { discoverRuns, type RunFilter } from "../monitor/discovery.js";
 import type {
   EventRecord,
   InvocationRecord,
@@ -7,7 +8,6 @@ import type {
   Store,
 } from "../store.js";
 import { tuiRefreshIntervalMs } from "./constants.js";
-import { discoverRuns, type RunFilter } from "./discovery.js";
 import {
   ExecutionNotificationObserver,
   type ExecutionNotificationWriter,

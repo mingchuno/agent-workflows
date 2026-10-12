@@ -1,9 +1,9 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
+import { presentLogLine } from "../monitor/log-file.js";
+import { matchIndex } from "../monitor/text.js";
 import { HelpDialog } from "./dialogs.js";
 import { cells, colorFor } from "./format.js";
-import { presentLogLine } from "./log-file.js";
-import { matchIndex } from "./text.js";
 import { useLogController } from "./use-log-controller.js";
 
 const horizontalPanColumns = 20;

@@ -1,17 +1,17 @@
 import type { Key } from "ink";
 import type { RunRecord } from "../domain.js";
 import { currentExecutionId, subjectReference } from "../domain.js";
-import type { EventRecord, InvocationRecord, ProjectState } from "../store.js";
-import type { MonitorAction } from "./data.js";
 import {
   discoverRuns,
   needsAttention,
   type RunFilter,
   runFilters,
-} from "./discovery.js";
+} from "../monitor/discovery.js";
+import { terminalText } from "../monitor/text.js";
+import type { EventRecord, InvocationRecord, ProjectState } from "../store.js";
+import type { MonitorAction } from "./data.js";
 import type { LogSource } from "./log.js";
 import { type RunSection, runSections } from "./sections.js";
-import { terminalText } from "./text.js";
 
 type Focus = "runs" | "summary" | "sessions";
 type RunAction = "stop" | "retry" | "retry-refresh" | "recover";
