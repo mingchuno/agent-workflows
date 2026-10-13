@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/mingchuno/agent-workflows/compare/v0.10.0...v0.11.0) (2026-10-13)
+
+
+### Features
+
+* **cli:** Add package version command ([1f0f018](https://github.com/mingchuno/agent-workflows/commit/1f0f018b2354b2e73277e70fc9a50648e95f7587))
+
+
+### Bug Fixes
+
+* **web:** Clarify monitor layout and navigation ([0ae1d0b](https://github.com/mingchuno/agent-workflows/commit/0ae1d0b5a41f70b624d37d5dc171316af6017e06))
+
 ## [0.10.0](https://github.com/mingchuno/agent-workflows/compare/v0.9.1...v0.10.0) (2026-10-13)
 
 
