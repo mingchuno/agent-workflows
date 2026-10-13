@@ -190,27 +190,33 @@ metadata, fact lists, tables, and activity timestamps use tabular numerals.
 ## Layout
 
 The desktop browser shell has three columns: a 180px project rail, a 300px Run
-pane, and a flexible workspace. At widths of at least 1050px the two navigation
-panes are viewport-height, sticky, and independently scrollable. At 1050px and
-below, columns narrow to 150px and 250px and workspace insets reduce to 24px;
-the two media queries both apply at exactly 1050px.
+pane, and a flexible workspace. Navigation panes are sticky and independently
+scrollable above 600px. At 1050px and below, project navigation becomes a wrapping
+full-width top rail and the Run pane is 230px beside the workspace; workspace
+insets reduce to 24px. The Run pane is bounded to the viewport below the project
+rail. Supporting rail labels and the footer disappear.
 
-At 800px and below, project navigation becomes a wrapping full-width top rail
-and the Run pane is 230px beside the workspace. Supporting rail labels and the
-footer disappear. At 600px and below, the shell stacks; Run choices form a
-horizontally scrollable row of 230–260px items. Workspace insets reduce to 16px,
-activity entries stack, fact labels narrow to 105px, and section controls remain
-wrapped with a 44px minimum height. Search inputs use 16px type to avoid
-mobile focus zoom; coarse-pointer controls have at least 44px height.
-The Run selection remains available rather
-than becoming a separate browser drilldown screen.
+At 600px and below, the shell stacks. A collapsed Run picker keeps the selected
+Run's evidence near the first viewport; Choose run reveals search, filters, and a
+horizontally scrollable row of Run choices. Selecting a Run closes the picker and
+returns focus to its toggle. The full subject stays visible in the workspace.
+Workspace insets reduce to 16px. Section navigation scrolls horizontally in one
+row, retaining a 44px minimum control height and native keyboard focus behavior.
+Search inputs use 16px type to avoid mobile focus zoom; coarse-pointer controls
+have at least 44px height.
 
-Navigation is denser than evidence. The desktop workspace uses 32px horizontal
-insets; headings and sections are separated by larger gaps than control groups.
-Evidence introductions are bounded to 70ch and action descriptions to 65ch.
-Configuration inspection keeps the same shell and uses 32px horizontal insets,
-reducing to 16px at 760px. Its JSON surface padding reduces from 18px to 12px
-at that breakpoint. Long values wrap and nested objects indent by 18px.
+Projects and Configuration are application-level navigation destinations.
+Configuration hides project and Run navigation, uses a global workspace header,
+and places Reload configuration beside its heading. Returning to Projects
+preserves the selected project and Run. Project identity, connection state, and
+Pause/Resume intake share the project workspace header. Navigation is denser than evidence. Desktop workspace insets are 32px;
+headings and sections are separated by larger gaps than control groups.
+Evidence is bounded to 1000px, introductions to 70ch, and action descriptions to
+65ch. Workspaces at most 520px wide use compact 105px fact labels and stacked
+activity entries. Configuration inspection keeps the same shell and uses 32px
+horizontal insets, reducing to 16px at 760px. Its JSON surface padding reduces
+from 18px to 12px at that breakpoint. Long values wrap and nested objects indent
+by 18px.
 
 Tables scroll horizontally; the log viewport scrolls in both axes and is capped
 at 420px high. Text diagnostics wrap; raw log lines preserve their width.

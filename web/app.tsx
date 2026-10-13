@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { runFilters } from "../src/monitor/filters.js";
 import type { MonitorSnapshot } from "../src/web/contracts.js";
 import { readMonitor, useOperatorCommands } from "./api.js";
@@ -13,6 +13,8 @@ const fixturePreview = import.meta.env.VITE_MONITOR_FIXTURES === "true";
 
 export function App() {
   const [showConfiguration, setShowConfiguration] = useState(false);
+  const [runPickerExpanded, setRunPickerExpanded] = useState(false);
+  const runPickerToggle = useRef<HTMLButtonElement>(null);
   const [projectId, setProjectId] = useState<string>();
   const [runId, setRunId] = useState<string>();
   const [filter, setFilter] = useState("All");
@@ -40,108 +42,157 @@ export function App() {
   }, [selectedProjectId, selectedRunId]);
   const unavailable = fixturePreview || snapshot.isError || !snapshot.data;
   return (
-    <div className={styles.shell}>
+    <div className={styles.shell} data-configuration={showConfiguration}>
       <a className={styles.skip} href="#workspace">
         Skip to workspace
       </a>
-      <aside className={styles.rail} aria-label="Projects">
+      <aside className={styles.rail} aria-label="Application navigation">
         <h1>Agent Workflows</h1>
         <p className={styles.railNote}>
           {fixturePreview ? "Read-only fixtures" : "Local monitor"}
         </p>
-        <h2>Projects</h2>
-        {snapshot.data?.projects.map((item) => (
+        <nav className={styles.primaryNavigation} aria-label="Monitor views">
           <button
             type="button"
-            key={item.id}
-            aria-pressed={item.id === project?.id}
             className={styles.project}
-            onClick={() => {
-              setProjectId(item.id);
-              setRunId(undefined);
-            }}
+            aria-current={!showConfiguration ? "page" : undefined}
+            onClick={() => setShowConfiguration(false)}
           >
-            <strong>{item.id}</strong>
-            <span>
-              {item.blocked
-                ? "Blocked"
-                : item.paused
-                  ? "Intake paused"
-                  : "Intake enabled"}
-            </span>
+            Projects
           </button>
-        ))}
+          <button
+            type="button"
+            className={styles.project}
+            aria-current={showConfiguration ? "page" : undefined}
+            onClick={() => setShowConfiguration(true)}
+          >
+            Configuration
+          </button>
+        </nav>
+        {!showConfiguration && (
+          <div className={styles.projectNavigation}>
+            <h2>Projects</h2>
+            {snapshot.data?.projects.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                aria-pressed={item.id === project?.id}
+                className={styles.project}
+                onClick={() => {
+                  setProjectId(item.id);
+                  setRunId(undefined);
+                }}
+              >
+                <strong>{item.id}</strong>
+                <span>
+                  {item.blocked
+                    ? "Blocked"
+                    : item.paused
+                      ? "Intake paused"
+                      : "Intake enabled"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <p className={styles.railFooter}>
           Closing this monitor leaves workflows running.
         </p>
       </aside>
-      <aside className={styles.runPane} aria-label="Runs">
+      <aside
+        className={styles.runPane}
+        aria-label="Runs"
+        hidden={showConfiguration}
+        data-expanded={runPickerExpanded}
+      >
         <div className={styles.runHeading}>
           <h2>Runs</h2>
           <span>{projectRuns.length} recorded</span>
-        </div>
-        <label>
-          Search runs
-          <input
-            type="search"
-            value={query}
-            maxLength={256}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Subject, reference, or run ID"
-          />
-        </label>
-        <label>
-          Outcome filter
-          <select
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
+          <button
+            type="button"
+            className={styles.runPickerToggle}
+            ref={runPickerToggle}
+            aria-expanded={runPickerExpanded}
+            aria-controls="run-picker"
+            onClick={() => setRunPickerExpanded((current) => !current)}
           >
-            {runFilters.map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-          </select>
-        </label>
-        <div className={styles.runList}>
-          {visibleRuns.map((item) => (
-            <button
-              type="button"
-              className={styles.runItem}
-              key={item.id}
-              aria-pressed={item.id === run?.id}
-              onClick={() => setRunId(item.id)}
-            >
-              <span className={styles.runReference}>
-                {reference(item)} · attempt {item.attempt}
-              </span>
-              <strong>{item.subject.title}</strong>
-              <span>
-                <span className={styles.outcome} data-outcome={item.outcome}>
-                  {item.outcome}
-                </span>{" "}
-                · {item.phase}
-              </span>
-              <span className={styles.muted}>
-                {executionDuration(item.executions?.at(-1))}
-              </span>
-              {!snapshot.data?.visibleRunIds.includes(item.id) && (
-                <span className={styles.muted}>
-                  Selected run · outside this filter
-                </span>
-              )}
-            </button>
-          ))}
+            {runPickerExpanded ? "Hide runs" : "Choose run"}
+          </button>
         </div>
-        {!visibleRuns.length && (
-          <p className={styles.empty}>
-            {projectRuns.length
-              ? "No runs match this search and filter."
-              : "No runs yet. Waiting for eligible work."}
-          </p>
-        )}
+        <div id="run-picker" className={styles.runPicker}>
+          <label>
+            Search runs
+            <input
+              type="search"
+              value={query}
+              maxLength={256}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Subject, reference, or run ID"
+            />
+          </label>
+          <label>
+            Outcome filter
+            <select
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+            >
+              {runFilters.map((name) => (
+                <option key={name}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <div className={styles.runList}>
+            {visibleRuns.map((item) => (
+              <button
+                type="button"
+                className={styles.runItem}
+                key={item.id}
+                aria-pressed={item.id === run?.id}
+                onClick={() => {
+                  setRunId(item.id);
+                  setRunPickerExpanded(false);
+                  if (runPickerToggle.current?.getClientRects().length) {
+                    runPickerToggle.current.focus();
+                  }
+                }}
+              >
+                <span className={styles.runReference}>
+                  {reference(item)} · attempt {item.attempt}
+                </span>
+                <strong>{item.subject.title}</strong>
+                <span>
+                  <span className={styles.outcome} data-outcome={item.outcome}>
+                    {item.outcome}
+                  </span>{" "}
+                  · {item.phase}
+                </span>
+                <span className={styles.muted}>
+                  {executionDuration(item.executions?.at(-1))}
+                </span>
+                {!snapshot.data?.visibleRunIds.includes(item.id) && (
+                  <span className={styles.muted}>
+                    Selected run · outside this filter
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {!visibleRuns.length && (
+            <p className={styles.empty}>
+              {projectRuns.length
+                ? "No runs match this search and filter."
+                : "No runs yet. Waiting for eligible work."}
+            </p>
+          )}
+        </div>
       </aside>
       <main id="workspace" className={styles.workspace} tabIndex={-1}>
         <header className={styles.topbar}>
-          <span>{project?.id ?? "Connecting"}</span>
+          <span>
+            {showConfiguration
+              ? "Active configuration"
+              : (project?.id ?? "Connecting")}
+          </span>
           <span className={styles.connection}>
             {snapshot.isError
               ? "Connection unavailable"
@@ -151,6 +202,22 @@ export function App() {
                   ? "Connected to local monitor"
                   : "Connecting…"}
           </span>
+          {!showConfiguration && (
+            <div className={styles.toolbar}>
+              <button
+                type="button"
+                disabled={!project || unavailable || commands.pending}
+                onClick={() =>
+                  commands.submit({
+                    kind: project?.paused ? "resume" : "pause",
+                    target: project!.id,
+                  })
+                }
+              >
+                {project?.paused ? "Resume intake" : "Pause intake"}
+              </button>
+            </div>
+          )}
         </header>
         {snapshot.isError && (
           <div role="alert" className={styles.warning}>
@@ -165,35 +232,7 @@ export function App() {
             </button>
           </div>
         )}
-        <div className={styles.toolbar}>
-          <button
-            type="button"
-            aria-pressed={showConfiguration}
-            onClick={() => setShowConfiguration((current) => !current)}
-          >
-            {showConfiguration ? "Back to runs" : "View configuration"}
-          </button>
-          <button
-            type="button"
-            disabled={!project || unavailable || commands.pending}
-            onClick={() =>
-              commands.submit({
-                kind: project?.paused ? "resume" : "pause",
-                target: project!.id,
-              })
-            }
-          >
-            {project?.paused ? "Resume intake" : "Pause intake"}
-          </button>
-          <button
-            type="button"
-            disabled={unavailable || commands.pending}
-            onClick={() => commands.submit({ kind: "reload", target: "" })}
-          >
-            Reload configuration
-          </button>
-        </div>
-        {project?.blocked && (
+        {!showConfiguration && project?.blocked && (
           <div className={styles.warning} role="alert">
             <strong>Project blocked</strong>
             <p>{project.blocked}</p>
@@ -207,7 +246,10 @@ export function App() {
           {commands.notice}
         </div>
         {showConfiguration ? (
-          <ConfigurationView />
+          <ConfigurationView
+            reloadDisabled={unavailable || commands.pending}
+            onReload={() => commands.submit({ kind: "reload", target: "" })}
+          />
         ) : run ? (
           <RunWorkspace
             key={run.id}

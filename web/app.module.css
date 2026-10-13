@@ -3,6 +3,26 @@
   grid-template-columns: 180px 300px minmax(0, 1fr);
   min-height: 100dvh;
 }
+.shell[data-configuration="true"] {
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+.primaryNavigation {
+  display: grid;
+  gap: 8px;
+  margin-top: 28px;
+}
+.primaryNavigation button[aria-current="page"] {
+  background: var(--project-selected);
+  color: var(--paper);
+  font-weight: 600;
+}
+.projectNavigation {
+  display: grid;
+  gap: 4px;
+}
+.runPane[hidden] {
+  display: none;
+}
 .skip {
   position: fixed;
   left: 12px;
@@ -71,7 +91,14 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+  gap: 12px;
+}
+.runPickerToggle {
+  display: none;
+}
+.runPicker {
+  min-width: 0;
 }
 .runHeading h2 {
   font-size: 20px;
@@ -130,6 +157,7 @@
 .workspace {
   min-width: 0;
   background: var(--paper);
+  container-type: inline-size;
 }
 .topbar {
   padding: 20px 32px;
@@ -138,6 +166,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
   font-weight: 600;
 }
 .connection {
@@ -149,7 +179,8 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 20px 32px 0;
+  padding: 0;
+  flex-basis: 100%;
 }
 .commandNotice {
   color: var(--muted);
@@ -209,7 +240,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-@media (min-width: 1050px) {
+@media (min-width: 601px) {
   .rail,
   .runPane {
     height: 100dvh;
@@ -227,18 +258,30 @@
     padding: 24px;
   }
   .toolbar {
-    padding-inline: 24px;
+    padding: 0;
   }
   .commandNotice {
     padding-inline: 18px;
   }
 }
-@media (max-width: 800px) {
+@media (max-width: 1050px) {
   .shell {
     grid-template-columns: 230px minmax(0, 1fr);
   }
+  .shell[data-configuration="true"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .primaryNavigation,
+  .projectNavigation {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 0;
+  }
   .rail {
     grid-column: 1 / -1;
+    height: auto;
+    position: static;
     padding: 18px 24px;
     flex-direction: row;
     gap: 18px;
@@ -254,6 +297,9 @@
   .railNote,
   .railFooter {
     display: none;
+  }
+  .runPane {
+    max-height: calc(100dvh - 88px);
   }
   .project {
     padding: 8px 12px;
@@ -277,16 +323,29 @@
     gap: 3px;
   }
   .runPane {
-    display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-    column-gap: 12px;
-    padding: 18px 16px;
+    padding: 12px 16px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
   .runHeading {
-    grid-column: 1 / -1;
-    margin-bottom: 16px;
+    margin-bottom: 0;
+    align-items: center;
+  }
+  .runHeading span {
+    margin-right: auto;
+  }
+  .runPickerToggle {
+    display: block;
+    min-height: 44px;
+  }
+  .runPicker {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .runPane[data-expanded="false"] .runPicker {
+    display: none;
   }
   .runPane label {
     margin-bottom: 0;
@@ -311,6 +370,7 @@
     flex-shrink: 0;
     padding: 12px;
     gap: 6px;
+    align-content: start;
     scroll-snap-align: start;
   }
   .content,
@@ -321,7 +381,7 @@
     font-size: 25px;
   }
   .toolbar {
-    padding: 16px 16px 0;
+    padding: 0;
   }
   .commandNotice {
     padding-inline: 18px;
@@ -340,7 +400,7 @@
 .identity p {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 .identity h2 {
   margin-bottom: 16px;
@@ -358,14 +418,16 @@
 }
 .sections {
   display: flex;
-  flex-wrap: wrap;
+  overflow-x: auto;
   gap: 4px;
   border-bottom: 1px solid var(--line);
   padding-bottom: 10px;
   margin-bottom: 28px;
-  margin-top: 28px;
+  margin-top: 20px;
 }
 .sections button {
+  flex-shrink: 0;
+  min-height: 44px;
   border-color: transparent;
   font-size: 13px;
   padding: 8px 10px;
@@ -378,6 +440,7 @@
 .evidence {
   line-height: 1.6;
   overflow-wrap: anywhere;
+  max-width: 1000px;
 }
 .evidence h3 {
   font-size: 18px;
@@ -671,5 +734,16 @@
   }
   .sections button {
     min-height: 44px;
+  }
+}
+
+@container (max-width: 520px) {
+  .facts > div {
+    grid-template-columns: 105px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .activity li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
   }
 }

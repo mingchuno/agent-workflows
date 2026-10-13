@@ -23,7 +23,13 @@ const jsonStyles = {
   collapseIcon: configurationStyles.collapse,
 };
 
-export function ConfigurationView() {
+export function ConfigurationView({
+  reloadDisabled,
+  onReload,
+}: {
+  reloadDisabled: boolean;
+  onReload: () => void;
+}) {
   const configuration = useQuery({
     queryKey: ["configuration"],
     queryFn: ({ signal }) =>
@@ -36,7 +42,12 @@ export function ConfigurationView() {
       className={configurationStyles.view}
       aria-labelledby="configuration-heading"
     >
-      <h2 id="configuration-heading">Active configuration</h2>
+      <div className={configurationStyles.heading}>
+        <h2 id="configuration-heading">Active configuration</h2>
+        <button type="button" disabled={reloadDisabled} onClick={onReload}>
+          Reload configuration
+        </button>
+      </div>
       <p className={styles.muted}>
         Accepted runner settings with inheritance and defaults resolved. Paths
         and prompt-file references are unexpanded.
