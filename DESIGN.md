@@ -52,6 +52,10 @@ typography:
     fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace'
     fontSize: "12px"
     lineHeight: 1.7
+  configuration-json:
+    fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace'
+    fontSize: "13px"
+    lineHeight: 1.8
 rounded:
   control: "6px"
   evidence: "8px"
@@ -106,6 +110,12 @@ components:
     padding: "22px"
   diagnostic:
     backgroundColor: "{colors.ground}"
+    rounded: "{rounded.control}"
+    padding: "18px"
+  configuration:
+    backgroundColor: "{colors.ground}"
+    textColor: "{colors.ink}"
+    typography: "{typography.configuration-json}"
     rounded: "{rounded.control}"
     padding: "18px"
 ---
@@ -168,9 +178,11 @@ FontSource's Latin 600 face; its OFL license ships at
 system sans stack. Code and preformatted evidence use the system monospace stack.
 
 Workspace titles use the headline token, become 25px below the mobile breakpoint,
-and are bounded to 30ch. Rail and Run headings use 20px; evidence h3 uses 18px;
+and are bounded to 30ch. Configuration headings retain 28px on phones.
+Rail and Run headings use 20px; evidence h3 uses 18px;
 dialog headings use 24px. Labels use 13px; metadata and diagnostics use 12px.
-Evidence reads at line height 1.6; diagnostics at 1.7 and logs at 1.8. Numeric
+Evidence reads at line height 1.6; diagnostics at 1.7, logs and configuration
+JSON at 1.8. Configuration JSON uses its 13px monospace token. Numeric
 metadata, fact lists, tables, and activity timestamps use tabular numerals.
 
 **The Three Type Roles Rule.** Use Source Sans 3 for h1–h3, system sans for body and controls, and monospace for code and preformatted evidence.
@@ -188,12 +200,18 @@ and the Run pane is 230px beside the workspace. Supporting rail labels and the
 footer disappear. At 600px and below, the shell stacks; Run choices form a
 horizontally scrollable row of 230–260px items. Workspace insets reduce to 16px,
 activity entries stack, fact labels narrow to 105px, and section controls remain
-wrapped with a 44px minimum height. The Run selection remains available rather
+wrapped with a 44px minimum height. Search inputs use 16px type to avoid
+mobile focus zoom; coarse-pointer controls have at least 44px height.
+The Run selection remains available rather
 than becoming a separate browser drilldown screen.
 
 Navigation is denser than evidence. The desktop workspace uses 32px horizontal
 insets; headings and sections are separated by larger gaps than control groups.
 Evidence introductions are bounded to 70ch and action descriptions to 65ch.
+Configuration inspection keeps the same shell and uses 32px horizontal insets,
+reducing to 16px at 760px. Its JSON surface padding reduces from 18px to 12px
+at that breakpoint. Long values wrap and nested objects indent by 18px.
+
 Tables scroll horizontally; the log viewport scrolls in both axes and is capped
 at 420px high. Text diagnostics wrap; raw log lines preserve their width.
 
@@ -225,7 +243,9 @@ facts and tables use dividers rather than repeated floating cards.
 Native buttons, search inputs, and selects share white surfaces, ink text, the
 control radius, and 9px by 12px padding. Button hover uses the selection wash and
 blue border; disabled controls use muted text on pale gray and a not-allowed
-cursor. Keyboard focus uses a 3px outline with 3px offset. Fields retain native
+cursor. Keyboard focus uses a 3px outline with 3px offset; project buttons
+use rail ink with an inward 3px offset for contrast on the blue rail. Fields retain
+native
 behavior; labels sit above them with a 6px gap. There is no separate filled
 primary command style in this build.
 
@@ -234,9 +254,12 @@ primary command style in this build.
 Projects use a text-led, borderless button on the blue rail. Selected and hovered
 projects use the lighter blue surface. Run buttons carry reference and attempt,
 subject, textual outcome and phase, then duration. Selection has pale blue fill
-and a visible border. A selected Run outside the current search or filter remains
+and a visible border and blue subject text. A selected Run outside the current
+search or filter remains
 visible with an explicit explanation. Section buttons use transparent borders;
-the current section has blue text, pale selection fill, and weight 600.
+the current section has blue text, pale selection fill, and weight 600. Phone
+Run choices snap horizontally. The workspace skip link targets a focusable
+main region; fixture previews explicitly label their synthetic evidence.
 
 ### Evidence containers
 
@@ -246,12 +269,27 @@ checks, activity, findings, and sessions use aligned rows and thin dividers.
 Diagnostics use wrapped monospace on pale ground; logs use a separately scrollable
 viewport, line numbers, search highlights, and explicit follow/raw controls.
 
+### Configuration inspection
+
+A read-only JSON tree uses the pale diagnostic ground and control radius.
+Keys use ink at weight 600; strings use green, numbers and booleans use blue,
+and punctuation uses muted ink. These colors distinguish value types rather
+than workflow outcomes. Whitespace and indentation preserve the hierarchy.
+
+Disclosure controls use a geometric triangle, selection-wash hover, and a 2px
+focus outline with 2px offset. They are at least 24px square on desktop and 44px
+square at 760px and below. Arrow keys navigate; Enter or Space expands and collapses.
+Loading, unavailable, and retained stale configuration have explicit text;
+retry uses the standard command button. Inspection stays in the workspace,
+without interrupting the operator in a modal.
+
 ### Confirmation dialogs
 
 Stop, retry, retry with refreshed issue, and recovery open a native modal dialog,
 bounded to 520px or the viewport minus 32px, with 30px internal padding. Cancel
 receives initial focus. Pending commands and unavailable evidence disable actions;
-command notices distinguish submission from runner acknowledgement. The modal
+command notices distinguish submission from runner acknowledgement and appear
+at the lower viewport edge only after submission. The modal
 uses the depth and motion described above.
 
 ## Do's and Don'ts
@@ -317,13 +355,3 @@ Do not claim checkout preservation without evidence, infer an ETA, or equate a
 database connection with a live runner. Keep absent evidence distinct from empty
 results. Recovery continues publication in the same run; retry starts a new run.
 Closing the monitor leaves work running.
-
-## Web polish refinements
-
-On phones, project identity leads a compact project row, search and outcome
-filters share a row, and Run choices snap horizontally. Inputs use 16px type
-to avoid focus zoom on mobile browsers. Touch controls are at least 44px high.
-Selected Run titles use the existing blue token; project focus uses rail ink.
-Command feedback appears at the lower viewport edge only after submission.
-The workspace skip link targets a focusable main region. The development preview
-is explicitly labelled as read-only fixtures and disables operator controls.

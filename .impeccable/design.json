@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-12T10:31:06.778980+00:00",
+  "generatedAt": "2026-10-13T11:22:56.990728+00:00",
   "title": "Design System: Agent Workflows",
   "extensions": {
     "colorMeta": {
@@ -265,6 +265,10 @@
       "diagnostic": {
         "displayName": "Technical evidence",
         "purpose": "Wrapped diagnostics; logs use 1.8 line height."
+      },
+      "configuration-json": {
+        "displayName": "Configuration JSON",
+        "purpose": "Read-only typed values with wrapping, nested indentation, and 1.8 line height."
       }
     },
     "shadows": [
@@ -291,6 +295,10 @@
         "value": "800px"
       },
       {
+        "name": "configuration-compact",
+        "value": "760px"
+      },
+      {
         "name": "stacked",
         "value": "600px"
       }
@@ -303,7 +311,7 @@
       "refersTo": "button",
       "description": "Native operator command with hover and focus states.",
       "html": "<button class=\"ds-button\">Pause intake</button>",
-      "css": ".ds-button{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;cursor:pointer}.ds-button:hover:not(:disabled){background:var(--selected,#e5f0f8);border-color:var(--blue,#195f95)}.ds-button:focus-visible{outline:3px solid var(--focus,#247cba);outline-offset:3px;}.ds-button:disabled{color:#687c8b;background:#f1f4f6;cursor:not-allowed}"
+      "css": ".ds-button{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;min-height:40px;cursor:pointer}.ds-button:hover:not(:disabled){background:var(--selected,#e5f0f8);border-color:var(--blue,#195f95)}.ds-button:focus-visible{outline:3px solid var(--focus,#247cba);outline-offset:3px;}.ds-button:disabled{color:#687c8b;background:#f1f4f6;cursor:not-allowed}@media(pointer:coarse){.ds-button{min-height:44px}}"
     },
     {
       "name": "Search field",
@@ -311,7 +319,7 @@
       "refersTo": "input",
       "description": "Scoped Run search with a persistent text label.",
       "html": "<label class=\"ds-field\">Search runs<input type=\"search\" placeholder=\"Subject, reference, or run ID\"></label>",
-      "css": ".ds-field{display:grid;gap:6px;font:600 13px -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e)}.ds-field input{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;min-width:0;caret-color:var(--blue,#195f95)}.ds-field input::placeholder{color:var(--muted,#53697a)}.ds-field input:focus-visible{outline:3px solid var(--focus,#247cba);outline-offset:3px;}"
+      "css": ".ds-field{display:grid;gap:6px;font:600 13px -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e)}.ds-field input{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;min-height:40px;min-width:0;caret-color:var(--blue,#195f95)}.ds-field input::placeholder{color:var(--muted,#53697a)}.ds-field input:focus-visible{outline:3px solid var(--focus,#247cba);outline-offset:3px;}@media(pointer:coarse){.ds-field input{min-height:44px}}@media(max-width:600px){.ds-field input{font-size:16px}}"
     },
     {
       "name": "Project navigation",
@@ -319,15 +327,15 @@
       "refersTo": "project",
       "description": "Selected project in the deep blue context rail.",
       "html": "<nav class=\"ds-rail\" aria-label=\"Projects\"><button aria-pressed=\"true\">Local project<span>Intake enabled</span></button></nav>",
-      "css": ".ds-rail{background:var(--rail,#173650);padding:16px}.ds-rail button{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;display:grid;gap:6px;text-align:left;border:0;background:transparent;color:#edf4fa;padding:12px 10px;cursor:pointer}.ds-rail span{font-size:12px;color:#c6d9e7}.ds-rail button[aria-pressed=true],.ds-rail button:hover{background:#294e6d;color:#fff}.ds-rail button:focus-visible{outline:3px solid var(--focus,#247cba);outline-offset:3px;}"
+      "css": ".ds-rail{background:var(--rail,#173650);padding:16px}.ds-rail button{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;display:grid;gap:6px;text-align:left;border:0;background:transparent;color:var(--rail-ink,#edf4fa);padding:12px 10px;cursor:pointer}.ds-rail span{font-size:12px;color:var(--rail-muted,#c6d9e7)}.ds-rail button[aria-pressed=true],.ds-rail button:hover:not(:disabled){background:var(--project-selected,#294e6d);color:#fff}.ds-rail button:focus-visible{outline:3px solid var(--rail-ink,#edf4fa);outline-offset:-3px;}@media(max-width:800px){.ds-rail{display:flex;flex-wrap:wrap;gap:18px}.ds-rail button{padding:8px 12px}}@media(max-width:600px){.ds-rail{gap:8px}.ds-rail button{padding:8px 10px;gap:3px}}"
     },
     {
       "name": "Run selection",
       "kind": "button",
       "refersTo": "run",
       "description": "Stable selection with reference, title, textual state, and duration.",
-      "html": "<button class=\"ds-run\" aria-pressed=\"true\"><span>#42 \u00b7 attempt 1</span><strong>Inspect recorded evidence</strong><span class=\"ds-outcome\">Running \u00b7 validation</span><span>2m 10s</span></button>",
-      "css": ".ds-run{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;display:grid;gap:8px;text-align:left;background:transparent;border-color:transparent;padding:15px 12px;cursor:pointer;font-size:12px}.ds-run strong{font-size:14px;line-height:1.45}.ds-run span{color:var(--muted,#53697a);font-variant-numeric:tabular-nums}.ds-run .ds-outcome{color:var(--blue,#195f95)}.ds-run[aria-pressed=true]{background:var(--selected,#e5f0f8);border-color:#a2c7e1}.ds-run:hover{background:var(--selected,#e5f0f8);border-color:var(--blue,#195f95)}.ds-run:focus-visible{outline:3px solid var(--focus,#247cba);outline-offset:3px;}"
+      "html": "<button class=\"ds-run\" aria-pressed=\"true\"><span>#42 · attempt 1</span><strong>Inspect recorded evidence</strong><span class=\"ds-outcome\">Running · validation</span><span>2m 10s</span></button>",
+      "css": ".ds-run{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;display:grid;gap:8px;text-align:left;background:transparent;border-color:transparent;padding:15px 12px;cursor:pointer;font-size:12px}.ds-run strong{font-size:14px;line-height:1.45}.ds-run span{color:var(--muted,#53697a);font-variant-numeric:tabular-nums}.ds-run .ds-outcome{color:var(--blue,#195f95)}.ds-run[aria-pressed=true]{background:var(--selected,#e5f0f8);border-color:#a2c7e1}.ds-run:hover{background:var(--selected,#e5f0f8);border-color:var(--blue,#195f95)}.ds-run:focus-visible{outline:3px solid var(--focus,#247cba);outline-offset:3px;}.ds-run[aria-pressed=true] strong{color:var(--blue,#195f95)}"
     },
     {
       "name": "Section navigation",
@@ -335,7 +343,7 @@
       "refersTo": "section",
       "description": "Current evidence section with explicit current-page state.",
       "html": "<nav class=\"ds-sections\" aria-label=\"Run sections\"><button aria-current=\"page\">Overview</button><button>Checks</button></nav>",
-      "css": ".ds-sections{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line,#d4dfe8);padding-bottom:10px}.ds-sections button{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;border-color:transparent;font-size:13px;padding:8px 10px;cursor:pointer}.ds-sections button[aria-current=page]{color:var(--blue,#195f95);background:var(--selected,#e5f0f8);font-weight:600}.ds-sections button:hover{background:var(--selected,#e5f0f8);border-color:var(--blue,#195f95)}.ds-sections button:focus-visible{outline:3px solid var(--focus,#247cba);outline-offset:3px;}"
+      "css": ".ds-sections{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line,#d4dfe8);padding-bottom:10px}.ds-sections button{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:var(--ink,#20394e);font-size:14px;border:1px solid var(--line,#d4dfe8);border-radius:6px;background:var(--paper,#fff);padding:9px 12px;border-color:transparent;font-size:13px;padding:8px 10px;cursor:pointer}.ds-sections button[aria-current=page]{color:var(--blue,#195f95);background:var(--selected,#e5f0f8);font-weight:600}.ds-sections button:hover{background:var(--selected,#e5f0f8);border-color:var(--blue,#195f95)}.ds-sections button:focus-visible{outline:3px solid var(--focus,#247cba);outline-offset:3px;}@media(max-width:600px){.ds-sections{gap:2px}.ds-sections button{min-height:44px;padding-inline:8px}}"
     },
     {
       "name": "Attention evidence",
@@ -352,6 +360,14 @@
       "description": "Wrapped technical evidence on pale ground.",
       "html": "<pre class=\"ds-diagnostic\">Recorded diagnostic output\nPreserved line breaks</pre>",
       "css": ".ds-diagnostic{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 \"SFMono-Regular\",Consolas,\"Liberation Mono\",monospace;color:var(--ink,#20394e);background:var(--ground,#edf2f6);border-radius:6px;padding:18px;margin:12px 0}"
+    },
+    {
+      "name": "Configuration JSON",
+      "kind": "custom",
+      "refersTo": "configuration",
+      "description": "Read-only typed configuration tree with nested disclosures and wrapped values; native details provide standalone expansion in the preview.",
+      "html": "<section class=\"ds-config-view\"><h2>Active configuration</h2><div class=\"ds-config\">{<div class=\"ds-config-child\"><span class=\"ds-config-key\">&quot;id&quot;:</span> <span class=\"ds-config-string\">&quot;local&quot;</span>,<details class=\"ds-config-node\" open><summary><svg width=\"12\" height=\"12\" viewBox=\"0 0 12 12\" aria-hidden=\"true\"><path d=\"M4 2L10 6L4 10Z\" fill=\"currentColor\"/></svg><span class=\"ds-config-key\">&quot;projects&quot;:</span> [</summary><div class=\"ds-config-child\">{ <span class=\"ds-config-key\">&quot;pollIntervalMs&quot;:</span> <span class=\"ds-config-number\">30000</span> }</div>]</details></div>}</div></section>",
+      "css": ".ds-config-view{padding:8px 32px 24px;color:var(--ink,#20394e)}.ds-config-view h2{font:600 28px \"Source Sans 3\",-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;margin:16px 0 12px}.ds-config{background:var(--ground,#edf2f6);border-radius:6px;padding:18px;font:13px/1.8 \"SFMono-Regular\",Consolas,\"Liberation Mono\",monospace;white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:auto}.ds-config-child{padding-inline-start:18px}.ds-config-key{font-weight:600;color:var(--ink,#20394e)}.ds-config-string{color:var(--success,#246348)}.ds-config-number{color:var(--blue,#195f95)}.ds-config-node{padding:2px 0}.ds-config-node summary{list-style:none;cursor:pointer;border-radius:6px;min-height:24px}.ds-config-node summary::-webkit-details-marker{display:none}.ds-config-node summary svg{margin-right:6px}.ds-config-node[open]>summary svg{transform:rotate(90deg)}.ds-config-node summary:hover{background:var(--selected,#e5f0f8)}.ds-config-node summary:focus-visible{outline:2px solid var(--focus,#247cba);outline-offset:2px}@media(max-width:760px){.ds-config-view{padding-inline:16px}.ds-config{padding:12px}.ds-config-node summary{min-height:44px;line-height:44px}}"
     }
   ],
   "narrative": {
@@ -364,19 +380,19 @@
     ],
     "rules": [
       {
-        "name": "The Evidence Priority Rule",
-        "body": "Explain the selected subject and need for intervention before technical detail.",
-        "section": "layout"
-      },
-      {
         "name": "The State Plus Text Rule",
         "body": "Use outcome labels and explanatory text alongside semantic color.",
         "section": "colors"
       },
       {
         "name": "The Three Type Roles Rule",
-        "body": "Use Source Sans 3 for h1\u2013h3, system sans for body and controls, and monospace for code and preformatted evidence.",
+        "body": "Use Source Sans 3 for h1–h3, system sans for body and controls, and monospace for code and preformatted evidence.",
         "section": "typography"
+      },
+      {
+        "name": "The Evidence Priority Rule",
+        "body": "Explain the selected subject and need for intervention before technical detail.",
+        "section": "layout"
       },
       {
         "name": "The Flat Workspace Rule",
