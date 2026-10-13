@@ -5,6 +5,7 @@ import { createRedactor } from "../runtime/redaction.js";
 
 export interface WebStartup {
   scope: string;
+  configPath: string;
   databaseUrl: string;
   stateDirectory: string;
   projectIds: string[];
@@ -15,6 +16,7 @@ export interface WebStartup {
 /** The CLI owns this optional child; workflow execution never waits for it. */
 export function startWebMonitor(options: {
   config: Configuration;
+  configPath: string;
   databaseUrl: string;
   port: number;
 }) {
@@ -69,6 +71,7 @@ export function startWebMonitor(options: {
   );
   const startup: WebStartup = {
     scope: options.config.id,
+    configPath: options.configPath,
     databaseUrl: options.databaseUrl,
     stateDirectory: options.config.stateDirectory,
     projectIds: options.config.projects.map((project) => project.id),

@@ -18,6 +18,7 @@ type RunAction = "stop" | "retry" | "retry-refresh" | "recover";
 type Selection = { projectId?: string; runId?: string };
 type Modal =
   | { type: "help" }
+  | { type: "configuration" }
   | { type: "confirmation"; kind: RunAction; runId: string; title: string }
   | { type: "logs"; sources: LogSource[]; initial: number };
 
@@ -137,6 +138,8 @@ export function transitionNavigation(
     return {
       state: { ...state, screen: "dashboard", focus: "runs", offset: 0 },
     };
+  if (input === "C")
+    return { state: { ...state, modal: { type: "configuration" } } };
   if (input === "?") return { state: { ...state, modal: { type: "help" } } };
   if (input === "R" && !context.pending)
     return { state, effect: { type: "command", kind: "reload", target: "" } };

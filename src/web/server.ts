@@ -6,6 +6,11 @@ import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
+import {
+  RunnerControlUnavailableError,
+  readActiveConfiguration,
+} from "../cli-runner-control.js";
+import { configurationJson } from "../config.js";
 import { discoverRuns, runFilters } from "../monitor/discovery.js";
 import type { Store } from "../store.js";
 import { webAssetDirectory } from "./assets.js";
@@ -91,6 +96,39 @@ export function monitorServer(store: Store, startup: WebStartup) {
         401,
       );
     await next();
+  });
+  app.get("/api/configuration", async (context) => {
+    try {
+      return context.text(
+        configurationJson(
+          await readActiveConfiguration(startup.configPath, startup.scope),
+        ),
+        200,
+        { "Content-Type": "application/json" },
+      );
+    } catch (error) {
+      if (error instanceof RunnerControlUnavailableError)
+        return context.json(
+          {
+            error:
+              "Active runner configuration unavailable; start the runner or reconnect.",
+          },
+          503,
+        );
+      const detail =
+        error instanceof SyntaxError
+          ? "Invalid active configuration snapshot JSON"
+          : error instanceof z.ZodError
+            ? "Invalid active configuration snapshot schema"
+            : `Active configuration snapshot read failed (${(error as NodeJS.ErrnoException).code ?? "unknown error"})`;
+      console.error(`${detail} for runner ${startup.scope}`);
+      return context.json(
+        {
+          error: `${detail}. Check local control-file permissions and restart the runner.`,
+        },
+        503,
+      );
+    }
   });
   app.get("/api/snapshot", async (context) => {
     const filters = z

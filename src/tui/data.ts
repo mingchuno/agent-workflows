@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { Configuration } from "../config.js";
 import { type RunRecord, subjectReference } from "../domain.js";
 import { discoverRuns, type RunFilter } from "../monitor/discovery.js";
 import type {
@@ -14,6 +15,7 @@ import {
 } from "./notifications.js";
 
 export interface MonitorSource {
+  configuration?: () => Promise<Configuration>;
   projects: Store["projects"];
   runs: Store["runs"];
   invocations: Store["invocations"];

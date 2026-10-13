@@ -5,6 +5,19 @@ review runs with explicit recovery.
 
 ## Language
 
+**Project base**:
+Optional shared project settings that a project explicitly chooses to inherit.
+Project overrides take precedence; identity and repository selection stay local.
+
+**Effective configuration**:
+Complete settings after inheritance, defaults, and schema validation, with path
+strings and prompt-file references preserved. It does not establish provider
+access or expand environment values.
+
+**Active configuration**:
+The effective configuration accepted by the running Runner. Unaccepted file
+edits and rejected reloads do not change it.
+
 **Web monitor**:
 The local browser interface for inspecting workflow state and issuing operator
 commands, with the same operational capabilities as the terminal monitor.

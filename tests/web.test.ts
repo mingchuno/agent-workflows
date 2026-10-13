@@ -341,3 +341,84 @@ test("controlled workflow completes despite web startup failure or a crash durin
     await new Promise<void>((done) => occupied.close(() => done()));
   }
 });
+
+test("web configuration shows accepted runner settings across reloads and rejects unauthenticated reads", {
+  skip: !process.env.TEST_DATABASE_URL,
+}, async () => {
+  const runner = await webRunner();
+  try {
+    const { origin, cookie } = await runner.access();
+    const readConfig = async () => {
+      const response = await fetch(origin + "/api/configuration", {
+        headers: { cookie },
+      });
+      assert.equal(response.status, 200);
+      return response.json();
+    };
+    assert.equal((await fetch(origin + "/api/configuration")).status, 401);
+    const initial = await readConfig();
+    assert.equal(
+      initial.projects[0].checkout,
+      runner.config.projects[0]!.checkout,
+    );
+    assert.equal("databaseUrl" in initial, false);
+    const candidate = {
+      ...runner.config,
+      projectBase: { pollIntervalMs: 12345 },
+      projects: runner.config.projects.map(
+        ({ pollIntervalMs: _pollInterval, ...project }) => ({
+          ...project,
+          inheritProjectBase: true,
+        }),
+      ),
+    };
+    const reload = async () => {
+      const response = await fetch(origin + "/api/commands", {
+        method: "POST",
+        headers: { cookie, origin, "content-type": "application/json" },
+        body: JSON.stringify({ kind: "reload", target: "" }),
+      });
+      const { id } = await response.json();
+      let status: string | undefined;
+      await waitFor(async () => {
+        const snapshot = await (
+          await fetch(origin + "/api/snapshot", { headers: { cookie } })
+        ).json();
+        status = snapshot.commands.find(
+          (command: { id: string }) => command.id === id,
+        )?.status;
+        return status !== undefined && status !== "pending";
+      });
+      return status;
+    };
+    await writeFile(runner.configPath, JSON.stringify(candidate));
+    assert.equal(await reload(), "success");
+    assert.equal((await readConfig()).projects[0].pollIntervalMs, 12345);
+    await writeFile(
+      runner.configPath,
+      JSON.stringify({
+        ...candidate,
+        projectBase: {
+          ...candidate.projectBase,
+          hosting: { origin: "https://changed.invalid" },
+        },
+        projects: candidate.projects.map(
+          ({ hosting: { origin: _origin, ...hosting }, ...project }) => ({
+            ...project,
+            hosting,
+          }),
+        ),
+      }),
+    );
+    assert.equal(await reload(), "failed");
+    assert.equal(
+      (await readConfig()).projects[0].hosting.origin,
+      initial.projects[0].hosting.origin,
+    );
+    await writeFile(runner.configPath, "invalid JSON");
+    assert.equal(await reload(), "failed");
+    assert.equal((await readConfig()).projects[0].pollIntervalMs, 12345);
+  } finally {
+    await runner.stop();
+  }
+});

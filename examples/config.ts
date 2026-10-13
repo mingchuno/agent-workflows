@@ -63,3 +63,23 @@ export const modelOverrides = {
     },
   },
 };
+
+/** One base, with explicit per-project repository and checkout selection. */
+export const sharedConfiguration = configSchema.parse({
+  id: "shared",
+  projectBase: {
+    hosting: {
+      provider: "github",
+      origin: "https://github.com",
+      tokenEnv: "GITHUB_TOKEN",
+    },
+    agent: { provider: "codex" },
+    workflows: { implementation: { review: { maxFixRounds: 3 } } },
+  },
+  projects: ["application", "library"].map((id) => ({
+    id,
+    checkout: `../${id}`,
+    inheritProjectBase: true,
+    hosting: { repository: `OWNER/${id}` },
+  })),
+});

@@ -12,12 +12,16 @@ import {
   loadEnvironmentFile,
   openCliConfiguration,
   readCliConfiguration,
+  readConfigurationFile,
 } from "./cli-config.js";
 import {
+  findRunnerControl,
+  publishActiveConfiguration,
   publishRunnerControl,
+  readActiveConfiguration,
   readRunnerControl,
 } from "./cli-runner-control.js";
-import type { Configuration } from "./config.js";
+import { type Configuration, configurationJson } from "./config.js";
 import { defaultValidationTimeoutMs } from "./defaults.js";
 import { subjectReference } from "./domain.js";
 import { sha256 } from "./prompts.js";
@@ -144,6 +148,17 @@ program
     );
   });
 program
+  .command("config")
+  .description("Inspect configuration")
+  .command("show")
+  .description("Print merged, schema-validated configuration JSON")
+  .action(async () => {
+    const { envFile: _envFile, ...config } = await readConfigurationFile(
+      configPath(),
+    );
+    process.stdout.write(configurationJson(config));
+  });
+program
   .command("run")
   .option("-p, --project <ids...>", "run selected project IDs")
   .option("--no-web", "disable the local web monitor")
@@ -174,6 +189,8 @@ program
         pathBaseDirectory: base,
         config,
         reloadConfiguration: async () => selectProjects(await source.reload()),
+        publishConfiguration: (configuration) =>
+          publishActiveConfiguration(path, configuration),
         databaseUrl: databaseUrl(config),
         hosting: createHosting,
         agents: createAgents(),
@@ -191,6 +208,7 @@ program
           databaseUrlEnv: config.databaseUrlEnv,
           databaseUrlHash: sha256(databaseUrl(config)),
           envFile: source.envFile,
+          configuration: runner.effectiveConfiguration,
         });
         console.log(
           `Runner ${config.id} started. Use status or monitor in another terminal.`,
@@ -199,6 +217,7 @@ program
           try {
             stopWeb = startWebMonitor({
               config: runner.config,
+              configPath: path,
               databaseUrl: databaseUrl(config),
               port: webPort,
             });
@@ -367,7 +386,13 @@ program
   .command("monitor")
   .option("--notify", "notify when an observed execution reaches an outcome")
   .action(async (options: { notify?: boolean }) => {
-    const config = await configuration();
+    const control = await findRunnerControl(configPath());
+    if (control?.envFile) await loadEnvironmentFile(control.envFile);
+    const config = control?.configuration ?? (await configuration());
+    if (control && sha256(databaseUrl(config)) !== control.databaseUrlHash)
+      throw new Error(
+        "Database connection differs from the running server; use its startup environment",
+      );
     if (!process.stdin.isTTY || !process.stdout.isTTY)
       throw new Error(
         "Monitor requires an interactive terminal; use status --json instead",
@@ -375,7 +400,23 @@ program
     await withConfiguredStore(config, async (store) => {
       await render(
         React.createElement(Monitor, {
-          source: store,
+          source: {
+            projects: async () =>
+              (await store.projects()).filter((project) =>
+                config.projects.some((active) => active.id === project.id),
+              ),
+            runs: async () =>
+              (await store.runs()).filter((run) =>
+                config.projects.some((project) => project.id === run.projectId),
+              ),
+            invocations: (id: string) => store.invocations(id),
+            events: (after?: number, id?: string) => store.events(after, id),
+            commands: () => store.commands(),
+            request: (kind: Parameters<Store["request"]>[0], target: string) =>
+              store.request(kind, target),
+            configuration: () =>
+              readActiveConfiguration(configPath(), config.id),
+          },
           notificationWriter: options.notify
             ? createTerminalNotificationWriter()
             : undefined,

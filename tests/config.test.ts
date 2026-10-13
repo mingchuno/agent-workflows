@@ -217,6 +217,18 @@ test("runner resolves configuration paths and freezes file prompts from the sele
   };
   const first = new Runner({ ...options, pathBaseDirectory: directory });
   try {
+    assert.deepEqual(first.effectiveConfiguration, options.config);
+    assert.equal(
+      first.effectiveConfiguration.stateDirectory,
+      ".agent-workflows",
+    );
+    const viewed = first.effectiveConfiguration;
+    viewed.projects[0]!.agent.model = "view-only";
+    assert.notEqual(
+      first.effectiveConfiguration.projects[0]!.agent.model,
+      "view-only",
+    );
+    assert.notEqual(first.config.projects[0]!.agent.model, "view-only");
     const before = await executionFingerprint(
       first.config.projects[0]!,
       "version",

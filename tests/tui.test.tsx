@@ -1280,3 +1280,49 @@ test("completed draft details expose unresolved review and agent-reported eviden
     view.unmount();
   }
 });
+
+test("configuration view scrolls accepted JSON, refreshes it and labels a failed read stale", async () => {
+  const { source } = monitorFixture();
+  const { configSchema } = await import("../src/config.js");
+  let current = configSchema.parse({
+    id: "local",
+    projects: [
+      {
+        id: "demo",
+        checkout: "../demo",
+        hosting: {
+          provider: "github",
+          origin: "https://github.com",
+          repository: "owner/demo",
+          tokenEnv: "TOKEN",
+        },
+        agent: { provider: "codex" },
+      },
+    ],
+  });
+  let failed = false;
+  source.configuration = async () => {
+    if (failed) throw new Error("Runner unavailable");
+    return current;
+  };
+  const view = render(<Monitor source={source} size={wide} />);
+  try {
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+    view.stdin.write("C");
+    await until(() => view.lastFrame()!.includes('"id": "local"'));
+    assert.match(view.lastFrame()!, /Active configuration/);
+    view.stdin.write("\u001b[6~");
+    await settle();
+    assert.match(view.lastFrame()!, /pollIntervalMs/);
+    current = { ...current, id: "accepted-reload" };
+    view.stdin.write("\u001b[H");
+    await until(() => view.lastFrame()!.includes("accepted-reload"));
+    failed = true;
+    await until(() => view.lastFrame()!.includes("Stale configuration"));
+    assert.match(view.lastFrame()!, /accepted-reload/);
+    view.stdin.write("\u001b");
+    await until(() => view.lastFrame()!.includes("Implement feature"));
+  } finally {
+    view.unmount();
+  }
+});

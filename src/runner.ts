@@ -3,7 +3,12 @@ import { realpathSync, statSync } from "node:fs";
 import { mkdir, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { DBOS } from "@dbos-inc/dbos-sdk";
-import { type Configuration, configSchema, type Project } from "./config.js";
+import {
+  type Configuration,
+  type ConfigurationInput,
+  configSchema,
+  type Project,
+} from "./config.js";
 import {
   type AgentAdapter,
   BlockedError,
@@ -44,9 +49,11 @@ const shutdownPollIntervalMs = 20;
 export interface RunnerOptions {
   pathBaseDirectory?: string;
   promptBaseDirectory?: string;
-  config: Configuration;
+  config: ConfigurationInput;
   /** Reread configuration without changing the process environment. */
-  reloadConfiguration?: () => Promise<Configuration>;
+  reloadConfiguration?: () => Promise<ConfigurationInput>;
+  /** Publish a verified candidate before accepting it; failure rejects reload. */
+  publishConfiguration?: (configuration: Configuration) => Promise<void>;
   databaseUrl: string;
   hosting: (project: Project) => HostingAdapter;
   agents: Record<string, AgentAdapter>;
@@ -57,6 +64,10 @@ export interface RunnerOptions {
 export class Runner {
   readonly store: Store;
   private currentConfig: Configuration;
+  private currentEffectiveConfiguration: Configuration;
+  get effectiveConfiguration(): Configuration {
+    return structuredClone(this.currentEffectiveConfiguration);
+  }
   get config(): Configuration {
     return this.currentConfig;
   }
@@ -76,6 +87,7 @@ export class Runner {
   private readonly polling = new Map<string, Promise<void>>();
   constructor(readonly options: RunnerOptions) {
     this.currentConfig = configSchema.parse(options.config);
+    this.currentEffectiveConfiguration = structuredClone(this.currentConfig);
     const pathBaseDirectory = canonicalDirectory(
       options.pathBaseDirectory ?? process.cwd(),
       "Configuration path base",
@@ -289,6 +301,7 @@ export class Runner {
       const candidate = configSchema.parse(
         await this.options.reloadConfiguration(),
       );
+      const effectiveConfiguration = structuredClone(candidate);
       candidate.stateDirectory = await assertStateDirectory(
         this.config.projects[0]!.checkout,
         resolve(this.pathBaseDirectory, candidate.stateDirectory),
@@ -305,7 +318,11 @@ export class Runner {
       // No new scans begin while reloading, and tick dispatches only afterward.
       await Promise.allSettled(this.polling.values());
       if (this.stopping) throw new Error("Runner is shutting down");
+      await this.options.publishConfiguration?.(
+        structuredClone(effectiveConfiguration),
+      );
       this.currentConfig = candidate;
+      this.currentEffectiveConfiguration = effectiveConfiguration;
       this.lastPoll.clear();
     } finally {
       this.reloading = false;
