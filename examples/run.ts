@@ -5,7 +5,7 @@ import {
   createAgents,
   createHosting,
   Runner,
-} from "@mingchuno/agent-workflows";
+} from "@mingchuno/agent-workflows-core";
 import { reportingWorkflow } from "./custom-workflow.js";
 
 const configPath = resolve(process.argv[2] ?? "agent-workflows.json");

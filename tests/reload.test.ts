@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { DBOS } from "@dbos-inc/dbos-sdk";
-import { openCliConfiguration } from "../src/cli-config.js";
-import { configSchema } from "../src/config.js";
-import type { AgentInvocation } from "../src/domain.js";
-import { Runner } from "../src/runner.js";
-import { ExistingCheckout } from "../src/workspace.js";
+import { openCliConfiguration } from "../packages/cli/src/cli-config.js";
+import { configSchema } from "../packages/core/src/config.js";
+import type { AgentInvocation } from "../packages/core/src/domain.js";
+import { Runner } from "../packages/core/src/runner.js";
+import { ExistingCheckout } from "../packages/core/src/workspace.js";
 import { repository } from "./fixtures.js";
 import { agent, FixtureHosting, waitFor } from "./runner-fixtures.js";
 

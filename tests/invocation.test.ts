@@ -4,15 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { z } from "zod";
-import { stageSchema } from "../src/config.js";
+import { stageSchema } from "../packages/core/src/config.js";
 import type {
   AgentAdapter,
   AgentInvocation,
   RunRecord,
-} from "../src/domain.js";
-import { invokeStage } from "../src/invocation.js";
-import type { InvocationRecord, Store } from "../src/store.js";
-import { ExistingCheckout } from "../src/workspace.js";
+} from "../packages/core/src/domain.js";
+import { invokeStage } from "../packages/core/src/invocation.js";
+import type { InvocationRecord, Store } from "../packages/core/src/store.js";
+import { ExistingCheckout } from "../packages/core/src/workspace.js";
 import { repository } from "./fixtures.js";
 import { agent, FixtureHosting } from "./runner-fixtures.js";
 

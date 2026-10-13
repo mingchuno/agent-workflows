@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { configSchema } from "../src/config.js";
+import { configSchema } from "../packages/core/src/config.js";
 
 const project = {
   id: "app",

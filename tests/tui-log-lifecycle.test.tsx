@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { render } from "ink-testing-library";
-import { LogFile } from "../src/monitor/log-file.js";
-import { LogViewer } from "../src/tui/log.js";
+import { LogFile } from "../packages/cli/src/monitor/log-file.js";
+import { LogViewer } from "../packages/cli/src/tui/log.js";
 import { settle, until } from "./tui-fixtures.js";
 
 for (const transition of [

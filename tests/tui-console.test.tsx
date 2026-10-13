@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { render } from "ink-testing-library";
-import { Monitor } from "../src/tui/index.js";
+import { Monitor } from "../packages/cli/src/tui/index.js";
 import { monitorFixture, settle, until } from "./tui-fixtures.js";
 
 const size = { columns: 120, rows: 36 };

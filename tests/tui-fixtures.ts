@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import type { RunRecord } from "../src/domain.js";
-import type { InvocationRecord } from "../src/store.js";
-import type { MonitorSource } from "../src/tui/index.js";
+import type { MonitorSource } from "../packages/cli/src/tui/index.js";
+import type { RunRecord } from "../packages/core/src/domain.js";
+import type { InvocationRecord } from "../packages/core/src/store.js";
 
 export function monitorFixture() {
   const run: RunRecord = {

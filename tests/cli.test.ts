@@ -12,9 +12,9 @@ import {
   resolve,
 } from "node:path";
 import { test } from "node:test";
-import { configSchema } from "../src/config.js";
-import { command } from "../src/runtime/process.js";
-import { Store } from "../src/store.js";
+import { configSchema } from "../packages/core/src/config.js";
+import { command } from "../packages/core/src/runtime/process.js";
+import { Store } from "../packages/core/src/store.js";
 import { repository } from "./fixtures.js";
 import { waitFor } from "./runner-fixtures.js";
 
@@ -27,7 +27,12 @@ test("CLI version reports the package version without configuration or credentia
     for (const option of ["version", "--version", "-V"]) {
       const result = await command(
         process.execPath,
-        ["--import", import.meta.resolve("tsx"), resolve("src/cli.ts"), option],
+        [
+          "--import",
+          import.meta.resolve("tsx"),
+          resolve("packages/cli/src/cli.ts"),
+          option,
+        ],
         { cwd: directory, env: {}, allowFailure: true },
       );
       assert.equal(result.exitCode, 0, result.stderr);
@@ -86,7 +91,7 @@ test("CLI reload targets its original server despite invalid JSON and preserves 
   const args = [
     "--import",
     import.meta.resolve("tsx"),
-    resolve("src/cli.ts"),
+    resolve("packages/cli/src/cli.ts"),
     "--config",
     configPath,
   ];
@@ -248,7 +253,7 @@ test("CLI init creates valid configuration and refuses overwrites", async () => 
   const args = [
     "--import",
     "tsx",
-    resolve("src/cli.ts"),
+    resolve("packages/cli/src/cli.ts"),
     "--config",
     file,
     "init",
@@ -319,7 +324,7 @@ test("CLI config-base override is launch-relative without changing config lookup
     [
       "--import",
       import.meta.resolve("tsx"),
-      resolve("src/cli.ts"),
+      resolve("packages/cli/src/cli.ts"),
       "--config",
       relative(launch, configFile),
       "--config-base-directory",
@@ -343,7 +348,7 @@ test("CLI config-base override is launch-relative without changing config lookup
     [
       "--import",
       import.meta.resolve("tsx"),
-      resolve("src/cli.ts"),
+      resolve("packages/cli/src/cli.ts"),
       "--config",
       relative(launch, configFile),
       "--config-base-directory",
@@ -360,7 +365,7 @@ test("CLI reports missing configuration and supports noninteractive help", async
     [
       "--import",
       "tsx",
-      "src/cli.ts",
+      "packages/cli/src/cli.ts",
       "--config",
       "/nonexistent/config.json",
       "status",
@@ -374,7 +379,7 @@ test("CLI reports missing configuration and supports noninteractive help", async
     (
       await command(
         process.execPath,
-        ["--import", "tsx", "src/cli.ts", "--help"],
+        ["--import", "tsx", "packages/cli/src/cli.ts", "--help"],
         { cwd: process.cwd() },
       )
     ).stdout,
@@ -384,7 +389,7 @@ test("CLI reports missing configuration and supports noninteractive help", async
     (
       await command(
         process.execPath,
-        ["--import", "tsx", "src/cli.ts", "monitor", "--help"],
+        ["--import", "tsx", "packages/cli/src/cli.ts", "monitor", "--help"],
         { cwd: process.cwd() },
       )
     ).stdout,
@@ -417,7 +422,7 @@ test("CLI reports missing configuration and supports noninteractive help", async
     [
       "--import",
       "tsx",
-      "src/cli.ts",
+      "packages/cli/src/cli.ts",
       "--config",
       monitorConfig,
       "monitor",
@@ -461,7 +466,7 @@ test("CLI prompt files resolve against the config directory from another launch 
   const args = [
     "--import",
     import.meta.resolve("tsx"),
-    resolve("src/cli.ts"),
+    resolve("packages/cli/src/cli.ts"),
     "--config",
     configFile,
     "run",

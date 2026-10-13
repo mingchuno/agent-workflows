@@ -1,4 +1,4 @@
-import { Store } from "@mingchuno/agent-workflows";
+import { Store } from "@mingchuno/agent-workflows-core";
 
 export async function inspectRun(
   databaseUrl: string,

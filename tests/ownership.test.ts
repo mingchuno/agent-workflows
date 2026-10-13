@@ -6,8 +6,8 @@ import { test } from "node:test";
 import {
   assertProcessesStopped,
   CheckoutOwnership,
-} from "../src/runtime/ownership.js";
-import { command } from "../src/runtime/process.js";
+} from "../packages/core/src/runtime/ownership.js";
+import { command } from "../packages/core/src/runtime/process.js";
 import { repository } from "./fixtures.js";
 
 test("checkout ownership rejects a second local owner independently of database", async () => {

@@ -4,8 +4,8 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import type { RunRecord } from "../src/domain.js";
-import { command } from "../src/runtime/process.js";
+import type { RunRecord } from "../packages/core/src/domain.js";
+import { command } from "../packages/core/src/runtime/process.js";
 import { repository } from "./fixtures.js";
 
 for (const phase of [
@@ -55,7 +55,7 @@ for (const phase of [
     if (phase === "publication-admitted") {
       // Admission is durable even when the runner dies before dispatch. Resume
       // intake through a queued command, just as an operator would after restart.
-      const { Store } = await import("../src/store.js");
+      const { Store } = await import("../packages/core/src/store.js");
       const saved = JSON.parse(await readFile(config, "utf8"));
       const store = new Store(process.env.TEST_DATABASE_URL!, saved.id);
       try {

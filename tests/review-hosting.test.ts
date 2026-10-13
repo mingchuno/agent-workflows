@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { test } from "node:test";
-import { GitHubHosting, GitLabHosting } from "../src/adapters/hosting.js";
-import { projectSchema } from "../src/config.js";
+import {
+  GitHubHosting,
+  GitLabHosting,
+} from "../packages/core/src/adapters/hosting.js";
+import { projectSchema } from "../packages/core/src/config.js";
 
 for (const provider of ["github", "gitlab"] as const) {
   test(`${provider} discovers labelled same-repository requests and publishes pinned reviews`, async () => {

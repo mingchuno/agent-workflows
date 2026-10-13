@@ -1,0 +1,50 @@
+{
+  "name": "@mingchuno/agent-workflows",
+  "version": "0.11.0",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mingchuno/agent-workflows.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "description": "Local durable coding workflows on DBOS",
+  "files": [
+    "dist/src",
+    "dist/web",
+    "README.md",
+    "LICENCE"
+  ],
+  "bin": {
+    "agent-workflows": "./dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && pnpm web:build",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json",
+    "web:build": "vite build --config web/vite.config.ts",
+    "start": "pnpm --filter @mingchuno/agent-workflows-core build && node --import tsx -- src/cli.ts"
+  },
+  "dependencies": {
+    "@mingchuno/agent-workflows-core": "workspace:*",
+    "@hono/node-server": "^2.1.4",
+    "commander": "^15.0.0",
+    "hono": "^4.13.13",
+    "ink": "^7.1.1",
+    "react": "^19.3.0",
+    "string-width": "^8.2.2",
+    "wrap-ansi": "^9.0.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@fontsource/source-sans-3": "^5.3.1",
+    "@tanstack/react-query": "^5.104.1",
+    "react-dom": "^19.3.0",
+    "react-json-view-lite": "^2.5.0"
+  }
+}

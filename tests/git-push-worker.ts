@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
-import type { Project } from "../src/config.js";
-import { CheckoutOwnership } from "../src/runtime/ownership.js";
-import { ExistingCheckout } from "../src/workspace.js";
+import type { Project } from "../packages/core/src/config.js";
+import { CheckoutOwnership } from "../packages/core/src/runtime/ownership.js";
+import { ExistingCheckout } from "../packages/core/src/workspace.js";
 
 const project: Project = JSON.parse(await readFile(process.argv[2]!, "utf8"));
 const ownership = new CheckoutOwnership();

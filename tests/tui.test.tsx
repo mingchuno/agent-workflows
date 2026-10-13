@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { render } from "ink-testing-library";
 import stringWidth from "string-width";
-import { LogFile } from "../src/monitor/log-file.js";
-import { Monitor } from "../src/tui/index.js";
+import { LogFile } from "../packages/cli/src/monitor/log-file.js";
+import { Monitor } from "../packages/cli/src/tui/index.js";
 import {
   initialNavigation,
   transitionNavigation,
-} from "../src/tui/monitor-navigation.js";
+} from "../packages/cli/src/tui/monitor-navigation.js";
 import { monitorFixture, settle, until } from "./tui-fixtures.js";
 
 const wide = { columns: 120, rows: 30 };
@@ -1283,7 +1283,7 @@ test("completed draft details expose unresolved review and agent-reported eviden
 
 test("configuration view scrolls accepted JSON, refreshes it and labels a failed read stale", async () => {
   const { source } = monitorFixture();
-  const { configSchema } = await import("../src/config.js");
+  const { configSchema } = await import("../packages/core/src/config.js");
   let current = configSchema.parse({
     id: "local",
     projects: [

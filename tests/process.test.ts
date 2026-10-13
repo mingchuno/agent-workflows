@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { command } from "../src/runtime/process.js";
+import { command } from "../packages/core/src/runtime/process.js";
 
 test("command output preserves UTF-8 code points split across stdout chunks", async () => {
   const parts: string[] = [];

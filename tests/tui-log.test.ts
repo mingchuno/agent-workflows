@@ -3,7 +3,10 @@ import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { LogFile, presentLogLine } from "../src/monitor/log-file.js";
+import {
+  LogFile,
+  presentLogLine,
+} from "../packages/cli/src/monitor/log-file.js";
 
 test("log pages follow appends, partial records, truncation and whole-file search", async () => {
   const directory = await mkdtemp(join(tmpdir(), "aw-log-"));

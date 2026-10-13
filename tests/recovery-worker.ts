@@ -1,14 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { configSchema, type Project } from "../src/config.js";
+import { configSchema, type Project } from "../packages/core/src/config.js";
 import type {
   ChangeRequest,
   HostingAdapter,
   Publication,
   Snapshot,
-} from "../src/domain.js";
-import { Runner } from "../src/runner.js";
-import { ExistingCheckout } from "../src/workspace.js";
+} from "../packages/core/src/domain.js";
+import { Runner } from "../packages/core/src/runner.js";
+import { ExistingCheckout } from "../packages/core/src/workspace.js";
 import { agent, FixtureHosting, waitFor } from "./runner-fixtures.js";
 
 const config = configSchema.parse(

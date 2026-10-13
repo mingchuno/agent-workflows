@@ -4,10 +4,10 @@ import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { configSchema } from "../src/config.js";
-import type { AgentInvocation } from "../src/domain.js";
-import { Runner } from "../src/runner.js";
-import { command } from "../src/runtime/process.js";
+import { configSchema } from "../packages/core/src/config.js";
+import type { AgentInvocation } from "../packages/core/src/domain.js";
+import { Runner } from "../packages/core/src/runner.js";
+import { command } from "../packages/core/src/runtime/process.js";
 import { repository } from "./fixtures.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -127,7 +127,7 @@ test("public runner completes durable issue-to-review workflow and deduplicates 
       [
         "--import",
         "tsx",
-        "src/cli.ts",
+        "packages/cli/src/cli.ts",
         "--config",
         configPath,
         "status",

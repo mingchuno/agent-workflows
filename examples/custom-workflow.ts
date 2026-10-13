@@ -1,4 +1,4 @@
-import type { Operations } from "@mingchuno/agent-workflows";
+import type { Operations } from "@mingchuno/agent-workflows-core";
 
 /** Ordinary TypeScript composition; provider adapters remain unchanged. */
 export async function reportingWorkflow(operations: Operations): Promise<void> {

@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { test } from "node:test";
-import { SDKAgent } from "../src/adapters/agents.js";
-import { GitHubHosting, GitLabHosting } from "../src/adapters/hosting.js";
-import { projectSchema } from "../src/config.js";
+import { SDKAgent } from "../packages/core/src/adapters/agents.js";
+import {
+  GitHubHosting,
+  GitLabHosting,
+} from "../packages/core/src/adapters/hosting.js";
+import { projectSchema } from "../packages/core/src/config.js";
 
 test("GitLab routes and credentials stay on a configured relative-root instance", async () => {
   const requests: Array<{ url: string; token: unknown }> = [];

@@ -1,7 +1,7 @@
 # Public TypeScript SDK
 
-The package exports ESM from `@mingchuno/agent-workflows` (see
-[`src/index.ts`](../src/index.ts)); its generated declarations provide the full
+The package exports ESM from `@mingchuno/agent-workflows-core` (see
+[`packages/core/src/index.ts`](../packages/core/src/index.ts)); its generated declarations provide the full
 TypeScript types. Use Node.js 22.12 or later. The CLI and SDK share the same
 runtime and configuration schema, but the CLI-only `envFile` field is not part
 of `Configuration`.
@@ -21,7 +21,7 @@ import {
   createAgents,
   createHosting,
   Runner,
-} from "@mingchuno/agent-workflows";
+} from "@mingchuno/agent-workflows-core";
 
 const configPath = resolve("agent-workflows.json");
 const config = configSchema.parse(
@@ -199,7 +199,7 @@ import { DBOS } from "@dbos-inc/dbos-sdk";
 import {
   defaultWorkflow,
   type Operations,
-} from "@mingchuno/agent-workflows";
+} from "@mingchuno/agent-workflows-core";
 
 export async function customWorkflow(operations: Operations): Promise<void> {
   await DBOS.runStep(
@@ -290,7 +290,7 @@ after shutdown, construct `new Store(databaseUrl, runnerId)` and close it when
 finished:
 
 ```ts
-import { Store } from "@mingchuno/agent-workflows";
+import { Store } from "@mingchuno/agent-workflows-core";
 
 const store = new Store(databaseUrl, config.id);
 try {

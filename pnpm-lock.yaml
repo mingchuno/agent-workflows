@@ -165,46 +165,91 @@ settings:
 importers:
 
   .:
-    dependencies:
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 2.5.14
+        version: 2.5.14
+      '@commitlint/cli':
+        specifier: 21.2.2
+        version: 21.2.2(@types/node@26.6.2)(conventional-commits-parser@7.1.2)(typescript@7.0.2)
+      '@commitlint/config-conventional':
+        specifier: 21.2.2
+        version: 21.2.2
       '@dbos-inc/dbos-sdk':
         specifier: ^5.0.2
         version: 5.0.2
-      '@gitbeaker/rest':
-        specifier: ^43.8.0
-        version: 43.8.0
       '@github/copilot-sdk':
         specifier: ^1.0.14
         version: 1.0.14
-      '@hono/node-server':
-        specifier: ^2.1.4
-        version: 2.1.4(hono@4.13.13)
-      '@octokit/rest':
-        specifier: ^22.0.1
-        version: 22.0.1
       '@openai/codex-sdk':
         specifier: ^0.155.1
         version: 0.155.1
+      '@playwright/test':
+        specifier: ^1.64.0
+        version: 1.64.0
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      drizzle-kit:
+        specifier: 0.31.10
+        version: 0.31.10
+      ink:
+        specifier: ^7.1.1
+        version: 7.1.1(@types/react@19.3.0)(react@19.3.0)
+      ink-testing-library:
+        specifier: ^4.0.0
+        version: 4.0.0(@types/react@19.3.0)
+      npm:
+        specifier: 12.0.2
+        version: 12.0.2
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      react:
+        specifier: ^19.3.0
+        version: 19.3.0
+      string-width:
+        specifier: ^8.2.2
+        version: 8.2.2
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^8.3.4
+        version: 8.3.4(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1)
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+
+  packages/cli:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^2.1.4
+        version: 2.1.4(hono@4.13.13)
+      '@mingchuno/agent-workflows-core':
+        specifier: workspace:*
+        version: link:../core
       commander:
         specifier: ^15.0.0
         version: 15.0.0
-      drizzle-orm:
-        specifier: 0.45.2
-        version: 0.45.2(@types/pg@8.23.1)(pg@8.23.0)
       hono:
         specifier: ^4.13.13
         version: 4.13.13
       ink:
         specifier: ^7.1.1
         version: 7.1.1(@types/react@19.3.0)(react@19.3.0)
-      pg:
-        specifier: ^8.23.0
-        version: 8.23.0
-      pino:
-        specifier: ^10.3.1
-        version: 10.3.1
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -218,57 +263,51 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
-      '@biomejs/biome':
-        specifier: 2.5.14
-        version: 2.5.14
-      '@commitlint/cli':
-        specifier: 21.2.2
-        version: 21.2.2(@types/node@26.6.2)(conventional-commits-parser@7.1.2)(typescript@7.0.2)
-      '@commitlint/config-conventional':
-        specifier: 21.2.2
-        version: 21.2.2
       '@fontsource/source-sans-3':
         specifier: ^5.3.1
         version: 5.3.1
-      '@playwright/test':
-        specifier: ^1.64.0
-        version: 1.64.0
       '@tanstack/react-query':
         specifier: ^5.104.1
         version: 5.104.1(react@19.3.0)
-      '@types/node':
-        specifier: ^26.6.2
-        version: 26.6.2
-      '@types/react':
-        specifier: ^19.3.0
-        version: 19.3.0
-      '@types/react-dom':
-        specifier: ^19.3.0
-        version: 19.3.0(@types/react@19.3.0)
-      drizzle-kit:
-        specifier: 0.31.10
-        version: 0.31.10
-      ink-testing-library:
-        specifier: ^4.0.0
-        version: 4.0.0(@types/react@19.3.0)
-      npm:
-        specifier: 12.0.2
-        version: 12.0.2
       react-dom:
         specifier: ^19.3.0
         version: 19.3.0(react@19.3.0)
       react-json-view-lite:
         specifier: ^2.5.0
         version: 2.5.0(react@19.3.0)
-      tsx:
-        specifier: ^4.23.13
-        version: 4.23.13
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-      vite:
-        specifier: ^8.3.4
-        version: 8.3.4(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1)
+
+  packages/core:
+    dependencies:
+      '@dbos-inc/dbos-sdk':
+        specifier: ^5.0.2
+        version: 5.0.2
+      '@gitbeaker/rest':
+        specifier: ^43.8.0
+        version: 43.8.0
+      '@github/copilot-sdk':
+        specifier: ^1.0.14
+        version: 1.0.14
+      '@octokit/rest':
+        specifier: ^22.0.1
+        version: 22.0.1
+      '@openai/codex-sdk':
+        specifier: ^0.155.1
+        version: 0.155.1
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@types/pg@8.23.1)(pg@8.23.0)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
 packages:
 
@@ -1283,9 +1322,6 @@ packages:
     resolution: {integrity: sha512-Zz70EgjahNI7aCz8BZxM3vUGU44ycxEAzMuCUjLeA7SVhhOkg3ZgPjPJPvHjs6Rmky/dtmnu1WzjGHNHmhCoZQ==}
     peerDependencies:
       react: ^18 || ^19
-
-  '@types/node@26.6.1':
-    resolution: {integrity: sha512-VqGJBMCtdhqkBUCcBLvywI0NJ+KLuVzgNnlBUNFOQjqVxzo2lxLUNg1DSey8+u2u6ktswSAxg+s68QLzWHNOuA==}
 
   '@types/node@26.6.2':
     resolution: {integrity: sha512-X1P21scMv4zGKLYqjdGjaKa7COa0RKVYYZZN/NfvLQ1JegxFhdhpZG/Lyn8AXx6CDUavKAd11v6BvfpkDByK8g==}
@@ -3111,17 +3147,13 @@ snapshots:
       '@tanstack/query-core': 5.104.1
       react: 19.3.0
 
-  '@types/node@26.6.1':
-    dependencies:
-      undici-types: 8.9.0
-
   '@types/node@26.6.2':
     dependencies:
       undici-types: 8.9.0
 
   '@types/pg@8.23.1':
     dependencies:
-      '@types/node': 26.6.1
+      '@types/node': 26.6.2
       pg-protocol: 1.16.0
       pg-types: 2.2.0
 

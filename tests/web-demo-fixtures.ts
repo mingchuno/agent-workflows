@@ -1,9 +1,9 @@
-import { configSchema } from "../src/config.js";
 import {
   discoverRuns,
   type RunFilter,
   runFilters,
-} from "../src/monitor/discovery.js";
+} from "../packages/cli/src/monitor/discovery.js";
+import { configSchema } from "../packages/core/src/config.js";
 import { consoleFixture } from "./tui-demo-fixtures.js";
 
 /** Read-only HTTP fixtures, shared by the development server and its tests. */

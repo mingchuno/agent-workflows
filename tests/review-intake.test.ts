@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { projectSchema } from "../src/config.js";
-import type { ReviewRequest } from "../src/domain.js";
+import { projectSchema } from "../packages/core/src/config.js";
+import type { ReviewRequest } from "../packages/core/src/domain.js";
 import {
   reviewEligible,
   reviewTaskKey,
   sameReviewRevision,
-} from "../src/review-intake.js";
+} from "../packages/core/src/review-intake.js";
 
 const project = projectSchema.parse({
   id: "review",
@@ -78,8 +78,12 @@ test("new push admission is opt-in and revision freshness includes the target di
 });
 
 test("completed reviews deduplicate only the same project and request URL", async () => {
-  const { alreadyReviewed } = await import("../src/review-intake.js");
-  const { createQueuedReviewRun } = await import("../src/run-record.js");
+  const { alreadyReviewed } = await import(
+    "../packages/core/src/review-intake.js"
+  );
+  const { createQueuedReviewRun } = await import(
+    "../packages/core/src/run-record.js"
+  );
   const run = createQueuedReviewRun({
     id: "run",
     projectId: project.id,

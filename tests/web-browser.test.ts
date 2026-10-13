@@ -3,7 +3,7 @@ import { appendFile, unlink, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import type { Page } from "@playwright/test";
 import { chromium, expect } from "@playwright/test";
-import type { MonitorSnapshot } from "../src/web/contracts.js";
+import type { MonitorSnapshot } from "../packages/cli/src/web/contracts.js";
 import { waitFor } from "./runner-fixtures.js";
 import { seedWebEvidence, webRunner } from "./web-fixtures.js";
 

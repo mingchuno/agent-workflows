@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { MonitorSnapshot } from "../src/web/contracts.js";
+import type { MonitorSnapshot } from "../packages/cli/src/web/contracts.js";
 import {
   commandNotice,
   commandPending,
   transitionCommand,
-} from "../web/command-lifecycle.js";
-import { type LogNavigation, navigateLog } from "../web/log-navigation.js";
-import { selectMonitorRuns } from "../web/selection.js";
+} from "../packages/cli/web/command-lifecycle.js";
+import {
+  type LogNavigation,
+  navigateLog,
+} from "../packages/cli/web/log-navigation.js";
+import { selectMonitorRuns } from "../packages/cli/web/selection.js";
 import { monitorFixture } from "./tui-fixtures.js";
 
 test("log navigation preserves search position and repeat request identity", () => {

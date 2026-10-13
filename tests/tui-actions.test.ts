@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { projectRunProjection } from "../src/tui/projection.js";
+import { projectRunProjection } from "../packages/cli/src/tui/projection.js";
 import { monitorFixture } from "./tui-fixtures.js";
 
 test("action eligibility respects active attempts and pending commands", () => {

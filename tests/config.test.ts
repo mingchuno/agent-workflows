@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { profileSchema, projectSchema, resolveProfile } from "../src/config.js";
+import {
+  profileSchema,
+  projectSchema,
+  resolveProfile,
+} from "../packages/core/src/config.js";
 
 test("publication resumes by default and requires the implementation provider", () => {
   const input = {
@@ -77,7 +81,7 @@ test("unknown context controls and credentials are rejected", () => {
 });
 
 test("project stage defaults are independent between registrations", async () => {
-  const { projectSchema } = await import("../src/config.js");
+  const { projectSchema } = await import("../packages/core/src/config.js");
   const input = {
     id: "a",
     checkout: "/tmp",
@@ -105,7 +109,7 @@ test("project stage defaults are independent between registrations", async () =>
     false,
   );
   const { projectPrompts, defaultStagePrompts } = await import(
-    "../src/prompts.js"
+    "../packages/core/src/prompts.js"
   );
   const prompts = projectPrompts(second);
   for (const [name, text] of Object.entries(defaultStagePrompts))
@@ -113,7 +117,7 @@ test("project stage defaults are independent between registrations", async () =>
 });
 
 test("stage prompts reject ambiguous, blank and unknown options", async () => {
-  const { stageSchema } = await import("../src/config.js");
+  const { stageSchema } = await import("../packages/core/src/config.js");
   for (const value of [
     { prompt: " " },
     { promptFile: " " },
@@ -129,8 +133,10 @@ test("prompt files resolve once from an explicit base and preserve literal text"
   const { mkdtemp, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { stageSchema } = await import("../src/config.js");
-  const { resolveStagePrompt } = await import("../src/prompts.js");
+  const { stageSchema } = await import("../packages/core/src/config.js");
+  const { resolveStagePrompt } = await import(
+    "../packages/core/src/prompts.js"
+  );
   const directory = await mkdtemp(join(tmpdir(), "stage-prompts-"));
   const file = join(directory, "task.md");
   await writeFile(file, `  literal \${issue} text\n`);
@@ -188,7 +194,9 @@ test("prompt files resolve once from an explicit base and preserve literal text"
 });
 
 test("documented default stage prompts match runtime", async () => {
-  const { defaultStagePrompts } = await import("../src/prompts.js");
+  const { defaultStagePrompts } = await import(
+    "../packages/core/src/prompts.js"
+  );
   const { readFile } = await import("node:fs/promises");
   const documentation = await readFile("docs/configuration.md", "utf8");
   for (const prompt of Object.values(defaultStagePrompts))
@@ -200,10 +208,14 @@ test("runner resolves configuration paths and freezes file prompts from the sele
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { repository } = await import("./fixtures.js");
-  const { Runner } = await import("../src/runner.js");
-  const { configSchema } = await import("../src/config.js");
-  const { resolveStagePrompt } = await import("../src/prompts.js");
-  const { executionFingerprint } = await import("../src/recovery.js");
+  const { Runner } = await import("../packages/core/src/runner.js");
+  const { configSchema } = await import("../packages/core/src/config.js");
+  const { resolveStagePrompt } = await import(
+    "../packages/core/src/prompts.js"
+  );
+  const { executionFingerprint } = await import(
+    "../packages/core/src/recovery.js"
+  );
   const { FixtureHosting } = await import("./runner-fixtures.js");
   const { project } = await repository();
   const directory = await mkdtemp(join(tmpdir(), "runner-prompts-"));
@@ -267,9 +279,11 @@ test("path base resolves state and checkout while prompt base only overrides pro
   const { realpath } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { Runner } = await import("../src/runner.js");
-  const { configSchema } = await import("../src/config.js");
-  const { resolveStagePrompt } = await import("../src/prompts.js");
+  const { Runner } = await import("../packages/core/src/runner.js");
+  const { configSchema } = await import("../packages/core/src/config.js");
+  const { resolveStagePrompt } = await import(
+    "../packages/core/src/prompts.js"
+  );
   const { FixtureHosting } = await import("./runner-fixtures.js");
   const base = await mkdtemp(join(tmpdir(), "runner-path-base-"));
   const prompts = await mkdtemp(join(tmpdir(), "runner-prompt-base-"));

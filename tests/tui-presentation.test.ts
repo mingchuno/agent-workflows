@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runCounts } from "../src/monitor/discovery.js";
-import { failurePresentation } from "../src/tui/presentation.js";
-import { projectRunProjection } from "../src/tui/projection.js";
+import { runCounts } from "../packages/cli/src/monitor/discovery.js";
+import { failurePresentation } from "../packages/cli/src/tui/presentation.js";
+import { projectRunProjection } from "../packages/cli/src/tui/projection.js";
 import { consoleFixture } from "./tui-demo-fixtures.js";
 
 test("demo snapshots have distinct executions, fixed terminal times and disjoint counts", async () => {

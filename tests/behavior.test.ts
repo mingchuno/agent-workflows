@@ -12,10 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { z } from "zod";
-import { configSchema, type Project } from "../src/config.js";
-import type { AgentAdapter } from "../src/domain.js";
-import { defaultWorkflow } from "../src/operations.js";
-import { Runner } from "../src/runner.js";
+import { configSchema, type Project } from "../packages/core/src/config.js";
+import type { AgentAdapter } from "../packages/core/src/domain.js";
+import { defaultWorkflow } from "../packages/core/src/operations.js";
+import { Runner } from "../packages/core/src/runner.js";
 import { repository } from "./fixtures.js";
 import { agent, FixtureHosting, waitFor } from "./runner-fixtures.js";
 
@@ -313,7 +313,7 @@ test("custom agent steps keep multiple invocations and query events survive rest
   } finally {
     await runner.shutdown();
   }
-  const { Store } = await import("../src/store.js");
+  const { Store } = await import("../packages/core/src/store.js");
   const reader = new Store(databaseUrl!, config.id);
   try {
     assert.equal((await reader.invocations(runId)).length, 2);
@@ -538,8 +538,10 @@ test("stop waits for controlled child termination and prevents checkout reuse", 
   skip: !databaseUrl,
 }, async () => {
   const { project } = await repository();
-  const { command } = await import("../src/runtime/process.js");
-  const { processExists } = await import("../src/runtime/ownership.js");
+  const { command } = await import("../packages/core/src/runtime/process.js");
+  const { processExists } = await import(
+    "../packages/core/src/runtime/ownership.js"
+  );
   let childPid = 0;
   const controlled: AgentAdapter = {
     validate: agent.validate,
@@ -833,7 +835,8 @@ for (const scenario of [
   }, async () => {
     const { project } = await repository();
     project.stages.publication.prompt = "Custom publication task";
-    const calls: import("../src/domain.js").AgentInvocation[] = [];
+    const calls: import("../packages/core/src/domain.js").AgentInvocation[] =
+      [];
     const controlled: AgentAdapter = {
       validate: agent.validate,
       async invoke(input) {

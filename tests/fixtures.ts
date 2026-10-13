@@ -1,8 +1,8 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectSchema } from "../src/config.js";
-import { command } from "../src/runtime/process.js";
+import { projectSchema } from "../packages/core/src/config.js";
+import { command } from "../packages/core/src/runtime/process.js";
 export async function repository() {
   const root = await mkdtemp(join(tmpdir(), "agent-workflows-test-"));
   const git = (...args: string[]) => command("git", args, { cwd: root });

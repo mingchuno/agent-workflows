@@ -7,7 +7,7 @@ import type {
   HostingAdapter,
   Issue,
   ReviewRequest,
-} from "../src/domain.js";
+} from "../packages/core/src/domain.js";
 export class FixtureHosting implements HostingAdapter {
   identity = "https://fixture.invalid/a/b";
   changes: ChangeRequest[] = [];

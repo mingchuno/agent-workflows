@@ -4,7 +4,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { configurationJson, resolveConfiguration } from "../src/config.js";
+import {
+  configurationJson,
+  resolveConfiguration,
+} from "../packages/core/src/config.js";
 
 test("config show prints resolved JSON without requiring runtime services or referenced files", async () => {
   const directory = await mkdtemp(join(tmpdir(), "aw-config-show-"));
@@ -37,7 +40,7 @@ test("config show prints resolved JSON without requiring runtime services or ref
       [
         "--import",
         import.meta.resolve("tsx"),
-        resolve("src/cli.ts"),
+        resolve("packages/cli/src/cli.ts"),
         "--config",
         file,
         "--config-base-directory",
@@ -60,7 +63,7 @@ test("config show prints resolved JSON without requiring runtime services or ref
       [
         "--import",
         import.meta.resolve("tsx"),
-        resolve("src/cli.ts"),
+        resolve("packages/cli/src/cli.ts"),
         "--config",
         file,
         "config",

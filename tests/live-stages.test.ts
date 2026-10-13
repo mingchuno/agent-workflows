@@ -5,8 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { z } from "zod";
-import { SDKAgent } from "../src/adapters/agents.js";
-import { publicationSchema, reviewSchema } from "../src/domain.js";
+import { SDKAgent } from "../packages/core/src/adapters/agents.js";
+import {
+  publicationSchema,
+  reviewSchema,
+} from "../packages/core/src/domain.js";
 import { repository } from "./fixtures.js";
 
 for (const provider of ["codex", "copilot"] as const) {

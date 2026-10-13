@@ -1,4 +1,4 @@
-import { configSchema } from "@mingchuno/agent-workflows";
+import { configSchema } from "@mingchuno/agent-workflows-core";
 
 /** Replace paths, repository and model IDs with locally available values. */
 export const configuration = configSchema.parse({

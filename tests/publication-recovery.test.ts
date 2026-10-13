@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { DBOS } from "@dbos-inc/dbos-sdk";
-import { configSchema } from "../src/config.js";
-import { Runner } from "../src/runner.js";
-import { command } from "../src/runtime/process.js";
-import { ExistingCheckout } from "../src/workspace.js";
+import { configSchema } from "../packages/core/src/config.js";
+import { Runner } from "../packages/core/src/runner.js";
+import { command } from "../packages/core/src/runtime/process.js";
+import { ExistingCheckout } from "../packages/core/src/workspace.js";
 import { repository } from "./fixtures.js";
 import { agent, FixtureHosting, waitFor } from "./runner-fixtures.js";
 
@@ -216,7 +216,14 @@ test("CLI queues recovery and inspect exposes its execution history", {
     const cli = (...args: string[]) =>
       command(
         process.execPath,
-        ["--import", "tsx", "src/cli.ts", "--config", configPath, ...args],
+        [
+          "--import",
+          "tsx",
+          "packages/cli/src/cli.ts",
+          "--config",
+          configPath,
+          ...args,
+        ],
         {
           cwd: process.cwd(),
           env: { ...process.env, AGENT_WORKFLOWS_DATABASE_URL: databaseUrl! },

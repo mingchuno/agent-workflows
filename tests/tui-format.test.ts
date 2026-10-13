@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchIndex } from "../src/monitor/text.js";
+import { matchIndex } from "../packages/cli/src/monitor/text.js";
 import {
   cells,
   colorFor,
@@ -8,8 +8,8 @@ import {
   elapsedRun,
   executionDuration,
   wrapLines,
-} from "../src/tui/format.js";
-import { ellipsis } from "../src/tui/presentation.js";
+} from "../packages/cli/src/tui/format.js";
+import { ellipsis } from "../packages/cli/src/tui/presentation.js";
 import { monitorFixture } from "./tui-fixtures.js";
 
 test("execution duration advances while running and freezes at its own finish", () => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { projectSchema } from "../src/config.js";
-import { selectValidation } from "../src/validation-selection.js";
+import { projectSchema } from "../packages/core/src/config.js";
+import { selectValidation } from "../packages/core/src/validation-selection.js";
 
 const project = projectSchema.parse({
   id: "example",

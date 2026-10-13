@@ -1,4 +1,5 @@
-# Package-manager configuration for this single-package repository.
+packages:
+  - packages/*
 allowBuilds:
   esbuild: true
   koffi: true

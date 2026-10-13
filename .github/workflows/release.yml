@@ -81,7 +81,7 @@ jobs:
         run: pnpm verify
       - name: Test packaged installation
         run: pnpm pack:smoke
-      - name: Publish tested tarball with npm OIDC
+      - name: Publish tested core then CLI tarballs with npm OIDC
         run: pnpm release:publish
         env:
           RELEASE_SHA: ${{ needs.release.outputs.sha }}

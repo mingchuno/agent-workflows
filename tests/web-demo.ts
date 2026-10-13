@@ -3,7 +3,7 @@ import { createWebDemo } from "./web-demo-fixtures.js";
 
 const demo = createWebDemo();
 const server = await createServer({
-  configFile: "web/vite.config.ts",
+  configFile: "packages/cli/web/vite.config.ts",
   define: { "import.meta.env.VITE_MONITOR_FIXTURES": JSON.stringify("true") },
   server: { host: "127.0.0.1", port: 5173, strictPort: true },
   plugins: [

@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { render } from "ink-testing-library";
 import React from "react";
-import type { Outcome, RunRecord } from "../src/domain.js";
 import {
   createTerminalNotificationWriter,
   type ExecutionNotification,
   type ExecutionNotificationWriter,
   Monitor,
-} from "../src/tui/index.js";
+} from "../packages/cli/src/tui/index.js";
+import type { Outcome, RunRecord } from "../packages/core/src/domain.js";
 import { monitorFixture, until } from "./tui-fixtures.js";
 
 const size = { columns: 160, rows: 48 };

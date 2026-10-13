@@ -3,7 +3,7 @@ import { access, mkdtemp, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { assertStateDirectory } from "../src/runtime/paths.js";
+import { assertStateDirectory } from "../packages/core/src/runtime/paths.js";
 import { repository } from "./fixtures.js";
 
 test("state paths outside checkout resolve without creating source artifacts", async () => {

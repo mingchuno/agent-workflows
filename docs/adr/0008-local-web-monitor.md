@@ -17,8 +17,8 @@ stopping workflows. The web process ends with its parent `run`; closing the
 browser does not stop execution. Offline browser inspection is outside this
 scope.
 
-Prebuilt browser assets and the web server ship in the existing npm package
-and release, extending ADR 0004's single-package boundary. Users need no
+Prebuilt browser assets and the web server ship in the CLI npm package
+and shared product release, following ADR 0004's two-package design. Users need no
 additional installation, build step, or separately launched service; existing
 Node and PostgreSQL requirements remain. A standalone executable is unnecessary.
 

@@ -11,10 +11,10 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { configSchema } from "../src/config.js";
-import { command } from "../src/runtime/process.js";
+import { configSchema } from "../packages/core/src/config.js";
+import { command } from "../packages/core/src/runtime/process.js";
 
-const cliPath = resolve("src/cli.ts");
+const cliPath = resolve("packages/cli/src/cli.ts");
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const environment = { PATH: process.env.PATH, HOME: process.env.HOME };
 function cli(cwd: string, args: string[], env = environment) {
@@ -259,7 +259,7 @@ test("runner workers and validation inherit literal startup values and retain cr
   const { spawn } = await import("node:child_process");
   const { repository } = await import("./fixtures.js");
   const { waitFor } = await import("./runner-fixtures.js");
-  const { Store } = await import("../src/store.js");
+  const { Store } = await import("../packages/core/src/store.js");
   for (const tokenEnv of ["GITHUB_TOKEN", "CUSTOM_CREDENTIAL"]) {
     const { root, project } = await repository();
     const directory = await mkdtemp(join(tmpdir(), "aw-env-runner-"));

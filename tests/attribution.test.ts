@@ -3,9 +3,9 @@ import { test } from "node:test";
 import {
   contributingProviders,
   finalizeCommitMessage,
-} from "../src/attribution.js";
-import { projectSchema } from "../src/config.js";
-import type { Snapshot } from "../src/domain.js";
+} from "../packages/core/src/attribution.js";
+import { projectSchema } from "../packages/core/src/config.js";
+import type { Snapshot } from "../packages/core/src/domain.js";
 
 const project = projectSchema.parse({
   id: "fixture",

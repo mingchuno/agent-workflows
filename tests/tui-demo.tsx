@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { render } from "ink";
-import { Monitor } from "../src/tui/index.js";
+import { Monitor } from "../packages/cli/src/tui/index.js";
 import { consoleFixture } from "./tui-demo-fixtures.js";
 
 const { source, runs, sessions } = consoleFixture();

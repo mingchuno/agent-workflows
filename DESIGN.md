@@ -174,7 +174,7 @@ semantic outcome colors. Frontmatter holds the extracted values.
 
 Headings h1–h3 use self-hosted Source Sans 3 at weight 600. The build imports
 FontSource's Latin 600 face; its OFL license ships at
-`web/public/fonts/Source-Sans-3-LICENSE.txt`. Body and native controls use the
+`packages/cli/web/public/fonts/Source-Sans-3-LICENSE.txt`. Body and native controls use the
 system sans stack. Code and preformatted evidence use the system monospace stack.
 
 Workspace titles use the headline token, become 25px below the mobile breakpoint,

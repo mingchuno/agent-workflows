@@ -4,9 +4,9 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { configSchema } from "../src/config.js";
-import type { RunRecord } from "../src/domain.js";
-import { Runner } from "../src/runner.js";
+import { configSchema } from "../packages/core/src/config.js";
+import type { RunRecord } from "../packages/core/src/domain.js";
+import { Runner } from "../packages/core/src/runner.js";
 import { repository } from "./fixtures.js";
 import { FixtureHosting, waitFor } from "./runner-fixtures.js";
 

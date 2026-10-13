@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { escapeIdentifier, Pool } from "pg";
-import { Store } from "../src/store.js";
+import { Store } from "../packages/core/src/store.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 test("migrations serialize fresh database startup and preserve records on restart", {
@@ -49,7 +49,11 @@ test("migrations serialize fresh database startup and preserve records on restar
     // Built runtime must find shipped migrations outside the repository cwd.
     await promisify(execFile)(
       process.execPath,
-      [fileURLToPath(new URL("../dist/src/db/migrate.js", import.meta.url))],
+      [
+        fileURLToPath(
+          new URL("../packages/core/dist/src/db/migrate.js", import.meta.url),
+        ),
+      ],
       {
         cwd: tmpdir(),
         env: { ...process.env, AGENT_WORKFLOWS_DATABASE_URL: url.toString() },

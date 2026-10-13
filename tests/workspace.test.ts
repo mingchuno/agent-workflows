@@ -3,8 +3,8 @@ import { chmod, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { command } from "../src/runtime/process.js";
-import { ExistingCheckout } from "../src/workspace.js";
+import { command } from "../packages/core/src/runtime/process.js";
+import { ExistingCheckout } from "../packages/core/src/workspace.js";
 
 import { repository } from "./fixtures.js";
 
@@ -209,7 +209,7 @@ test("workspace blocks unresolved Git operations and unexpected changes", async 
 test("cancelling a Git push stops its hook before checkout reuse", async () => {
   const { waitFor } = await import("./runner-fixtures.js");
   const { assertProcessesStopped } = await import(
-    "../src/runtime/ownership.js"
+    "../packages/core/src/runtime/ownership.js"
   );
   const { root, project, git } = await repository();
   const ready = join(root, ".git", "push-ready");

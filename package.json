@@ -1,94 +1,50 @@
 {
-  "name": "@mingchuno/agent-workflows",
+  "name": "agent-workflows-workspace",
+  "private": true,
   "version": "0.11.0",
-  "description": "Local durable coding workflows on DBOS",
   "type": "module",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/mingchuno/agent-workflows.git"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
-  "files": [
-    "dist/src",
-    "dist/drizzle",
-    "dist/web",
-    "README.md",
-    "LICENCE",
-    "docs/*.md",
-    "examples"
-  ],
-  "engines": {
-    "node": ">=22.12"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/src/index.d.ts",
-      "import": "./dist/src/index.js"
-    }
-  },
-  "bin": {
-    "agent-workflows": "./dist/src/cli.js"
-  },
   "scripts": {
-    "build": "node scripts/clean-build.mjs && tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs && pnpm web:build",
-    "web:dev": "node --import tsx tests/web-demo.ts",
-    "web:test": "node --import tsx --test tests/web-demo.test.ts",
-    "web:build": "vite build --config web/vite.config.ts",
-    "check": "tsc --noEmit && tsc -p web/tsconfig.json",
+    "build": "node scripts/check-workspace.mjs && node scripts/clean-build.mjs && pnpm --filter @mingchuno/agent-workflows-core build && pnpm --filter @mingchuno/agent-workflows build",
+    "web:dev": "pnpm --filter @mingchuno/agent-workflows-core build && node --import tsx tests/web-demo.ts",
+    "web:test": "pnpm --filter @mingchuno/agent-workflows-core build && node --import tsx --test tests/web-demo.test.ts",
+    "web:build": "pnpm --filter @mingchuno/agent-workflows web:build",
+    "check": "node scripts/check-workspace.mjs && pnpm --filter @mingchuno/agent-workflows-core build && tsc --noEmit && pnpm --filter @mingchuno/agent-workflows-core check && pnpm --filter @mingchuno/agent-workflows check",
     "test": "pnpm build && node --test scripts/*.test.mjs && node scripts/test.mjs",
     "verify": "pnpm check && pnpm lint && pnpm test",
     "pack:smoke": "pnpm build && node scripts/test.mjs --pack-smoke",
     "release:publish": "node scripts/publish.mjs",
     "lint:pr": "node scripts/lint-pr-title.mjs",
-    "start": "node --import tsx -- src/cli.ts",
-    "tui:preview": "node --import tsx -- tests/tui-demo.tsx",
+    "start": "pnpm --filter @mingchuno/agent-workflows-core build && node --import tsx -- packages/cli/src/cli.ts",
+    "tui:preview": "pnpm --filter @mingchuno/agent-workflows-core build && node --import tsx -- tests/tui-demo.tsx",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome check .",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts"
-  },
-  "dependencies": {
-    "@dbos-inc/dbos-sdk": "^5.0.2",
-    "@gitbeaker/rest": "^43.8.0",
-    "@github/copilot-sdk": "^1.0.14",
-    "@hono/node-server": "^2.1.4",
-    "@octokit/rest": "^22.0.1",
-    "@openai/codex-sdk": "^0.155.1",
-    "@types/pg": "^8.23.1",
-    "commander": "^15.0.0",
-    "drizzle-orm": "0.45.2",
-    "hono": "^4.13.13",
-    "ink": "^7.1.1",
-    "pg": "^8.23.0",
-    "pino": "^10.3.1",
-    "react": "^19.3.0",
-    "string-width": "^8.2.2",
-    "wrap-ansi": "^9.0.2",
-    "zod": "^4.6.5"
+    "db:migrate": "tsx packages/core/src/db/migrate.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@commitlint/cli": "21.2.2",
     "@commitlint/config-conventional": "21.2.2",
-    "@fontsource/source-sans-3": "^5.3.1",
     "@playwright/test": "^1.64.0",
-    "@tanstack/react-query": "^5.104.1",
     "@types/node": "^26.6.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "drizzle-kit": "0.31.10",
     "ink-testing-library": "^4.0.0",
     "npm": "12.0.2",
-    "react-dom": "^19.3.0",
-    "react-json-view-lite": "^2.5.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "@dbos-inc/dbos-sdk": "^5.0.2",
+    "@github/copilot-sdk": "^1.0.14",
+    "@openai/codex-sdk": "^0.155.1",
+    "ink": "^7.1.1",
+    "pg": "^8.23.0",
+    "react": "^19.3.0",
+    "zod": "^4.6.5",
+    "string-width": "^8.2.2",
+    "@types/pg": "^8.23.1"
   },
   "packageManager": "pnpm@12.4.2"
 }

@@ -4,10 +4,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { configSchema } from "../src/config.js";
-import { command } from "../src/runtime/process.js";
-import { Store } from "../src/store.js";
-import type { MonitorSnapshot } from "../src/web/contracts.js";
+import type { MonitorSnapshot } from "../packages/cli/src/web/contracts.js";
+import { configSchema } from "../packages/core/src/config.js";
+import { command } from "../packages/core/src/runtime/process.js";
+import { Store } from "../packages/core/src/store.js";
 import { repository } from "./fixtures.js";
 import { waitFor } from "./runner-fixtures.js";
 import { monitorFixture } from "./tui-fixtures.js";
@@ -122,7 +122,7 @@ export async function webRunner(
       ...(options.controlledWorkflow
         ? ["--import", resolve("tests/fixtures/web-provider-loader.mjs")]
         : []),
-      options.cli ?? resolve("src/cli.ts"),
+      options.cli ?? resolve("packages/cli/src/cli.ts"),
       "--config",
       configPath,
       "run",
@@ -191,7 +191,7 @@ export async function webRunner(
         [
           "--import",
           import.meta.resolve("tsx"),
-          resolve("src/cli.ts"),
+          resolve("packages/cli/src/cli.ts"),
           "--config",
           configPath,
           "status",

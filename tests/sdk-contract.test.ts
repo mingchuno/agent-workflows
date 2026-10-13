@@ -7,7 +7,7 @@ import {
   runCodex,
   runCopilot,
   type WorkerInput,
-} from "../src/adapters/sdk-protocol.js";
+} from "../packages/core/src/adapters/sdk-protocol.js";
 
 const input: WorkerInput = {
   provider: "codex",

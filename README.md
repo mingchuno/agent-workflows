@@ -36,7 +36,9 @@ export AGENT_WORKFLOWS_DATABASE_URL="postgresql://$(id -un)@localhost/agent_work
 agent-workflows init
 ```
 
-For SDK use, install locally with `npm install @mingchuno/agent-workflows`. Both interfaces ship in the same package.
+For SDK use, install `@mingchuno/agent-workflows-core` locally. The CLI and core
+packages share one version and release; the CLI installs its exact matching core
+dependency automatically.
 
 Edit `agent-workflows.json`: set the checkout, hosting origin/repository, agent
 stages and validation commands. Relative checkout, state and prompt-file paths
@@ -155,7 +157,7 @@ configuration and database. See the [monitor guide](docs/operations.md#monitor).
 pnpm web:dev
 ```
 
-Open `http://127.0.0.1:5173`. Vite reloads the UI as you edit `web/`.
+Open `http://127.0.0.1:5173`. Vite reloads the UI as you edit `packages/cli/web/`.
 The labelled preview uses read-only fixtures shared with the TUI demo; it needs
 no database, configuration or provider credentials. Search, project selection,
 outcome filters and evidence sections work. Operator commands are disabled;
@@ -186,7 +188,12 @@ that runner.
 
 ### Checks
 
-Use `pnpm start --help` to run the CLI from source. `pnpm build` emits the runtime and declarations into `dist/src` and copies migrations to `dist/drizzle`.
+Use `pnpm start --help` to run the CLI from source; this builds core first.
+The pnpm workspace contains `packages/core` (runtime and SDK) and `packages/cli`
+(CLI, TUI, web server and browser app). `pnpm build` emits runtime and declarations
+into each package's `dist/src`, migrations into `packages/core/dist/drizzle`, and
+browser assets into `packages/cli/dist/web`. Root scripts coordinate both packages;
+`pnpm check` also rejects mismatched package versions.
 
 `pnpm test` builds the application, then starts and removes a disposable real PostgreSQL database using `initdb`, `pg_ctl`, and `createdb` on PATH. Alternatively, set `TEST_DATABASE_URL` to a disposable database whose role can create test databases. Tests use real temporary Git repositories and controlled adapters/HTTP servers; they make no paid agent calls or writes to real hosting providers.
 

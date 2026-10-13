@@ -6,7 +6,7 @@
       "!!**/dist",
       "!!**/node_modules",
       "!!.artifacts",
-      "!!drizzle/meta",
+      "!!packages/core/drizzle/meta",
       "!!.agent-workflows",
       "!!.release-please-manifest.json"
     ]

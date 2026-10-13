@@ -3,8 +3,8 @@ import {
   assertRelease,
   lookupPublished,
   npm,
-  publishArtifact,
-  readArtifact,
+  publishArtifacts,
+  readArtifacts,
 } from "./release-package.mjs";
 
 if (
@@ -25,16 +25,17 @@ const release = {
 if (!/^v\d+\.\d+\.\d+$/.test(release.tag ?? ""))
   throw new Error("Expected a stable release tag, such as v0.1.0.");
 const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
-const artifact = await readArtifact();
-assertRelease(release, artifact, {
-  head: git("rev-parse", "HEAD"),
-  tagged: git("rev-parse", `refs/tags/${release.tag}^{commit}`),
-});
+const artifacts = await readArtifacts();
+for (const artifact of artifacts)
+  assertRelease(release, artifact, {
+    head: git("rev-parse", "HEAD"),
+    tagged: git("rev-parse", `refs/tags/${release.tag}^{commit}`),
+  });
 if (git("status", "--porcelain", "--untracked-files=no"))
   throw new Error(
     "Tracked files changed after checkout; refusing publication.",
   );
-await publishArtifact(artifact, {
+await publishArtifacts(artifacts, {
   lookup: lookupPublished,
   publish: (tarball) =>
     npm(

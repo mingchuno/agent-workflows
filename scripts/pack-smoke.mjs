@@ -6,50 +6,89 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Pool } from "pg";
 import {
+  corePackageName,
   npm,
-  packArtifact,
+  packArtifacts,
   packageName,
-  recordArtifact,
+  recordArtifacts,
 } from "./release-package.mjs";
 
-const artifact = await packArtifact();
+const artifacts = await packArtifacts();
+const [coreArtifact, artifact] = artifacts;
+assert.equal(coreArtifact.name, corePackageName);
 assert.equal(artifact.name, packageName);
-const files = artifact.files.map((file) => file.path);
-for (const required of [
-  "dist/src/index.js",
-  "dist/src/index.d.ts",
-  "dist/src/cli.js",
-  "dist/src/adapters/agent-worker.js",
-  "dist/drizzle/meta/_journal.json",
-  "dist/web/index.html",
-  "dist/web/fonts/Source-Sans-3-LICENSE.txt",
-  "LICENCE",
-])
-  assert.ok(files.includes(required), `Missing package file: ${required}`);
-assert.ok(files.some((file) => /^dist\/drizzle\/.*\.sql$/.test(file)));
+assert.equal(coreArtifact.version, artifact.version);
+for (const [candidate, directory, required] of [
+  [
+    coreArtifact,
+    "packages/core",
+    [
+      "dist/src/index.js",
+      "dist/src/index.d.ts",
+      "dist/src/operator/index.js",
+      "dist/src/adapters/agent-worker.js",
+      "dist/drizzle/meta/_journal.json",
+      "LICENCE",
+    ],
+  ],
+  [
+    artifact,
+    "packages/cli",
+    [
+      "dist/src/cli.js",
+      "dist/web/index.html",
+      "dist/web/fonts/Source-Sans-3-LICENSE.txt",
+      "LICENCE",
+    ],
+  ],
+]) {
+  const files = candidate.files.map((file) => file.path);
+  for (const path of required)
+    assert.ok(files.includes(path), `Missing ${candidate.name} file: ${path}`);
+  const sources = await readdir(`${directory}/src`, { recursive: true });
+  const runtimeFiles = sources
+    .filter((file) => /\.tsx?$/.test(file))
+    .flatMap((file) => {
+      const stem = file.replace(/\.tsx?$/, "");
+      return [`dist/src/${stem}.js`, `dist/src/${stem}.d.ts`];
+    });
+  assert.deepEqual(
+    files.filter((file) => file.startsWith("dist/src/")).sort(),
+    runtimeFiles.sort(),
+    "Packed runtime must match its source modules and declarations",
+  );
+  assert.ok(
+    files.every((file) =>
+      /^(dist\/(src|drizzle|web)\/|package\.json$|README\.md$|LICENCE$)/.test(
+        file,
+      ),
+    ),
+    "Unexpected development files in published package",
+  );
+}
 assert.ok(
-  files.some((file) => /^dist\/web\/assets\/.*\.woff2$/.test(file)),
+  coreArtifact.files.some((file) => /^dist\/drizzle\/.*\.sql$/.test(file.path)),
+);
+assert.ok(
+  artifact.files.some((file) =>
+    /^dist\/web\/assets\/.*\.woff2$/.test(file.path),
+  ),
   "Missing self-hosted browser font",
 );
-const sourceFiles = await readdir("src", { recursive: true });
-const runtimeFiles = sourceFiles
-  .filter((file) => /\.tsx?$/.test(file))
-  .flatMap((file) => {
-    const stem = file.replace(/\.tsx?$/, "");
-    return [`dist/src/${stem}.js`, `dist/src/${stem}.d.ts`];
-  });
-assert.deepEqual(
-  files.filter((file) => file.startsWith("dist/src/")).sort(),
-  runtimeFiles.sort(),
-  "Packed runtime must match the current source modules and declarations",
+assert.ok(
+  coreArtifact.files.every(
+    (file) => !/^dist\/(web|src\/(tui|web|monitor|cli))/.test(file.path),
+  ),
+  "Core must not ship application code",
 );
 assert.ok(
-  files.every((file) =>
-    /^(dist\/(src|drizzle|web)\/|docs\/|examples\/|package\.json$|README\.md$|LICENCE$)/.test(
-      file,
-    ),
+  artifact.files.every(
+    (file) =>
+      !/^dist\/(drizzle|src\/(db|runner|store|operations|adapters))/.test(
+        file.path,
+      ),
   ),
-  "Unexpected development files in the published package",
+  "CLI must consume core rather than duplicate its runtime",
 );
 
 const consumer = await mkdtemp(join(tmpdir(), "agent-workflows-package-"));
@@ -79,7 +118,7 @@ async function checkDatabase() {
         "-e",
         `
       import assert from 'node:assert/strict';
-      import { Store } from '@mingchuno/agent-workflows';
+      import { Store } from '@mingchuno/agent-workflows-core';
       const store = new Store(process.env.PACK_DATABASE_URL, 'packed-consumer');
       try {
         await store.initialize();
@@ -111,20 +150,40 @@ try {
       "--ignore-scripts",
       "--no-audit",
       "--no-fund",
-      artifact.tarball,
+      coreArtifact.tarball,
       `typescript@${manifest.devDependencies.typescript.replace(/^\^/, "")}`,
       `@types/node@${manifest.devDependencies["@types/node"].replace(/^\^/, "")}`,
     ],
     { cwd: consumer, stdio: "inherit" },
   );
-  const installed = join(consumer, "node_modules", packageName);
-  const packedManifest = JSON.parse(
-    await readFile(join(installed, "package.json"), "utf8"),
+  const installedCore = join(consumer, "node_modules", corePackageName);
+  const coreManifest = JSON.parse(
+    await readFile(join(installedCore, "package.json"), "utf8"),
   );
-  assert.equal(packedManifest.private, undefined);
-  assert.equal(packedManifest.license, "MIT");
+  assert.equal(coreManifest.private, undefined);
+  assert.equal(coreManifest.license, "MIT");
+  assert.equal(coreManifest.bin, undefined);
+  for (const name of [
+    "react",
+    "ink",
+    "hono",
+    "@hono/node-server",
+    "commander",
+  ]) {
+    assert.equal(
+      coreManifest.dependencies[name],
+      undefined,
+      `Core must not depend on ${name}`,
+    );
+    // DBOS has its own Commander dependency; only our direct CLI dependency is excluded.
+    if (name === "commander") continue;
+    assert.ok(
+      !(await readdir(join(consumer, "node_modules"))).includes(name),
+      `Core-only install must not install ${name}`,
+    );
+  }
   assert.equal(
-    await readFile(join(installed, "LICENCE"), "utf8"),
+    await readFile(join(installedCore, "LICENCE"), "utf8"),
     await readFile("LICENCE", "utf8"),
   );
   run(process.execPath, [
@@ -132,14 +191,14 @@ try {
     "-e",
     `
     import assert from 'node:assert/strict';
-    import { Runner, Store, createAgents, createHosting } from '@mingchuno/agent-workflows';
+    import { Runner, Store, createAgents, createHosting } from '@mingchuno/agent-workflows-core';
     for (const value of [Runner, Store, createAgents, createHosting]) assert.equal(typeof value, 'function');
   `,
   ]);
   await writeFile(
     join(consumer, "consumer.ts"),
     `
-    import { Runner, Store, createAgents, type Configuration, type InvocationTask, type AgentInvocation } from '@mingchuno/agent-workflows';
+    import { Runner, Store, createAgents, type Configuration, type InvocationTask, type AgentInvocation } from '@mingchuno/agent-workflows-core';
     const agents: ReturnType<typeof createAgents> = createAgents();
     const store: Store = new Store('postgresql://unused', 'consumer');
     const runner: typeof Runner = Runner;
@@ -165,6 +224,38 @@ try {
       "--skipLibCheck",
     ],
     { stdio: "inherit" },
+  );
+  await checkDatabase();
+  npm(
+    [
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      artifact.tarball,
+    ],
+    { cwd: consumer, stdio: "inherit" },
+  );
+  const installed = join(consumer, "node_modules", packageName);
+  const packedManifest = JSON.parse(
+    await readFile(join(installed, "package.json"), "utf8"),
+  );
+  assert.equal(
+    packedManifest.dependencies[corePackageName],
+    coreArtifact.version,
+    "Packed CLI must pin the exact core version",
+  );
+  assert.equal(packedManifest.version, coreArtifact.version);
+  assert.equal(
+    packedManifest.exports,
+    undefined,
+    "SDK consumers use the core package",
+  );
+  assert.equal(packedManifest.private, undefined);
+  assert.equal(packedManifest.license, "MIT");
+  assert.equal(
+    await readFile(join(installed, "LICENCE"), "utf8"),
+    await readFile("LICENCE", "utf8"),
   );
   const cli = join(consumer, "node_modules/.bin/agent-workflows");
   for (const option of ["version", "--version", "-V"])
@@ -192,7 +283,6 @@ try {
       error.status === 1 &&
       /Cannot read environment file.*ENOENT/.test(error.stderr),
   );
-  await checkDatabase();
   run(
     process.execPath,
     [
@@ -210,9 +300,9 @@ try {
       stdio: "inherit",
     },
   );
-  await recordArtifact(artifact);
+  await recordArtifacts(artifacts);
   console.log(
-    `Packed SDK, CLI and migrations passed outside the checkout. Tarball: ${resolve(artifact.tarball)}`,
+    `Packed core SDK/migrations and CLI/web passed outside the checkout. Tarballs: ${artifacts.map((candidate) => candidate.tarball).join(", ")}`,
   );
 } finally {
   await rm(consumer, { recursive: true, force: true });

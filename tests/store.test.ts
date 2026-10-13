@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import type { RunRecord } from "../src/domain.js";
-import { type InvocationRecord, Store } from "../src/store.js";
+import type { RunRecord } from "../packages/core/src/domain.js";
+import { type InvocationRecord, Store } from "../packages/core/src/store.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 function run(scope: string, number = 1, attempt = 1): RunRecord {
