@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/mingchuno/agent-workflows/compare/v0.9.1...v0.10.0) (2026-10-13)
+
+
+### Features
+
+* **config:** add project inheritance and config inspection ([#29](https://github.com/mingchuno/agent-workflows/issues/29)) ([ef0ae71](https://github.com/mingchuno/agent-workflows/commit/ef0ae71b780c4912caf356602a8e53a339199ce8))
+
 ## [0.9.1](https://github.com/mingchuno/agent-workflows/compare/v0.9.0...v0.9.1) (2026-10-12)
 
 
