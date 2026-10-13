@@ -16,6 +16,7 @@ All commands accept `--config PATH` before the subcommand. For example,
 | Command | Effect |
 | --- | --- |
 | `init` | Write a starter config; refuse overwrite |
+| `version` | Print the installed package version; also available as `--version` or `-V` |
 | `run [--project ID ...] [--no-web] [--web-port PORT]` | Start selected projects and the local web monitor |
 | `config show` | Print merged, schema-validated JSON from the current file without runtime services |
 | `reload [--timeout-ms MS]` | Reload configuration and prompt files; wait for acknowledgement |
@@ -28,6 +29,8 @@ All commands accept `--config PATH` before the subcommand. For example,
 | `retry RUN` | Request a new attempt after checkout validation |
 | `retry RUN --refresh-issue` | Request a new attempt using the current hosted issue |
 | `monitor [--notify]` | Attach the TUI; optionally enable outcome notifications |
+
+Version reporting requires no configuration, credentials, or database connection.
 
 Control commands return a command ID with `pending`. Check `status --json` or the
 monitor for acknowledgement; with no runner, commands stay pending. Closing the

@@ -167,6 +167,8 @@ try {
     { stdio: "inherit" },
   );
   const cli = join(consumer, "node_modules/.bin/agent-workflows");
+  for (const option of ["version", "--version", "-V"])
+    assert.equal(run(cli, [option]), `${manifest.version}\n`);
   assert.match(run(cli, ["--help"]), /Local durable issue-to-review workflows/);
   assert.throws(
     () => run(cli, ["--env-file", "missing.env", "init"]),

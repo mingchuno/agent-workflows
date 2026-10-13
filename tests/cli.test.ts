@@ -18,6 +18,27 @@ import { Store } from "../src/store.js";
 import { repository } from "./fixtures.js";
 import { waitFor } from "./runner-fixtures.js";
 
+test("CLI version reports the package version without configuration or credentials", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "aw-cli-version-"));
+  const manifest = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  try {
+    for (const option of ["version", "--version", "-V"]) {
+      const result = await command(
+        process.execPath,
+        ["--import", import.meta.resolve("tsx"), resolve("src/cli.ts"), option],
+        { cwd: directory, env: {}, allowFailure: true },
+      );
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.equal(result.stdout, `${manifest.version}\n`);
+      assert.equal(result.stderr, "");
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("CLI reload targets its original server despite invalid JSON and preserves startup path/project selection", {
   skip: !process.env.TEST_DATABASE_URL,
 }, async () => {

@@ -32,14 +32,30 @@ import { defaultWebPort } from "./web/contracts.js";
 import { startWebMonitor } from "./web/lifecycle.js";
 
 const launchDirectory = process.cwd();
+const packageVersion: string = JSON.parse(
+  await readFile(
+    new URL(
+      import.meta.url.endsWith(".ts")
+        ? "../package.json"
+        : "../../package.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+).version;
 const program = new Command()
   .name("agent-workflows")
   .description("Local durable issue-to-review workflows")
+  .version(packageVersion)
   .option("-c, --config <file>", "configuration path", "agent-workflows.json")
   .option(
     "--config-base-directory <directory>",
     "base directory for paths contained in configuration",
   );
+program
+  .command("version")
+  .description("Print the installed package version")
+  .action(() => console.log(packageVersion));
 async function configuration(): Promise<Configuration> {
   return readCliConfiguration(configPath(), (path) =>
     resolve(configBaseDirectory(), path),
