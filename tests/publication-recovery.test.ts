@@ -515,6 +515,12 @@ test("publication recovery preserves incomplete draft evidence without new agent
     const invocations = await runner.store.invocations(run.id);
     assert.equal(run.readiness?.draft, true);
     assert.equal(run.review?.complete, false);
+    // Persisted failure evidence can precede the execution's terminal checkpoint.
+    await waitFor(
+      async () =>
+        (await DBOS.getWorkflowStatus(run.executions!.at(-1)!.id))?.status ===
+        "SUCCESS",
+    );
     fail = false;
     await runner.recover(run.id);
     await waitFor(

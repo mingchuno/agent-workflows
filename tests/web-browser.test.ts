@@ -453,14 +453,30 @@ test("browser inspects collapsible active configuration and retains stale JSON o
   t.after(() => runner.stop());
   const browser = await chromium.launch();
   try {
+    const { run } = await seedWebEvidence(runner);
     const { url } = await runner.access();
     const page = await browser.newPage();
     await page.goto(url);
+    await expect(
+      page.getByRole("heading", { name: run.subject.title }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Reload configuration", exact: true }),
+    ).toHaveCount(0);
     await page
-      .getByRole("button", { name: "View configuration", exact: true })
+      .getByRole("button", { name: "Configuration", exact: true })
       .click();
     await expect(
       page.getByRole("heading", { name: "Active configuration" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("complementary", { name: "Runs", exact: true }),
+    ).not.toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Pause intake", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Reload configuration", exact: true }),
     ).toBeVisible();
     const tree = page.getByRole("tree", { name: "Active configuration JSON" });
     await expect(tree).toBeVisible();
@@ -481,12 +497,16 @@ test("browser inspects collapsible active configuration and retains stale JSON o
       page.getByText("Displayed configuration is stale.", { exact: true }),
     ).toBeVisible({ timeout: 10000 });
     await expect(tree.getByText('"checkout":', { exact: true })).toBeVisible();
-    await page
-      .getByRole("button", { name: "Back to runs", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Projects", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "Active configuration" }),
     ).not.toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: run.subject.title }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Reload configuration", exact: true }),
+    ).toHaveCount(0);
   } finally {
     await browser.close();
   }
