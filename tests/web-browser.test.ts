@@ -445,3 +445,49 @@ test("browser scopes search and filters, switches projects, and inspects prior e
     await browser.close();
   }
 });
+
+test("browser inspects collapsible active configuration and retains stale JSON on connection failure", {
+  skip: !process.env.TEST_DATABASE_URL,
+}, async (t) => {
+  const runner = await webRunner();
+  t.after(() => runner.stop());
+  const browser = await chromium.launch();
+  try {
+    const { url } = await runner.access();
+    const page = await browser.newPage();
+    await page.goto(url);
+    await page
+      .getByRole("button", { name: "View configuration", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Active configuration" }),
+    ).toBeVisible();
+    const tree = page.getByRole("tree", { name: "Active configuration JSON" });
+    await expect(tree).toBeVisible();
+    const projects = tree.getByRole("button", { name: "Expand JSON" }).first();
+    await projects.focus();
+    await page.keyboard.press("Enter");
+    await tree.getByRole("button", { name: "Expand JSON" }).first().focus();
+    await page.keyboard.press("Enter");
+    await expect(tree.getByText('"checkout":', { exact: true })).toBeVisible();
+    await page.route("**/api/configuration", (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Runner unavailable" }),
+      }),
+    );
+    await expect(
+      page.getByText("Displayed configuration is stale.", { exact: true }),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(tree.getByText('"checkout":', { exact: true })).toBeVisible();
+    await page
+      .getByRole("button", { name: "Back to runs", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Active configuration" }),
+    ).not.toBeVisible();
+  } finally {
+    await browser.close();
+  }
+});

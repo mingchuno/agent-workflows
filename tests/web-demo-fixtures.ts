@@ -1,3 +1,4 @@
+import { configSchema } from "../src/config.js";
 import {
   discoverRuns,
   type RunFilter,
@@ -16,6 +17,24 @@ export function createWebDemo() {
         { error: "Read-only fixtures; no workflow commands are sent." },
         403,
       );
+    if (url.pathname === "/api/configuration") {
+      return respond(
+        configSchema.parse({
+          id: "fixture-preview",
+          projects: ["demo", "web-service"].map((id) => ({
+            id,
+            checkout: `../${id}`,
+            hosting: {
+              provider: "github",
+              origin: "https://github.com",
+              repository: `example/${id}`,
+              tokenEnv: "GITHUB_TOKEN",
+            },
+            agent: { provider: "codex" },
+          })),
+        }),
+      );
+    }
     if (url.pathname === "/api/snapshot") {
       const filter = url.searchParams.get("filter") ?? "All";
       if (!runFilters.includes(filter as RunFilter))

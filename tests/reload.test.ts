@@ -40,7 +40,22 @@ test("reload keeps active execution inputs and applies new settings to queued wo
     projects: [project],
   });
   const configPath = join(directory, "config.json");
-  await writeFile(configPath, JSON.stringify(config));
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      ...config,
+      projectBase: {
+        agent: config.projects[0]!.agent,
+        stages: config.projects[0]!.stages,
+      },
+      projects: config.projects.map(
+        ({ agent: _agent, stages: _stages, ...project }) => ({
+          ...project,
+          inheritProjectBase: true,
+        }),
+      ),
+    }),
+  );
   const source = await openCliConfiguration(configPath, (path) =>
     join(directory, path),
   );
@@ -98,7 +113,22 @@ test("reload keeps active execution inputs and applies new settings to queued wo
         timeoutMs: 10_000,
       },
     ];
-    await writeFile(configPath, JSON.stringify(config));
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        ...config,
+        projectBase: {
+          agent: config.projects[0]!.agent,
+          stages: config.projects[0]!.stages,
+        },
+        projects: config.projects.map(
+          ({ agent: _agent, stages: _stages, ...project }) => ({
+            ...project,
+            inheritProjectBase: true,
+          }),
+        ),
+      }),
+    );
     assert.equal((await acknowledgedReload(runner)).status, "success");
     release();
     await waitFor(async () =>

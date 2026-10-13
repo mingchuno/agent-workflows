@@ -50,8 +50,11 @@ try {
 
 See the [type-checked complete runner](../examples/run.ts) for a custom
 workflow variant. SDK callers load their own environment before constructing the
-runner and pass the database URL explicitly. `configSchema.parse` applies
-defaults and rejects unknown keys.
+runner and pass the database URL explicitly. `resolveConfiguration(input)` and `configSchema.parse(input)` resolve explicit
+project-base inheritance, apply defaults, and reject unknown keys.
+`ConfigurationInput` represents authoring input; `Configuration` is the complete
+resolved output. `configurationJson(config)` serializes it as indented JSON with
+a trailing newline. Both CLI and monitors share these rules.
 
 ## Runner options
 
@@ -59,7 +62,7 @@ defaults and rejects unknown keys.
 
 | Option | Type | Purpose |
 | --- | --- | --- |
-| `config` | `Configuration` | Parsed runner and project settings. |
+| `config` | `ConfigurationInput` | Raw or already-resolved runner and project settings. |
 | `databaseUrl` | `string` | PostgreSQL connection URL. |
 | `hosting` | `(project: Project) => HostingAdapter` | Create a hosting adapter for each project; `createHosting` supplies GitHub/GitLab. |
 | `agents` | `Record<string, AgentAdapter>` | Provider adapters; `createAgents()` supplies Codex/Copilot. |
@@ -73,7 +76,8 @@ Optional options:
 | `workspace` | `Workspace` | Defaults to `ExistingCheckout`. |
 | `workflow` | `(operations: Operations) => Promise<void>` | Override the implementation workflow; review subjects always use `reviewWorkflow`. |
 | `workflowVersion` | `string` | Durable workflow version; change it when custom step order changes. |
-| `reloadConfiguration` | `() => Promise<Configuration>` | Optional source for queued `reload` commands; reread settings without changing the process environment. |
+| `publishConfiguration` | `(config: Configuration) => Promise<void>` | Optional publication of a verified reload candidate before acceptance; failure rejects reload. The CLI uses it for the local monitor snapshot. |
+| `reloadConfiguration` | `() => Promise<ConfigurationInput>` | Optional source for queued `reload` commands; reread settings without changing the process environment. |
 
 Paths are resolved once during construction; checkout roots are canonicalized
 and ownership is checked at startup. The runner reads configured prompt files at
@@ -102,7 +106,9 @@ lists fields that require restart. The SDK creates no CLI control record.
 | `shutdown()` | `Promise<void>` | Stop intake, cancel and await active work, close DBOS and release ownership. |
 
 `runner.config` contains the current parsed, resolved configuration; a successful
-reload replaces the object. Treat it as read-only. `runner.store` exposes
+reload replaces the object. Treat it as read-only.
+`runner.effectiveConfiguration` returns an independent copy of the active
+configuration before runtime path expansion, suitable for JSON inspection. `runner.store` exposes
 persisted records and commands. Always call `shutdown()` in `finally`, including
 when startup fails. `start()` begins polling but does not wait for an intake scan;
 call `poll()` when you need to await a scan.

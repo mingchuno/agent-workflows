@@ -75,6 +75,7 @@ const helpPages = [
       ["r", "Retry as a new run"],
       ["F", "Retry with the current hosted issue"],
       ["R", "Reload runner configuration and prompt files"],
+      ["C", "Inspect active configuration JSON"],
       ["c", "Recover failed publication"],
       ["[ / ]", "Inspect previous or next step event"],
       ["End", "Follow latest step event"],

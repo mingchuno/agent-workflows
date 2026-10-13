@@ -37,6 +37,79 @@ The state directory is a sibling of the checkout, outside the repository.
 token does not configure Git push authentication; configure the checkout's Git
 remote separately. See [provider setup](providers.md).
 
+## Shared project base
+
+Define optional `projectBase` settings once and add `inheritProjectBase: true`
+to each participating project. Omitted or false means no inheritance; true
+without a base is an error. An empty base is valid. Existing JSON needs no changes.
+
+```json
+{
+  "id": "local",
+  "projectBase": {
+    "hosting": {
+      "provider": "github",
+      "origin": "https://github.com",
+      "tokenEnv": "GITHUB_TOKEN"
+    },
+    "agent": { "provider": "codex" },
+    "stages": { "review": { "promptFile": "prompts/review.md" } }
+  },
+  "projects": [
+    {
+      "id": "application",
+      "checkout": "../application",
+      "inheritProjectBase": true,
+      "hosting": { "repository": "OWNER/application" }
+    }
+  ]
+}
+```
+
+The base supports every Project field except `id`, `checkout`, and
+`hosting.repository`; those remain required in each project. All supported base
+fields, including nested fields, are optional. An inheriting project's remaining
+fields may also be partial: only the merged project must be complete.
+
+Objects merge recursively and local values win. Arrays replace, including
+validation commands and labels; `[]` clears only arrays whose schema permits it.
+Validation-profile maps merge by name; local command arrays replace matching
+profiles. Empty objects retain inherited entries. False and zero override;
+null is not a deletion marker. Unknown keys and malformed supplied values are
+rejected even in an unused base. Defaults apply after merging, and all existing
+complete-project constraints still apply.
+
+A local `prompt` replaces an inherited `promptFile`, and vice versa. Both in
+one fragment remain invalid. Provider switches discard inherited model, effort,
+and context settings, including stage settings tied to an implicitly inherited
+provider. Relative prompt files retain the configuration's existing path base.
+
+## Inspect effective configuration
+
+```sh
+agent-workflows --config ./work.json config show
+agent-workflows config show > effective-config.json
+```
+
+`config show` reads the current file, resolves inheritance, applies defaults,
+and prints indented JSON with a trailing newline. Failure emits diagnostics to
+stderr, exits nonzero, and emits no partial JSON. Inspection needs no Runner,
+database, credentials, dotenv file, checkout, prompt files, or provider access.
+Schema validation is the verification boundary.
+
+Output removes `projectBase`, `inheritProjectBase`, and the CLI-only `envFile`.
+Paths and `promptFile` references remain unexpanded. Environment selectors remain
+names; runtime credentials, prompt-file contents, and provider catalog defaults
+are not added. Literal configured prompts remain visible.
+
+The TUI's `C` view and the web monitor's **View configuration** show the active
+Runner's accepted effective configuration and selected projects. Successful
+reloads refresh these views; rejected reloads retain the previous settings.
+Unavailable reads retain the last successful JSON with an explicit stale label.
+Without an active CLI Runner, configuration inspection is unavailable while
+persisted workflow evidence remains inspectable. SDK callers can inspect
+`runner.effectiveConfiguration` directly.
+
 ## Live reload
 
 After editing the JSON or referenced prompt files, run
@@ -78,6 +151,7 @@ checked when the runner starts.
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `id` | identifier | **Required** | Stable runner identity that scopes stored records and queues. |
+| `projectBase` | partial project settings | None | Shared settings for projects that explicitly opt in. |
 | `projects` | nonempty `Project[]` | **Required** | Managed projects; IDs and canonical checkout roots must be unique. |
 | `databaseUrlEnv` | string | `AGENT_WORKFLOWS_DATABASE_URL` | Name of the variable containing a PostgreSQL URL with a username. |
 | `stateDirectory` | path string | `.agent-workflows` | Artifact directory; must be outside every managed checkout. |
@@ -87,6 +161,7 @@ checked when the runner starts.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
+| `inheritProjectBase` | boolean | `false` | Inherit the top-level project base before validation. |
 | `id` | identifier | **Required** | Stable project identity. |
 | `checkout` | nonempty path string | **Required** | Existing Git repository root. |
 | `hosting` | `Hosting` | **Required** | Issue and PR/MR API configuration. |

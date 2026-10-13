@@ -4,6 +4,7 @@ import { runFilters } from "../src/monitor/filters.js";
 import type { MonitorSnapshot } from "../src/web/contracts.js";
 import { readMonitor, useOperatorCommands } from "./api.js";
 import styles from "./app.module.css";
+import { ConfigurationView } from "./configuration.js";
 import { executionDuration, reference } from "./format.js";
 import { selectMonitorRuns } from "./selection.js";
 import { RunWorkspace } from "./workspace.js";
@@ -11,6 +12,7 @@ import { RunWorkspace } from "./workspace.js";
 const fixturePreview = import.meta.env.VITE_MONITOR_FIXTURES === "true";
 
 export function App() {
+  const [showConfiguration, setShowConfiguration] = useState(false);
   const [projectId, setProjectId] = useState<string>();
   const [runId, setRunId] = useState<string>();
   const [filter, setFilter] = useState("All");
@@ -166,6 +168,13 @@ export function App() {
         <div className={styles.toolbar}>
           <button
             type="button"
+            aria-pressed={showConfiguration}
+            onClick={() => setShowConfiguration((current) => !current)}
+          >
+            {showConfiguration ? "Back to runs" : "View configuration"}
+          </button>
+          <button
+            type="button"
             disabled={!project || unavailable || commands.pending}
             onClick={() =>
               commands.submit({
@@ -197,7 +206,9 @@ export function App() {
         >
           {commands.notice}
         </div>
-        {run ? (
+        {showConfiguration ? (
+          <ConfigurationView />
+        ) : run ? (
           <RunWorkspace
             key={run.id}
             run={run}

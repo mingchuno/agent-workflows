@@ -1,8 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { link, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import {
+  link,
+  readFile,
+  rename,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { type Configuration, configSchema } from "./config.js";
 import { sha256 } from "./prompts.js";
 
 const controlSchema = z.strictObject({
@@ -12,6 +20,7 @@ const controlSchema = z.strictObject({
   envFile: z.string().optional(),
   pid: z.number().int().positive(),
   nonce: z.string(),
+  configuration: configSchema.optional(),
 });
 type RunnerControl = z.infer<typeof controlSchema>;
 
@@ -44,7 +53,7 @@ export async function publishRunnerControl(
   configPath: string,
   connection: Pick<
     RunnerControl,
-    "id" | "databaseUrlEnv" | "databaseUrlHash" | "envFile"
+    "id" | "databaseUrlEnv" | "databaseUrlHash" | "envFile" | "configuration"
   >,
 ): Promise<() => Promise<void>> {
   const path = controlPath(configPath);
@@ -75,13 +84,53 @@ export async function publishRunnerControl(
   };
 }
 
+export class RunnerControlUnavailableError extends Error {}
+
 export async function readRunnerControl(
   configPath: string,
 ): Promise<RunnerControl> {
-  const record = await readControl(controlPath(configPath));
-  if (!record || !processExists(record.pid))
-    throw new Error(
+  const record = await findRunnerControl(configPath);
+  if (!record)
+    throw new RunnerControlUnavailableError(
       "No active runner control record for this configuration path; start the runner first",
     );
   return record;
+}
+
+/** Readers only return a configuration published by a live runner in this scope. */
+export async function readActiveConfiguration(
+  configPath: string,
+  scope: string,
+): Promise<Configuration> {
+  const control = await readRunnerControl(configPath);
+  if (control.id !== scope || !control.configuration)
+    throw new Error("Active runner configuration unavailable for this scope");
+  return control.configuration;
+}
+
+export async function publishActiveConfiguration(
+  configPath: string,
+  configuration: Configuration,
+): Promise<void> {
+  const path = controlPath(configPath);
+  const control = await readRunnerControl(configPath);
+  if (control.pid !== process.pid || control.id !== configuration.id)
+    throw new Error("Cannot publish another runner's configuration");
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, JSON.stringify({ ...control, configuration }), {
+      flag: "wx",
+      mode: 0o600,
+    });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+export async function findRunnerControl(
+  configPath: string,
+): Promise<RunnerControl | undefined> {
+  const record = await readControl(controlPath(configPath));
+  return record && processExists(record.pid) ? record : undefined;
 }

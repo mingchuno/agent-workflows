@@ -2,6 +2,7 @@ import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useState } from "react";
 import { currentExecutionId } from "../domain.js";
 import { runCounts } from "../monitor/discovery.js";
+import { ConfigurationView } from "./configuration.js";
 import { minimumTerminalSize } from "./constants.js";
 import { type MonitorSource, useMonitorData } from "./data.js";
 import { ConfirmDialog, HelpDialog } from "./dialogs.js";
@@ -196,6 +197,15 @@ export function Monitor({
         </Text>
       </Box>
     );
+  if (modal?.type === "configuration")
+    return (
+      <ConfigurationView
+        source={source}
+        columns={columns}
+        rows={rows}
+        onClose={dismissModal}
+      />
+    );
   if (modal?.type === "help")
     return <HelpDialog columns={columns} rows={rows} onClose={dismissModal} />;
   if (confirmation)
@@ -263,6 +273,7 @@ export function Monitor({
       : "",
     run?.validation?.length ? "v checks" : "",
     "x actions",
+    columns >= 120 ? "C config" : "",
     "R reload",
     "? help",
     "q close",

@@ -1,0 +1,97 @@
+.view {
+  min-width: 0;
+  padding: 8px 32px 24px;
+}
+.view h2 {
+  font-size: 28px;
+  margin: 16px 0 12px;
+}
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 24px 0 12px;
+}
+.viewer {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 18px;
+  background: var(--ground);
+  border-radius: 6px;
+}
+.tree {
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.node {
+  list-style: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 2px 0;
+}
+.label {
+  margin-inline-end: 5px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.string {
+  color: var(--success);
+}
+.number,
+.boolean {
+  color: var(--blue);
+}
+.punctuation {
+  color: var(--muted);
+}
+.tree [role="button"] {
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-block;
+  text-align: center;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tree [role="button"]:hover {
+  background: var(--selected);
+}
+.tree [role="button"]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+@media (max-width: 760px) {
+  .view {
+    padding-inline: 16px;
+  }
+  .viewer {
+    padding: 12px;
+  }
+  .tree [role="button"] {
+    min-width: 44px;
+    min-height: 44px;
+    line-height: 44px;
+  }
+}
+
+.expand::before,
+.collapse::before {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--ink);
+}
+.collapse::before {
+  transform: rotate(90deg);
+}
+
+.children {
+  margin: 0;
+  padding-inline-start: 18px;
+}

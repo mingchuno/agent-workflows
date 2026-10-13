@@ -17,6 +17,7 @@ All commands accept `--config PATH` before the subcommand. For example,
 | --- | --- |
 | `init` | Write a starter config; refuse overwrite |
 | `run [--project ID ...] [--no-web] [--web-port PORT]` | Start selected projects and the local web monitor |
+| `config show` | Print merged, schema-validated JSON from the current file without runtime services |
 | `reload [--timeout-ms MS]` | Reload configuration and prompt files; wait for acknowledgement |
 | `status [--json]` | Show projects, runs and command outcomes |
 | `inspect RUN` | Show complete run and invocation/session records as JSON |
@@ -35,6 +36,11 @@ work, waits for processes to stop and releases ownership. Queued tasks remain
 available for the next start.
 
 ### Web monitor
+
+**View configuration** opens the active Runner JSON with collapsible fields.
+Use arrows to navigate and Enter or Space to expand or collapse; **Back to runs**
+returns to evidence. This view refreshes after accepted reloads and labels
+retained data stale when the active snapshot cannot be read.
 
 `run` starts a separate web-server process on `127.0.0.1:8787`. Use
 `run --web-port 8899` to select another port or `run --no-web` to disable it.
@@ -133,6 +139,7 @@ not started, not recorded or unavailable.
 | Log navigation | Up/Down or `j`/`k` scroll; PgUp/PgDn pages; Left/Right pans; Home/End or `g`/`G` first/last page; `f` resumes follow |
 | Log presentation | Tab selects next log; `R` toggles readable/raw; `/` searches; `n`/`N` next/previous match |
 | Help | `?` opens grouped shortcuts; Tab/Shift+Tab or Left/Right changes category; Up/Down scrolls |
+| Configuration | `C` opens active JSON; arrows and PgUp/PgDn scroll, Home/End jump, Esc closes |
 | Close | Esc dismisses search/help before leaving logs; `q` or Ctrl-C closes the monitor |
 
 Stop, retry and recovery open a confirmation dialog with Cancel selected.

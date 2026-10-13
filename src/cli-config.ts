@@ -1,9 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { parseEnv } from "node:util";
 import { z } from "zod";
-import { type Configuration, configSchema } from "./config.js";
+import {
+  type Configuration,
+  configurationInputSchema,
+  resolveConfiguration,
+} from "./config.js";
 
-const cliConfigurationSchema = configSchema.extend({
+const cliConfigurationSchema = configurationInputSchema.extend({
   envFile: z
     .string()
     .refine(
@@ -48,8 +52,11 @@ export async function openCliConfiguration(
   };
 }
 
-async function readConfigurationFile(path: string) {
-  return cliConfigurationSchema.parse(JSON.parse(await readFile(path, "utf8")));
+export async function readConfigurationFile(path: string) {
+  const { envFile, ...input } = cliConfigurationSchema.parse(
+    JSON.parse(await readFile(path, "utf8")),
+  );
+  return { ...resolveConfiguration(input), envFile };
 }
 
 export async function loadEnvironmentFile(path: string): Promise<void> {
