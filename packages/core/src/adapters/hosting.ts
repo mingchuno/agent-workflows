@@ -73,8 +73,13 @@ function reviewPresentation(
   input: Parameters<HostingAdapter["publishReview"]>[0],
 ) {
   const { inline, summaryFindings } = input.positions;
+  const shortHead = input.head.slice(0, 7);
+  const baseHead = input.reviewTarget?.request.base.slice(0, 7);
+  const opening = input.reviewTarget
+    ? `Reviewed changes \`${baseHead}…${shortHead}\` (head \`${shortHead}\`)`
+    : `Reviewed changes through \`${shortHead}\``;
   const body = [
-    `Review of ${input.head}`,
+    opening,
     input.review.complete
       ? input.review.summary
       : `Incomplete inspection: ${input.review.summary}`,

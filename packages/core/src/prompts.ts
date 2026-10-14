@@ -15,8 +15,9 @@ shows they ran and passed.`,
   review: `Independently review the supplied changes against the supplied requirements
 and repository conventions. Use Git commands and inspect
 relevant source for correctness, regressions, and missing validation. Report
-actionable findings with supporting locations where possible. State any gaps
-in inspection explicitly; do not present an incomplete review as a clean review.`,
+actionable findings with supporting locations where possible. Wrap code symbols
+and source file paths in Markdown inline code using backticks. State any gaps in
+inspection explicitly; do not present an incomplete review as a clean review.`,
 } as const;
 export interface ResolvedPrompt {
   source: "default" | "inline" | "file";
