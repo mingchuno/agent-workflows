@@ -91,7 +91,9 @@ Real-provider smoke tests are opt-in manual runs: configure a disposable reposit
 ## Structured output and command access
 
 Codex receives the application output schema through `runStreamed` options.
-Copilot receives generated JSON instructions; strict validation gates both providers.
+Copilot receives it through `sendAndWait`'s `responseSchema` option (SDK 1.0.15+).
+Both providers also receive JSON instructions; strict application validation gates
+their results, with one in-session format correction for invalid output.
 Stage task text cannot remove the output contract or checkout checks.
 
 Publication resumes a completed implementation session by default, after validation,

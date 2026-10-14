@@ -18,6 +18,69 @@ const input: WorkerInput = {
   profile: { provider: "codex", model: "model", reasoningEffort: "high" },
 };
 
+for (const stage of ["review", "publication", "correction", "text"]) {
+  test(`Copilot forwards the ${stage} output contract to the SDK`, async () => {
+    const schema =
+      stage === "text"
+        ? undefined
+        : {
+            type: "object",
+            properties: { text: { type: "string" } },
+            required: ["text"],
+            additionalProperties: false,
+          };
+    const resumeSessionId =
+      stage === "publication" || stage === "correction"
+        ? "implementation-session"
+        : undefined;
+    const messages: Array<[string, unknown]> = [];
+    const session = {
+      sessionId: resumeSessionId ?? input.id,
+      on() {},
+      async sendAndWait(
+        message: { prompt: string; responseSchema?: unknown },
+        timeout: number,
+      ) {
+        assert.equal(message.prompt, stage);
+        assert.deepEqual(message.responseSchema, schema);
+        assert.equal(timeout, 1234);
+        return { data: { content: '{"text":"result"}' } };
+      },
+      async disconnect() {},
+    };
+    await runCopilot(
+      {
+        async start() {},
+        async listModels() {
+          return [];
+        },
+        async createSession() {
+          assert.equal(resumeSessionId, undefined);
+          return session;
+        },
+        async resumeSession(id) {
+          assert.equal(id, resumeSessionId);
+          return session;
+        },
+        async stop() {
+          return [];
+        },
+        async forceStop() {},
+      },
+      {
+        ...input,
+        provider: "copilot",
+        prompt: stage,
+        outputSchema: schema,
+        resumeSessionId,
+        timeoutMs: 1234,
+      },
+      (type, value) => messages.push([type, value]),
+    );
+    assert.deepEqual(messages.at(-1), ["result", '{"text":"result"}']);
+  });
+}
+
 test("Codex resumes the supplied thread with implementation permissions and stage settings", async () => {
   const messages: Array<[string, unknown]> = [];
   await runCodex(

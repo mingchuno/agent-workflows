@@ -38,7 +38,7 @@
   "dependencies": {
     "@dbos-inc/dbos-sdk": "^5.0.2",
     "@gitbeaker/rest": "^43.8.0",
-    "@github/copilot-sdk": "^1.0.14",
+    "@github/copilot-sdk": "^1.0.15",
     "@octokit/rest": "^22.0.1",
     "@openai/codex-sdk": "^0.155.1",
     "@types/pg": "^8.23.1",

@@ -182,7 +182,7 @@ export interface AgentInvocation {
   cwd: string;
   prompt: string;
   profile: AgentProfile;
-  outputSchema?: unknown;
+  outputSchema?: Record<string, unknown>;
   processFile?: string;
   resumeSessionId?: string;
   signal: AbortSignal;

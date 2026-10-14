@@ -1,4 +1,5 @@
 import type {
+  MessageOptions,
   ModelInfo,
   ResumeSessionConfig,
   SessionConfig,
@@ -18,7 +19,7 @@ export interface WorkerInput {
   cwd: string;
   prompt: string;
   profile: AgentProfile;
-  outputSchema?: unknown;
+  outputSchema?: Record<string, unknown>;
   resumeSessionId?: string;
   processFile?: string;
   timeoutMs?: number;
@@ -72,7 +73,7 @@ export interface CopilotSessionClient {
   sessionId: string;
   on(handler: (event: unknown) => void): unknown;
   sendAndWait(
-    message: { prompt: string },
+    message: MessageOptions,
     timeout: number,
   ): Promise<{ data: { content: string } } | undefined>;
   disconnect(): Promise<void>;
@@ -131,7 +132,7 @@ export async function runCopilot(
     emit("session", session.sessionId);
     session.on((event) => emit("event", event));
     const response = await session.sendAndWait(
-      { prompt: input.prompt },
+      { prompt: input.prompt, responseSchema: input.outputSchema },
       input.timeoutMs ?? defaultStageTimeoutMs,
     );
     emit("result", response?.data.content ?? "");

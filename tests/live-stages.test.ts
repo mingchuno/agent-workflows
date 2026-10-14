@@ -26,7 +26,7 @@ for (const provider of ["codex", "copilot"] as const) {
     let implementationSession = "";
     const invoke = (
       prompt: string,
-      outputSchema?: unknown,
+      outputSchema?: Record<string, unknown>,
       resumeSessionId?: string,
     ) =>
       adapter.invoke({

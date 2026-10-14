@@ -37,7 +37,7 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "@dbos-inc/dbos-sdk": "^5.0.2",
-    "@github/copilot-sdk": "^1.0.14",
+    "@github/copilot-sdk": "^1.0.15",
     "@openai/codex-sdk": "^0.155.1",
     "ink": "^7.1.1",
     "pg": "^8.23.0",
