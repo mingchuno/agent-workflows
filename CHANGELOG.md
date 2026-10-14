@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/mingchuno/agent-workflows/compare/v0.11.0...v0.12.0) (2026-10-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* SDK imports move to @mingchuno/agent-workflows-core.
+
+### Code Refactoring
+
+* Split core SDK and CLI workspace packages ([d6d8b66](https://github.com/mingchuno/agent-workflows/commit/d6d8b66a88cb98c4c1bd32201a64b04c2b773b0f))
+
 ## [0.11.0](https://github.com/mingchuno/agent-workflows/compare/v0.10.0...v0.11.0) (2026-10-13)
 
 
