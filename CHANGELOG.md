@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/mingchuno/agent-workflows/compare/v0.12.0...v0.12.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **copilot:** Enforce structured output schemas ([a845ec4](https://github.com/mingchuno/agent-workflows/commit/a845ec469c15cb016f6ff5c8b7a2312e5b237f7d))
+* **review:** Clarify published review scope ([52e6b31](https://github.com/mingchuno/agent-workflows/commit/52e6b319ae5c8b0b856eaf56d4b2be5545e7943b))
+
 ## [0.12.0](https://github.com/mingchuno/agent-workflows/compare/v0.11.0...v0.12.0) (2026-10-14)
 
 
