@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SessionConfig } from "@github/copilot-sdk";
 import type { ThreadEvent, ThreadOptions } from "@openai/codex-sdk";
+import { z } from "zod";
 import {
   type CopilotClientContract,
   runCodex,
   runCopilot,
   type WorkerInput,
 } from "../packages/core/src/adapters/sdk-protocol.js";
+import { reviewSchema } from "../packages/core/src/domain.js";
 
 const input: WorkerInput = {
   provider: "codex",
@@ -396,13 +398,8 @@ test("Copilot honors a configured timeout longer than the default", async () => 
   assert.equal(observedTimeout, 3_600_000);
 });
 
-test("Codex forwards the output contract independently of task text", async () => {
-  const schema = {
-    type: "object",
-    properties: { text: { type: "string" } },
-    required: ["text"],
-    additionalProperties: false,
-  };
+test("Codex forwards the bounded review contract independently of task text", async () => {
+  const schema = z.toJSONSchema(reviewSchema);
   let received: unknown;
   await runCodex(
     {
@@ -507,3 +504,138 @@ test("Copilot approves reads, shell and writes with implementation permissions",
   );
   assert.ok(messages.includes("captured evidence"));
 });
+
+async function copilotResponseSchema(
+  schema: Record<string, unknown>,
+  resumeSessionId?: string,
+) {
+  let received: unknown;
+  const session = {
+    sessionId: resumeSessionId ?? input.id,
+    on() {},
+    async sendAndWait(message: { responseSchema?: unknown }) {
+      received = message.responseSchema;
+      return { data: { content: "{}" } };
+    },
+    async disconnect() {},
+  };
+  await runCopilot(
+    {
+      async start() {},
+      async listModels() {
+        return [];
+      },
+      async createSession() {
+        return session;
+      },
+      async resumeSession() {
+        return session;
+      },
+      async stop() {
+        return [];
+      },
+      async forceStop() {},
+    },
+    { ...input, provider: "copilot", outputSchema: schema, resumeSessionId },
+    () => {},
+  );
+  return received;
+}
+
+for (const resumeSessionId of [undefined, "review-session"]) {
+  test(`Copilot accepts the review integer schema in ${resumeSessionId ? "resumed" : "fresh"} sessions`, async () => {
+    const schema = z.toJSONSchema(reviewSchema);
+    const original = structuredClone(schema);
+    const expected = structuredClone(schema);
+    const findings = expected.properties?.findings;
+    assert.ok(findings && typeof findings === "object");
+    const finding = findings.items;
+    assert.ok(
+      finding && typeof finding === "object" && !Array.isArray(finding),
+    );
+    assert.ok(finding.properties);
+    finding.properties.line = {
+      anyOf: [{ type: "integer" }, { type: "null" }],
+      default: null,
+    };
+    assert.deepEqual(
+      await copilotResponseSchema(schema, resumeSessionId),
+      expected,
+    );
+    assert.deepEqual(schema, original);
+  });
+}
+
+test("Copilot normalizes integer schemas without rewriting properties or literal data", async () => {
+  const bounded = {
+    type: "integer",
+    minimum: 1,
+    maximum: 10,
+    exclusiveMinimum: 0,
+    exclusiveMaximum: 11,
+    multipleOf: 1,
+  };
+  const integer = { type: "integer", multipleOf: 1 };
+  const literal = { type: "integer", minimum: 2, maximum: 3 };
+  const schema = {
+    type: "object",
+    properties: {
+      minimum: bounded,
+      maximum: { type: "number", minimum: 0, maximum: 1 },
+      exclusiveMinimum: {
+        type: "array",
+        items: { anyOf: [bounded, { type: "null" }] },
+      },
+      exclusiveMaximum: { type: ["integer", "null"], minimum: 1, maximum: 5 },
+      tuple: { type: "array", prefixItems: [bounded], items: false },
+      ref: { $ref: "#/$defs/line" },
+    },
+    $defs: { line: bounded },
+    allOf: [{ properties: { line: bounded } }],
+    additionalProperties: false,
+    required: ["minimum"],
+    default: literal,
+    examples: [literal],
+    const: literal,
+    enum: [literal],
+    description: "Keep application bounds in local validation",
+  };
+  const original = structuredClone(schema);
+  assert.deepEqual(await copilotResponseSchema(schema), {
+    ...schema,
+    properties: {
+      ...schema.properties,
+      minimum: integer,
+      exclusiveMinimum: {
+        type: "array",
+        items: { anyOf: [integer, { type: "null" }] },
+      },
+      exclusiveMaximum: { type: ["integer", "null"] },
+      tuple: { type: "array", prefixItems: [integer], items: false },
+    },
+    $defs: { line: integer },
+    allOf: [{ properties: { line: integer } }],
+  });
+  assert.deepEqual(schema, original);
+});
+
+for (const [keyword, nested, normalized] of [
+  ["oneOf", [{ type: "integer", minimum: 1 }], [{ type: "integer" }]],
+  [
+    "additionalProperties",
+    { type: "integer", maximum: 9 },
+    { type: "integer" },
+  ],
+  [
+    "patternProperties",
+    { "^line": { type: "integer", minimum: 1 } },
+    { "^line": { type: "integer" } },
+  ],
+  ["not", { type: "integer", exclusiveMaximum: 3 }, { type: "integer" }],
+] as const) {
+  test(`Copilot normalizes integer bounds inside ${keyword}`, async () => {
+    assert.deepEqual(await copilotResponseSchema({ [keyword]: nested }), {
+      [keyword]: normalized,
+    });
+  });
+}

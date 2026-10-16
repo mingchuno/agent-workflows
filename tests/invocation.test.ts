@@ -10,6 +10,7 @@ import type {
   AgentInvocation,
   RunRecord,
 } from "../packages/core/src/domain.js";
+import { reviewSchema } from "../packages/core/src/domain.js";
 import { invokeStage } from "../packages/core/src/invocation.js";
 import type { InvocationRecord, Store } from "../packages/core/src/store.js";
 import { ExistingCheckout } from "../packages/core/src/workspace.js";
@@ -258,3 +259,34 @@ test("format correction requires the returned session identity", async () => {
   await assert.rejects(invokeStage(input), /session.*unavailable/i);
   assert.equal(calls, 1);
 });
+
+for (const invalidLine of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+  test(`review rejects line ${invalidLine} and corrects it using the original contract`, async () => {
+    let attempts = 0;
+    const review = (line: number | null) => ({
+      complete: true,
+      limitations: [],
+      summary: "Reviewed",
+      findings: [{ body: "Finding", priority: "P2", path: "file.ts", line }],
+    });
+    const { input, records } = await fixture(async (invocation) => {
+      await invocation.session("review-session");
+      attempts++;
+      if (attempts === 1) return JSON.stringify(review(invalidLine));
+      assert.equal(invocation.resumeSessionId, "review-session");
+      assert.match(invocation.prompt, /Validation errors/);
+      return JSON.stringify(review(1));
+    });
+    input.task.outputContract = reviewSchema;
+    assert.deepEqual(JSON.parse(await invokeStage(input)), review(1));
+    assert.deepEqual(
+      records.map((record) => record.outcome),
+      ["invalid-output", "completed"],
+    );
+    assert.equal(reviewSchema.safeParse(review(null)).success, true);
+    assert.equal(
+      reviewSchema.safeParse(review(Number.MAX_SAFE_INTEGER)).success,
+      true,
+    );
+  });
+}

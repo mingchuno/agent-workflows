@@ -11,6 +11,7 @@ import type {
 } from "@openai/codex-sdk";
 import type { AgentProfile } from "../config.js";
 import { defaultStageTimeoutMs } from "../defaults.js";
+import { copilotResponseSchema } from "./copilot-schema.js";
 
 export interface WorkerInput {
   provider: "codex" | "copilot";
@@ -132,7 +133,12 @@ export async function runCopilot(
     emit("session", session.sessionId);
     session.on((event) => emit("event", event));
     const response = await session.sendAndWait(
-      { prompt: input.prompt, responseSchema: input.outputSchema },
+      {
+        prompt: input.prompt,
+        responseSchema: input.outputSchema
+          ? copilotResponseSchema(input.outputSchema)
+          : undefined,
+      },
       input.timeoutMs ?? defaultStageTimeoutMs,
     );
     emit("result", response?.data.content ?? "");
