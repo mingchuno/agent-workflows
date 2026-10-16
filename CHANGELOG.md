@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/mingchuno/agent-workflows/compare/v0.12.1...v0.12.2) (2026-10-16)
+
+
+### Bug Fixes
+
+* **copilot:** Normalize integer schema bounds ([3439443](https://github.com/mingchuno/agent-workflows/commit/34394430a78c59441abb340330134cc6c688b10f)), closes [#34](https://github.com/mingchuno/agent-workflows/issues/34)
+
 ## [0.12.1](https://github.com/mingchuno/agent-workflows/compare/v0.12.0...v0.12.1) (2026-10-14)
 
 

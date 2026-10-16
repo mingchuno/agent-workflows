@@ -1,7 +1,7 @@
 {
   "name": "agent-workflows-workspace",
   "private": true,
-  "version": "0.12.1",
+  "version": "0.12.2",
   "type": "module",
   "scripts": {
     "build": "node scripts/check-workspace.mjs && node scripts/clean-build.mjs && pnpm --filter @mingchuno/agent-workflows-core build && pnpm --filter @mingchuno/agent-workflows build",
