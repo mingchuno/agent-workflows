@@ -4,6 +4,7 @@ import type {
   ProjectState,
   RunRecord,
   Store,
+  WorkItemView,
 } from "@mingchuno/agent-workflows-core";
 import { z } from "zod";
 
@@ -21,6 +22,15 @@ export const monitorCommandSchema = z.strictObject({
   target: z.string().max(256),
 });
 export type MonitorCommand = z.infer<typeof monitorCommandSchema>;
+export const workApprovalSchema = z.strictObject({
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  gate: z.enum(["scope", "design"]),
+});
+export type WorkApproval = z.infer<typeof workApprovalSchema>;
+export type { WorkItemView };
+export interface WorkItemsSnapshot {
+  items: WorkItemView[];
+}
 export interface MonitorSnapshot {
   projects: ProjectState[];
   runs: RunRecord[];

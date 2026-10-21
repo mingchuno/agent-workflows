@@ -4,6 +4,7 @@ import {
   defaultValidationTimeoutMs,
 } from "./defaults.js";
 import { reviewPrioritySchema } from "./domain.js";
+import { sdlcPolicySchema } from "./work/schema.js";
 
 export const profileSchema = z.strictObject({
   provider: z.enum(["codex", "copilot"]),
@@ -48,6 +49,7 @@ const validationCommandSchema = z.strictObject({
 export const projectSchema = z
   .strictObject({
     id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+    sdlc: sdlcPolicySchema.prefault({}),
     checkout: z.string().min(1),
     hosting: z.strictObject({
       provider: z.enum(["github", "gitlab"]),
@@ -154,7 +156,19 @@ const fragmentValidationSchema = validationCommandSchema.extend({
   args: validationCommandSchema.shape.args.unwrap().optional(),
   timeoutMs: validationCommandSchema.shape.timeoutMs.unwrap().optional(),
 });
+const fragmentSdlcSchema = z.strictObject({
+  enabled: sdlcPolicySchema.shape.enabled.unwrap().optional(),
+  defaultTrack: sdlcPolicySchema.shape.defaultTrack.unwrap().optional(),
+  allowLocalTasks: sdlcPolicySchema.shape.allowLocalTasks.unwrap().optional(),
+  approvalSource: sdlcPolicySchema.shape.approvalSource.unwrap().optional(),
+  approvers: sdlcPolicySchema.shape.approvers.unwrap().optional(),
+  fastTrackMaxFiles: sdlcPolicySchema.shape.fastTrackMaxFiles
+    .unwrap()
+    .optional(),
+  riskRules: sdlcPolicySchema.shape.riskRules.unwrap().optional(),
+});
 const fragmentFields = {
+  sdlc: fragmentSdlcSchema.optional(),
   hosting: projectFields.hosting.partial().optional(),
   agent: profileSchema.partial().optional(),
   workflows: z

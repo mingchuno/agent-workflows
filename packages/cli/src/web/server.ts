@@ -1,7 +1,13 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Store } from "@mingchuno/agent-workflows-core";
-import { configurationJson } from "@mingchuno/agent-workflows-core";
+import {
+  ApprovalForbiddenError,
+  configurationJson,
+  WorkConflictError,
+  WorkItemNotFoundError,
+  workOperator,
+} from "@mingchuno/agent-workflows-core";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie, setCookie } from "hono/cookie";
@@ -14,7 +20,7 @@ import {
 } from "../cli-runner-control.js";
 import { discoverRuns, runFilters } from "../monitor/discovery.js";
 import { webAssetDirectory } from "./assets.js";
-import { monitorCommandSchema } from "./contracts.js";
+import { monitorCommandSchema, workApprovalSchema } from "./contracts.js";
 import { MonitorEvidence } from "./evidence.js";
 import type { WebStartup } from "./lifecycle.js";
 
@@ -160,6 +166,33 @@ export function monitorServer(store: Store, startup: WebStartup) {
   app.get("/api/runs/:id", async (context) =>
     context.json(await evidence.detail(context.req.param("id"))),
   );
+  const work = workOperator({
+    store,
+    projects: async () =>
+      (
+        await readActiveConfiguration(startup.configPath, startup.scope)
+      ).projects.filter((project) => startup.projectIds.includes(project.id)),
+  });
+  app.get("/api/work-items", async (context) =>
+    context.json({ items: await work.list() }),
+  );
+  app.get("/api/work-items/:id", async (context) =>
+    context.json(await work.inspect(context.req.param("id"))),
+  );
+  app.use("/api/work-items/:id/approve", bodyLimit({ maxSize: 4096 }));
+  app.post("/api/work-items/:id/approve", async (context) => {
+    const parsed = workApprovalSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success)
+      return context.json(
+        { error: "Provide a scope or design gate and the inspected revision" },
+        400,
+      );
+    return context.json(
+      await work.approve(context.req.param("id"), parsed.data),
+    );
+  });
   app.get("/api/runs/:id/log", async (context) => {
     const parsed = logQuerySchema.safeParse(context.req.query());
     if (!parsed.success)
@@ -197,6 +230,12 @@ export function monitorServer(store: Store, startup: WebStartup) {
   app.onError((error, context) => {
     if (error instanceof HTTPException)
       return context.json({ error: error.message }, error.status);
+    if (error instanceof WorkItemNotFoundError)
+      return context.json({ error: "Work item not found" }, 404);
+    if (error instanceof ApprovalForbiddenError)
+      return context.json({ error: error.message }, 403);
+    if (error instanceof WorkConflictError)
+      return context.json({ error: error.message }, 409);
     const code = (error as NodeJS.ErrnoException).code;
     return context.json(
       {

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import type { MonitorSource } from "../packages/cli/src/tui/index.js";
 import type { RunRecord } from "../packages/core/src/domain.js";
 import type { InvocationRecord } from "../packages/core/src/store.js";
@@ -6,6 +7,8 @@ import { monitorFixture } from "./tui-fixtures.js";
 /** Coherent, isolated operator scenarios. No database, provider or remote writes. */
 export function consoleFixture(now = Date.now()) {
   const { run: template, sessions: templateSessions } = monitorFixture();
+  assert.ok(template.subject.kind !== "local");
+  const issueSubject = template.subject;
   const at = (seconds: number) => new Date(now - seconds * 1000).toISOString();
   const makeRun = (
     index: number,
@@ -22,7 +25,7 @@ export function consoleFixture(now = Date.now()) {
       id,
       taskKey: `demo-task-${index}`,
       subject: {
-        ...template.subject,
+        ...issueSubject,
         number: index,
         title,
         url: `https://example.test/issues/${index}`,
@@ -199,6 +202,7 @@ export function consoleFixture(now = Date.now()) {
     "Review another project's change request",
   );
   other.projectId = "web-service";
+  assert.ok(other.subject.kind !== "local");
   other.subject = {
     ...other.subject,
     kind: "change-request",

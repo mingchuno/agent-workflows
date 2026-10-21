@@ -139,6 +139,9 @@ function prepareRequest(execution: StageExecution) {
   const fullPrompt = [
     resolved.content,
     `Run context:\n${task.context?.(run) ?? ""}`,
+    ...(run.work
+      ? [`Authorized Work Item contract:\n${JSON.stringify(run.work)}`]
+      : []),
     task.preserveCheckout
       ? "Use commands and file tools to inspect the checkout. Preserve source files, Git index, branch and revision. Do not commit, push, or publish."
       : "Do not commit, push, or publish.",
@@ -307,8 +310,17 @@ async function invokeProvider(
   } = execution;
   const { adapter, profile, outputSchema, invocationSignal, deadline } =
     prepared;
+  if (run.work && !execution.dependencies.executionEnvironment)
+    throw new BlockedError(
+      "SDLC agents require an isolated execution environment",
+    );
   const { record, prompt, resumeSessionId } = attempt;
   return adapter.invoke({
+    environment: run.work
+      ? execution.dependencies.executionEnvironment
+      : undefined,
+    permissionMode: taskPermissionMode(execution),
+    inspectionBase: run.base,
     id: record.id,
     runId: run.id,
     step: name,
@@ -335,6 +347,15 @@ async function invokeProvider(
       });
     },
   });
+}
+
+function taskPermissionMode(
+  execution: StageExecution,
+): "read-only" | "workspace-write" {
+  return execution.task.preserveCheckout &&
+    (execution.run.work || execution.name === "review")
+    ? "read-only"
+    : "workspace-write";
 }
 
 /** Only returned output validation failures qualify for correction. */
@@ -384,7 +405,13 @@ async function saveImplementationSnapshot(
   const snapshot = await workspace.inspect(project);
   if (snapshot.head !== expected.head || snapshot.branch !== expected.branch)
     throw new BlockedError("Agent changed branch or committed unexpectedly");
-  await store.patchRun(runId, { snapshot });
+  const run = await store.run(runId);
+  await store.patchRun(runId, {
+    snapshot,
+    ...(run.work
+      ? { work: { ...run.work, changedPaths: snapshot.paths } }
+      : {}),
+  });
   return snapshot.fingerprint === expected.fingerprint
     ? undefined
     : {

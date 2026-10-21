@@ -116,6 +116,7 @@ test("each terminal outcome notifies once after a nonterminal transition", async
 
 test("unseen terminal executions notify across projects and after reconnection", async () => {
   const { source, run } = monitorFixture();
+  assert.ok(run.subject.kind !== "local");
   const other: RunRecord = {
     ...run,
     id: "other-run",
@@ -152,6 +153,7 @@ test("unseen terminal executions notify across projects and after reconnection",
     await until(() => notifications.length === 1);
     disconnected = true;
     await until(() => view.lastFrame()!.includes("Connection error"));
+    assert.ok(other.subject.kind !== "local");
     runs = [
       run,
       other,

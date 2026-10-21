@@ -3,7 +3,42 @@
 Local coding work progresses through issue implementation and change-request
 review runs with explicit recovery.
 
+Opt-in SDLC policy assesses local or issue-backed Work Items before admitting
+execution Runs.
+
 ## Language
+
+**Work Item**:
+Persisted engineering intent, assessed source, acceptance criteria, scope, risk,
+verification, and optional design. Independent of execution attempts.
+
+**Work revision**:
+Canonical digest of the current contract and observed source. Optimistic edits,
+approval actions, and submission identify this exact revision.
+
+**Track**:
+The deterministic minimum engineering control for work. A permits a clear,
+low-risk task without planning approval. B requires scope approval. C additionally
+requires approved technical design and recovery considerations.
+
+**Protocol**:
+How `start-work` carries out a Track. Inline: the interactive session does the
+work and opens the change request, without a Work Item (Track A). Delegated: a
+Work Item waits for recorded approval and a Run executes it (Tracks B and C).
+
+**Approval gate**:
+Recorded human authorization of a scope or design digest. Scope excludes the
+design, so design authoring preserves approved scope. Design binds the whole
+contract. Source edits require reassessment and can invalidate both gates.
+
+**Work admission**:
+Observing a Work Item's hosted source, importing provider approvals, and
+submitting the observed revision as a Run once policy reports it ready. A closed
+issue, a source needing reassessment, or a missing gate leaves the item waiting.
+
+**Escalation**:
+Execution stops because current policy, source evidence, or actual changed paths
+exceed the admitted authorization. Completed work and evidence remain inspectable.
 
 **Project base**:
 Optional shared project settings that a project explicitly chooses to inherit.

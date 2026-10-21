@@ -144,7 +144,9 @@ test("reload keeps active execution inputs and applies new settings to queued wo
     )[1]!;
     assert.match(implementation.prompt, /Reloaded implementation task/);
     const runs = (await runner.store.runs()).sort(
-      (a, b) => a.subject.number - b.subject.number,
+      (a, b) =>
+        ("number" in a.subject ? a.subject.number : 0) -
+        ("number" in b.subject ? b.subject.number : 0),
     );
     assert.equal(runs[0]!.validation?.length ?? 0, 0);
     assert.deepEqual(

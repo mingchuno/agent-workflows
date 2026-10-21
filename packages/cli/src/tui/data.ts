@@ -11,6 +11,7 @@ import {
 } from "@mingchuno/agent-workflows-core";
 import { useEffect, useRef, useState } from "react";
 import { discoverRuns, type RunFilter } from "../monitor/discovery.js";
+import type { WorkApproval, WorkItemView } from "../web/contracts.js";
 import { tuiRefreshIntervalMs } from "./constants.js";
 import {
   ExecutionNotificationObserver,
@@ -18,6 +19,8 @@ import {
 } from "./notifications.js";
 
 export interface MonitorSource {
+  workItems?: () => Promise<WorkItemView[]>;
+  approveWork?: (id: string, approval: WorkApproval) => Promise<WorkItemView>;
   configuration?: () => Promise<Configuration>;
   projects: Store["projects"];
   runs: Store["runs"];

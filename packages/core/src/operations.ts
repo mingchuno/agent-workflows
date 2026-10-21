@@ -31,12 +31,20 @@ import { prepareReviewPositions } from "./review-positions.js";
 import { CommandTimeoutError, command } from "./runtime/process.js";
 import type { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
+import {
+  guardsStep,
+  guardWork,
+  requiredValidation,
+  validationComplete,
+} from "./work/guard.js";
 
 export type { InvocationTask } from "./invocation.js";
 
 const maxStepAttempts = 3;
 
 export interface OperationDependencies {
+  executionEnvironment?: NodeJS.ProcessEnv;
+  currentProject?: () => Project;
   promptBaseDirectory?: string;
   store: Store;
   project: Project;
@@ -77,6 +85,12 @@ export class Operations {
           if (run.checkout !== this.dependencies.project.checkout)
             throw new BlockedError(
               "Configured checkout differs from the recorded run checkout",
+            );
+          if (guardsStep(name))
+            await guardWork(
+              run,
+              this.dependencies.currentProject?.() ?? this.dependencies.project,
+              { store, hosting: this.dependencies.hosting },
             );
           const result = await operation(run);
           await store.emit(this.runId, "step", {
@@ -129,6 +143,12 @@ export class Operations {
   async eligible(): Promise<boolean> {
     return this.step("eligibility", async (run) => {
       const { hosting, project } = this.dependencies;
+      if (run.work) {
+        await this.dependencies.store.patchRun(run.id, {
+          validationProfile: run.work.contract.verification.profile,
+        });
+        return project.workflows.implementation.enabled;
+      }
       if (
         run.subject.kind !== "issue" ||
         !project.workflows.implementation.enabled
@@ -312,6 +332,10 @@ Blocking threshold: ${this.dependencies.project.workflows.implementation.review.
   async validate(): Promise<boolean> {
     return this.step("validation", async (run) => {
       const { project, workspace, signal, redact } = this.dependencies;
+      if (run.work && !this.dependencies.executionEnvironment)
+        throw new BlockedError(
+          "SDLC validation requires an isolated execution environment",
+        );
       if (!run.snapshot)
         throw new BlockedError("Missing implementation snapshot");
       await workspace.verify(project, run.snapshot);
@@ -323,7 +347,9 @@ Blocking threshold: ${this.dependencies.project.workflows.implementation.review.
       });
       const directory = join(this.dependencies.artifacts, run.id);
       await mkdir(directory, { recursive: true, mode: 0o700 });
-      const checks = selectValidation(run.subject.body, project).commands;
+      const checks = run.work
+        ? requiredValidation(run, project)
+        : selectValidation(run.subject.body, project).commands;
       for (const [index, check] of checks.entries()) {
         const startedAt = new Date().toISOString();
         const log = join(directory, `validation-${DBOS.stepID}-${index}.log`);
@@ -331,6 +357,7 @@ Blocking threshold: ${this.dependencies.project.workflows.implementation.review.
         let result: Awaited<ReturnType<typeof command>>;
         try {
           result = await command(check.command, check.args, {
+            env: run.work ? this.dependencies.executionEnvironment : undefined,
             cwd: project.checkout,
             signal,
             processFile: log + ".process.json",
@@ -390,6 +417,7 @@ Blocking threshold: ${this.dependencies.project.workflows.implementation.review.
   }
   private async publicationSession(): Promise<string | undefined> {
     const { project, store } = this.dependencies;
+    if ((await store.run(this.runId)).work) return undefined;
     if (project.stages.publication.useNewSession) return undefined;
     return this.step("publication-session", async () => {
       const implementation = (await store.invocations(this.runId))
@@ -537,7 +565,7 @@ Blocking threshold: ${this.dependencies.project.workflows.implementation.review.
             (run.subject.kind === "change-request" && !run.head)
           )
             throw new BlockedError("Missing review target");
-          if (run.subject.kind === "issue")
+          if (run.subject.kind !== "change-request")
             return `Local changes
 Checkout: ${this.dependencies.project.checkout}
 Base revision: ${run.base}
@@ -564,7 +592,11 @@ Set complete=false and explain limitations when inspection is incomplete. Assign
         );
     });
   }
-  async recordReadiness(): Promise<{ draft: boolean; complete: boolean }> {
+  async recordReadiness(): Promise<{
+    draft: boolean;
+    complete: boolean;
+    repairable: boolean;
+  }> {
     return this.step("review-readiness", async (run) => {
       if (!run.review || !run.snapshot)
         throw new BlockedError("Missing local review evidence");
@@ -581,6 +613,14 @@ Set complete=false and explain limitations when inspection is incomplete. Assign
         reasons.push("Blocking review findings remain");
       if (run.validation?.some((check) => check.exitCode !== 0))
         reasons.push("Configured validation failed");
+      if (run.work) {
+        if (!validationComplete(run, this.dependencies.project))
+          reasons.push("Configured validation is incomplete");
+        if (run.work.contract.verification.manualChecks.length)
+          reasons.push("Manual verification remains for the operator");
+        if (run.agentReport?.limitations.length)
+          reasons.push("Implementation limitations remain");
+      }
       const readiness = { draft: reasons.length > 0, reasons };
       await this.dependencies.store.patchRun(run.id, {
         readiness,
@@ -597,7 +637,15 @@ Set complete=false and explain limitations when inspection is incomplete. Assign
           },
         ],
       });
-      return { draft: readiness.draft, complete: run.review.complete };
+      return {
+        draft: readiness.draft,
+        complete: run.review.complete,
+        repairable:
+          run.review.findings.some(
+            (finding) => (finding.priority ?? "P2") <= threshold,
+          ) ||
+          (run.validation?.some((check) => check.exitCode !== 0) ?? false),
+      };
     });
   }
   async publishReview(): Promise<void> {
@@ -681,9 +729,13 @@ export async function defaultWorkflow(operations: Operations): Promise<void> {
     let round = 0;
     readiness.draft &&
     readiness.complete &&
+    readiness.repairable &&
     round <
-      operations.dependencies.project.workflows.implementation.review
-        .maxFixRounds;
+      ((await operations.dependencies.store.run(operations.runId)).work
+        ?.track === "A"
+        ? 0
+        : operations.dependencies.project.workflows.implementation.review
+            .maxFixRounds);
     round++
   ) {
     await operations.fix();

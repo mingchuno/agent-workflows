@@ -12,6 +12,8 @@ documentation.
 - [0006: Continue publication in the implementation session and inspect through commands](0006-agent-sessions-and-command-inspection.md)
 
 - [0007: Review existing requests with a shared reviewer and stable publication identity](0007-review-workflow-and-publication-identity.md)
+- [0009: Separate Work Item authorization from execution](0009-adaptive-sdlc-work-items.md)
+- [0010: Run Track A inline and delegate only gated work](0010-inline-fast-path.md)
 
 For observable behavior, see the [public SDK API](../api.md),
 [configuration reference](../configuration.md), and [operator guide](../operations.md).

@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { Project } from "./config.js";
 import {
   BlockedError,
@@ -9,9 +8,9 @@ import {
   type Workspace,
 } from "./domain.js";
 import { projectPrompts } from "./prompts.js";
-import { assertProcessesStopped } from "./runtime/ownership.js";
 import { command } from "./runtime/process.js";
 import type { Store } from "./store.js";
+import { assertCheckoutReleased } from "./workspace.js";
 
 const recoveryGatePollIntervalMs = 100;
 
@@ -211,17 +210,13 @@ async function verifyPublicationRecovery(
     throw new BlockedError(
       "Execution configuration or prompts changed; use retry",
     );
-  await assertProcessesStopped(resolve(stateDirectory, run.id));
-  const gitDirectory = (
-    await command("git", ["rev-parse", "--absolute-git-dir"], {
-      cwd: project.checkout,
-      signal,
-    })
-  ).stdout.trim();
-  await assertProcessesStopped(
-    resolve(gitDirectory, "agent-workflows-processes"),
-  );
-  await workspace.check(project);
+  await assertCheckoutReleased({
+    project,
+    stateDirectory,
+    runIds: [run.id],
+    workspace,
+    signal,
+  });
   const snapshot = await workspace.inspect(project);
   if (snapshot.branch !== run.branch || snapshot.head !== run.head)
     throw new BlockedError("Recovery requires the original branch and commit");

@@ -398,7 +398,7 @@ export function Technical({ evidence }: { evidence: RunEvidence }) {
           ["Updated ISO", run.updatedAt],
         ]}
       />
-      {safeLink(run.subject.url) && (
+      {"url" in run.subject && safeLink(run.subject.url) && (
         <p>
           <a href={safeLink(run.subject.url)} target="_blank" rel="noreferrer">
             Open run subject

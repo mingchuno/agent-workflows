@@ -1,0 +1,27 @@
+{
+  "id": "personal-sdlc",
+  "stateDirectory": "../personal-sdlc-state",
+  "projects": [
+    {
+      "id": "app",
+      "checkout": "../app",
+      "hosting": {
+        "provider": "github",
+        "origin": "https://github.com",
+        "repository": "OWNER/REPOSITORY",
+        "tokenEnv": "GITHUB_TOKEN"
+      },
+      "agent": { "provider": "codex" },
+      "sdlc": {
+        "enabled": true,
+        "defaultTrack": "B",
+        "allowLocalTasks": true,
+        "approvalSource": "local-operator",
+        "riskRules": [
+          { "paths": ["db/migrations/**", "src/auth/**"], "minimumTrack": "C" }
+        ]
+      },
+      "validation": [{ "command": "pnpm", "args": ["test"] }]
+    }
+  ]
+}

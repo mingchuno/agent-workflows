@@ -1,0 +1,36 @@
+{
+  "id": "enterprise-sdlc",
+  "stateDirectory": "../enterprise-sdlc-state",
+  "projects": [
+    {
+      "id": "service",
+      "checkout": "../service",
+      "hosting": {
+        "provider": "gitlab",
+        "origin": "https://gitlab.example.com",
+        "repository": "team/service",
+        "tokenEnv": "GITLAB_TOKEN"
+      },
+      "agent": { "provider": "copilot" },
+      "sdlc": {
+        "enabled": true,
+        "defaultTrack": "B",
+        "allowLocalTasks": false,
+        "approvalSource": "gitlab",
+        "approvers": ["engineering-lead"],
+        "riskRules": [
+          {
+            "paths": ["db/migrations/**"],
+            "minimumTrack": "C",
+            "validationProfile": "migration"
+          },
+          { "paths": ["infra/prod/**", "src/auth/**"], "minimumTrack": "C" }
+        ]
+      },
+      "validation": [{ "command": "pnpm", "args": ["test"] }],
+      "validationProfiles": {
+        "migration": [{ "command": "pnpm", "args": ["test:migrations"] }]
+      }
+    }
+  ]
+}

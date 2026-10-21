@@ -11,7 +11,8 @@ agent-workflows monitor
 ```
 
 All commands accept `--config PATH` before the subcommand. For example,
-`agent-workflows --config ./work.json monitor`.
+`agent-workflows --config ./work.json monitor`. Without it, the CLI uses
+[configuration lookup](configuration.md#configuration-lookup).
 
 | Command | Effect |
 | --- | --- |
@@ -237,6 +238,34 @@ and review publication reconcile their durable identities before retrying an
 ambiguous effect. Interrupted agent stages block rather than starting another
 writer. See [ADR 0003](adr/0003-run-and-execution-identity.md) for the recovery
 boundary.
+
+## Several runners on one database
+
+Several configurations can share one PostgreSQL database. The top-level `id`
+namespaces everything a runner stores there:
+
+- Application rows (projects, runs, Work Items, approvals, commands, events)
+  carry `id` as their scope. `status`, `monitor` and `work` commands see only
+  their own scope.
+- The DBOS application name, executor ID, application version and queue names
+  (`<id>:<project>`) all derive from `id`. A runner never dequeues or recovers
+  another runner's workflows.
+- Migrations are serialized by an advisory lock, so concurrent startup is safe.
+- The CLI's runner control record is keyed by the absolute configuration path,
+  so `reload`, `status` and `monitor` reach the runner started from that file.
+
+Before you run a second instance, check all four of these against every other
+configuration on the same machine or database:
+
+| Must differ | What happens if shared |
+| --- | --- |
+| Top-level `id` | `run` fails with `Already owned by another runner: runner:<id>`. While only one runs, both configurations read and write the same records. Changing `id` later orphans existing records. |
+| Each project's canonical `checkout` | `run` fails on the `checkout:<path>` lock or the Git-directory lease. This also applies across different databases. |
+| `stateDirectory` | Startup scans the whole state directory for live process journals. While one runner has an agent or validation process running, the other refuses to start with `Previous process group … is still alive`. |
+| Web monitor port | The second `run` keeps working, but its web monitor reports the port in use. Pass `--web-port PORT` or `--no-web`. |
+
+To manage several repositories with one runner, list them as `projects` in one
+configuration instead, and select a subset with `run --project`.
 
 ## Publication recovery
 

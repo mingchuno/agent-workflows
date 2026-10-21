@@ -19,6 +19,7 @@ import { ellipsis } from "./presentation.js";
 import { projectRunProjection } from "./projection.js";
 import { Shortcuts } from "./shortcuts.js";
 import { Lines, RunList, wrapDetailLines } from "./views.js";
+import { WorkItemsView } from "./work-items.js";
 import { workspaceLines } from "./workspace.js";
 import { RunWorkspace } from "./workspace-view.js";
 
@@ -46,6 +47,7 @@ export function Monitor({
   const { columns, rows } = size ?? window;
   const { exit } = useApp();
   const [navigation, setNavigation] = useState(initialNavigation);
+  const [showWorkItems, setShowWorkItems] = useState(false);
   const { selection, focus, screen, sessionId, stepSequence, offset, modal } =
     navigation;
   const confirmation = modal?.type === "confirmation" ? modal : undefined;
@@ -154,6 +156,21 @@ export function Monitor({
   const terminalIsLargeEnough =
     columns >= minimumTerminalSize.columns && rows >= minimumTerminalSize.rows;
   useInput((input, key) => {
+    if (showWorkItems) {
+      if (!terminalIsLargeEnough && input === "q") exit();
+      return;
+    }
+    if (
+      input === "w" &&
+      !key.ctrl &&
+      !key.meta &&
+      key.eventType !== "release" &&
+      !modal &&
+      navigation.searchDraft === undefined
+    ) {
+      setShowWorkItems(true);
+      return;
+    }
     const scrollLines = wrappedDocument;
     const navigationEvent: NavigationEvent = {
       type: "key",
@@ -204,6 +221,16 @@ export function Monitor({
         columns={columns}
         rows={rows}
         onClose={dismissModal}
+      />
+    );
+  if (showWorkItems)
+    return (
+      <WorkItemsView
+        source={source}
+        projectId={project?.id}
+        columns={columns}
+        rows={rows}
+        onClose={() => setShowWorkItems(false)}
       />
     );
   if (modal?.type === "help")
@@ -273,6 +300,7 @@ export function Monitor({
       : "",
     run?.validation?.length ? "v checks" : "",
     "x actions",
+    "w work",
     columns >= 120 ? "C config" : "",
     "R reload",
     "? help",

@@ -4,6 +4,7 @@ import type {
 } from "@mingchuno/agent-workflows-core";
 
 export function reference(run: RunRecord) {
+  if (run.subject.kind === "local") return `Local ${run.subject.id}`;
   return `${run.subject.kind === "issue" ? "Issue" : "Review"} #${run.subject.number}`;
 }
 export function timestamp(value?: string) {

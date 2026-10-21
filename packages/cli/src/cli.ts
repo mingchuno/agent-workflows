@@ -12,6 +12,7 @@ import {
   Store,
   sha256,
   subjectReference,
+  workOperator,
 } from "@mingchuno/agent-workflows-core";
 import { defaultValidationTimeoutMs } from "@mingchuno/agent-workflows-core/operator";
 import { Command } from "commander";
@@ -30,9 +31,11 @@ import {
   readActiveConfiguration,
   readRunnerControl,
 } from "./cli-runner-control.js";
+import { resolveConfigPath, withinCheckout } from "./config-discovery.js";
 import { createTerminalNotificationWriter, Monitor } from "./tui/index.js";
 import { defaultWebPort } from "./web/contracts.js";
 import { startWebMonitor } from "./web/lifecycle.js";
+import { registerWorkCommands } from "./work-commands.js";
 
 const launchDirectory = process.cwd();
 const packageVersion: string = JSON.parse(
@@ -50,7 +53,10 @@ const program = new Command()
   .name("agent-workflows")
   .description("Local durable issue-to-review workflows")
   .version(packageVersion)
-  .option("-c, --config <file>", "configuration path", "agent-workflows.json")
+  .option(
+    "-c, --config <file>",
+    "configuration path (default: $AGENT_WORKFLOWS_CONFIG, ./agent-workflows.json, or the configuration in $AGENT_WORKFLOWS_HOME that manages this checkout)",
+  )
   .option(
     "--config-base-directory <directory>",
     "base directory for paths contained in configuration",
@@ -64,8 +70,14 @@ async function configuration(): Promise<Configuration> {
     resolve(configBaseDirectory(), path),
   );
 }
+let discoveredConfigPath: string | undefined;
 function configPath(): string {
-  return resolve(launchDirectory, program.opts().config);
+  discoveredConfigPath ??= resolveConfigPath(
+    launchDirectory,
+    program.opts().config,
+    { discover: true },
+  );
+  return discoveredConfigPath;
 }
 function configBaseDirectory(): string {
   const selected = program.opts().configBaseDirectory as string | undefined;
@@ -113,6 +125,12 @@ program
   .command("init")
   .description("Write a configuration scaffold without overwriting files")
   .action(async () => {
+    // A new file belongs where the user asked, never in a discovered location.
+    discoveredConfigPath = resolveConfigPath(
+      launchDirectory,
+      program.opts().config,
+      { discover: false },
+    );
     const base = configBaseDirectory();
     const checkout = process.cwd();
     const externalState = resolve(
@@ -165,6 +183,126 @@ program
     console.log(
       "Created configuration. Set repository and credentials before running.",
     );
+  });
+program
+  .command("doctor")
+  .description(
+    "Check the configuration, project, credentials, database and worker that delegated work needs",
+  )
+  .option(
+    "-p, --project <id>",
+    "project to check (default: the project whose checkout contains the current directory)",
+  )
+  .action(async (options: { project?: string }) => {
+    const checks: {
+      name: string;
+      status: "pass" | "warn" | "fail";
+      detail: string;
+    }[] = [];
+    const check = (
+      name: string,
+      status: "pass" | "warn" | "fail",
+      detail: string,
+    ) => checks.push({ name, status, detail });
+    const report = (project?: string) => {
+      const ok = checks.every((item) => item.status !== "fail");
+      let resolvedConfigPath: string | undefined;
+      try {
+        resolvedConfigPath = configPath();
+      } catch {
+        // Ambiguous discovery is already reported as the configuration check.
+      }
+      console.log(
+        JSON.stringify(
+          {
+            ok,
+            version: packageVersion,
+            configPath: resolvedConfigPath,
+            project,
+            protocols: { inline: true, delegated: ok },
+            checks,
+          },
+          null,
+          2,
+        ),
+      );
+      if (!ok) process.exitCode = 1;
+    };
+    let config: Configuration;
+    try {
+      config = await configuration();
+      check("configuration", "pass", configPath());
+    } catch (error) {
+      check(
+        "configuration",
+        "fail",
+        `${error instanceof Error ? error.message : String(error)}. Run the setup-agent-workflows skill or agent-workflows init.`,
+      );
+      return report();
+    }
+    const base = configBaseDirectory();
+    const project = options.project
+      ? config.projects.find((candidate) => candidate.id === options.project)
+      : config.projects.find((candidate) =>
+          withinCheckout(launchDirectory, resolve(base, candidate.checkout)),
+        );
+    if (!project) {
+      check(
+        "project",
+        "fail",
+        options.project
+          ? `Unknown project: ${options.project}`
+          : `No configured project checkout contains ${launchDirectory}`,
+      );
+      return report();
+    }
+    check("project", "pass", project.id);
+    check(
+      "sdlc",
+      project.sdlc.enabled ? "pass" : "fail",
+      project.sdlc.enabled
+        ? `approval source ${project.sdlc.approvalSource}`
+        : "Set sdlc.enabled for this project to delegate Track B and C work",
+    );
+    check(
+      "hosting-credentials",
+      process.env[project.hosting.tokenEnv] ? "pass" : "fail",
+      process.env[project.hosting.tokenEnv]
+        ? `${project.hosting.tokenEnv} is set`
+        : `Set ${project.hosting.tokenEnv}`,
+    );
+    try {
+      const store = new Store(databaseUrl(config), config.id);
+      try {
+        await Promise.race([
+          store.initialize().then(() => store.projects()),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Database connection timed out")),
+              10_000,
+            ).unref(),
+          ),
+        ]);
+        check("database", "pass", "Connected and migrated");
+      } finally {
+        await store.close();
+      }
+    } catch (error) {
+      check(
+        "database",
+        "fail",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const worker = await findRunnerControl(configPath());
+    check(
+      "worker",
+      worker ? "pass" : "warn",
+      worker
+        ? `Running as process ${worker.pid}`
+        : "Not running; admitted work waits until agent-workflows run starts",
+    );
+    report(project.id);
   });
 program
   .command("config")
@@ -417,9 +555,20 @@ program
         "Monitor requires an interactive terminal; use status --json instead",
       );
     await withConfiguredStore(config, async (store) => {
+      const work = workOperator({
+        store,
+        projects: async () =>
+          (
+            await readActiveConfiguration(configPath(), config.id)
+          ).projects.filter((item) =>
+            config.projects.some((selected) => selected.id === item.id),
+          ),
+      });
       await render(
         React.createElement(Monitor, {
           source: {
+            workItems: () => work.list(),
+            approveWork: (id, approval) => work.approve(id, approval),
             projects: async () =>
               (await store.projects()).filter((project) =>
                 config.projects.some((active) => active.id === project.id),
@@ -444,6 +593,11 @@ program
       ).waitUntilExit();
     });
   });
+registerWorkCommands(program, {
+  pathBaseDirectory: configBaseDirectory,
+  configuration,
+  withStore: withConfiguredStore,
+});
 try {
   await program.parseAsync();
 } catch (error) {

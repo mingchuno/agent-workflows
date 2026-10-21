@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { access, lstat, mkdir, readFile, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Project } from "./config.js";
 import {
   BlockedError,
@@ -9,6 +9,7 @@ import {
   type Snapshot,
   type Workspace,
 } from "./domain.js";
+import { assertProcessesStopped } from "./runtime/ownership.js";
 import { type CommandOptions, command } from "./runtime/process.js";
 
 function fileStateDigest(content: Buffer, mode: number): string {
@@ -334,4 +335,29 @@ export class ExistingCheckout implements Workspace {
   async release(project: Project): Promise<void> {
     await this.check(project);
   }
+}
+
+/**
+ * Admission safety before reusing a checkout: no recorded process of the given
+ * runs or of the checkout itself is alive, and the checkout is clean.
+ */
+export async function assertCheckoutReleased(input: {
+  project: Project;
+  stateDirectory: string;
+  runIds: string[];
+  workspace?: Workspace;
+  signal?: AbortSignal;
+}): Promise<void> {
+  for (const id of input.runIds)
+    await assertProcessesStopped(resolve(input.stateDirectory, id));
+  const gitDirectory = (
+    await command("git", ["rev-parse", "--absolute-git-dir"], {
+      cwd: input.project.checkout,
+      signal: input.signal,
+    })
+  ).stdout.trim();
+  await assertProcessesStopped(
+    resolve(gitDirectory, "agent-workflows-processes"),
+  );
+  await (input.workspace ?? new ExistingCheckout()).check(input.project);
 }

@@ -219,7 +219,7 @@ export function technicalLines(
     label("Run ID", run.id),
     label(
       run.subject.kind === "issue" ? "Issue URL" : "Change URL",
-      run.subject.url || "unavailable",
+      ("url" in run.subject ? run.subject.url : "Local task") || "unavailable",
     ),
     label("Checkout", run.checkout || "unavailable"),
     label("Task key", run.taskKey),

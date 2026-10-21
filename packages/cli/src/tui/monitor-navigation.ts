@@ -99,46 +99,10 @@ export function transitionNavigation(
   if (key.ctrl || key.meta || key.eventType === "release") return { state };
   // Dialogs/logs own keyboard input, except when hidden by the resize screen.
   if (state.modal && context.terminalIsLargeEnough) return { state };
-  if (state.searchDraft !== undefined) {
-    if (key.escape) return { state: { ...state, searchDraft: undefined } };
-    if (key.return)
-      return {
-        state: {
-          ...state,
-          query: state.searchDraft,
-          searchDraft: undefined,
-          selection: discoverySelection(
-            context,
-            state.filter,
-            state.searchDraft,
-          ),
-          offset: 0,
-        },
-      };
-    if (key.backspace || key.delete)
-      return {
-        state: {
-          ...state,
-          searchDraft: Array.from(state.searchDraft).slice(0, -1).join(""),
-        },
-      };
-    if (
-      !key.tab &&
-      !key.upArrow &&
-      !key.downArrow &&
-      !key.leftArrow &&
-      !key.rightArrow
-    )
-      return {
-        state: {
-          ...state,
-          searchDraft:
-            state.searchDraft +
-            terminalText(input).replaceAll("\n", "").replaceAll("\t", ""),
-        },
-      };
-    return { state };
-  }
+  if (state.searchDraft !== undefined)
+    return {
+      state: searchInput(state, state.searchDraft, input, key, context),
+    };
   if (input === "q") return { state, effect: { type: "exit" } };
   if (!context.terminalIsLargeEnough) return { state };
   if (key.escape)
@@ -154,46 +118,9 @@ export function transitionNavigation(
     return { state: moveVertically(state, key, context) };
   if (input === "l") return { state: openAgentLog(state, context) };
   if (input === "v" && context.run?.validation?.length)
-    return {
-      state: {
-        ...state,
-        modal: {
-          type: "logs",
-          sources: context.run.validation.map((check) => ({
-            path: check.log,
-            label: `${check.command} · exit ${check.exitCode}`,
-          })),
-          initial: 0,
-        },
-      },
-    };
-  const kind =
-    input === "s"
-      ? "stop"
-      : input === "r"
-        ? "retry"
-        : input === "F"
-          ? "retry-refresh"
-          : input === "c"
-            ? "recover"
-            : undefined;
-  if (
-    kind &&
-    context.run &&
-    (kind !== "retry-refresh" || context.run.subject.kind === "issue") &&
-    context.available[kind === "retry-refresh" ? "retry" : kind]
-  )
-    return {
-      state: {
-        ...state,
-        modal: {
-          type: "confirmation",
-          kind,
-          runId: context.run.id,
-          title: `${subjectReference(context.run.subject)} ${context.run.subject.title}`,
-        },
-      },
-    };
+    return { state: openValidationLog(state, context.run.validation) };
+  const confirmation = runActionConfirmation(input, context);
+  if (confirmation) return { state: { ...state, modal: confirmation } };
   if (input === "t")
     return {
       state: {
@@ -212,30 +139,93 @@ export function transitionNavigation(
     return {
       state: { ...state, screen: "details", section: "Actions", offset: 0 },
     };
-  if (state.screen === "details") {
-    if (key.home || key.end)
-      return {
-        state: { ...state, offset: key.home ? 0 : context.scrollMaximum },
-      };
-    const section = runSections[Number(input) - 1];
-    if (/^[1-7]$/.test(input) && section)
-      return { state: { ...state, section, offset: 0 } };
-    if (key.tab)
-      return {
-        state: {
-          ...state,
-          section:
-            runSections[
-              (runSections.indexOf(state.section) +
-                (key.shift ? runSections.length - 1 : 1)) %
-                runSections.length
-            ]!,
-          offset: 0,
-        },
-      };
-    return { state };
-  }
+  if (state.screen === "details")
+    return { state: detailsInput(state, input, key, context) };
   return dashboardInput(state, input, key, context);
+}
+
+function searchInput(
+  state: MonitorNavigation,
+  draft: string,
+  input: string,
+  key: Key,
+  context: NavigationContext,
+): MonitorNavigation {
+  if (key.escape) return { ...state, searchDraft: undefined };
+  if (key.return)
+    return {
+      ...state,
+      query: draft,
+      searchDraft: undefined,
+      selection: discoverySelection(context, state.filter, draft),
+      offset: 0,
+    };
+  if (key.backspace || key.delete)
+    return { ...state, searchDraft: Array.from(draft).slice(0, -1).join("") };
+  if (
+    key.tab ||
+    key.upArrow ||
+    key.downArrow ||
+    key.leftArrow ||
+    key.rightArrow
+  )
+    return state;
+  return {
+    ...state,
+    searchDraft:
+      draft + terminalText(input).replaceAll("\n", "").replaceAll("\t", ""),
+  };
+}
+
+const runActionKeys = new Map<string, RunAction>([
+  ["s", "stop"],
+  ["r", "retry"],
+  ["F", "retry-refresh"],
+  ["c", "recover"],
+]);
+
+function runActionConfirmation(
+  input: string,
+  context: NavigationContext,
+): Modal | undefined {
+  const kind = runActionKeys.get(input);
+  const { run } = context;
+  if (!kind || !run) return undefined;
+  // Refreshing applies only to issue runs and is offered as a retry.
+  if (kind === "retry-refresh" && run.subject.kind !== "issue")
+    return undefined;
+  if (!context.available[kind === "retry-refresh" ? "retry" : kind])
+    return undefined;
+  return {
+    type: "confirmation",
+    kind,
+    runId: run.id,
+    title: `${subjectReference(run.subject)} ${run.subject.title}`,
+  };
+}
+
+function detailsInput(
+  state: MonitorNavigation,
+  input: string,
+  key: Key,
+  context: NavigationContext,
+): MonitorNavigation {
+  if (key.home || key.end)
+    return { ...state, offset: key.home ? 0 : context.scrollMaximum };
+  const section = runSections[Number(input) - 1];
+  if (/^[1-7]$/.test(input) && section) return { ...state, section, offset: 0 };
+  if (key.tab)
+    return {
+      ...state,
+      section:
+        runSections[
+          (runSections.indexOf(state.section) +
+            (key.shift ? runSections.length - 1 : 1)) %
+            runSections.length
+        ]!,
+      offset: 0,
+    };
+  return state;
 }
 
 function synchronizeSelection(
@@ -274,24 +264,18 @@ function dashboardInput(
   context: NavigationContext,
 ): Transition {
   if (input === "/") return { state: { ...state, searchDraft: state.query } };
-  if (input === "f")
+  if (input === "f") {
+    const filter =
+      runFilters[(runFilters.indexOf(state.filter) + 1) % runFilters.length]!;
     return {
       state: {
         ...state,
-        filter:
-          runFilters[
-            (runFilters.indexOf(state.filter) + 1) % runFilters.length
-          ]!,
-        selection: discoverySelection(
-          context,
-          runFilters[
-            (runFilters.indexOf(state.filter) + 1) % runFilters.length
-          ]!,
-          state.query,
-        ),
+        filter,
+        selection: discoverySelection(context, filter, state.query),
         offset: 0,
       },
     };
+  }
   if (input === "n") {
     const start = context.projectRuns.findIndex(
       (run) => run.id === context.run?.id,
@@ -444,6 +428,23 @@ function openAgentLog(
               ),
           )
         : 0,
+    },
+  };
+}
+
+function openValidationLog(
+  state: MonitorNavigation,
+  validation: NonNullable<RunRecord["validation"]>,
+): MonitorNavigation {
+  return {
+    ...state,
+    modal: {
+      type: "logs",
+      sources: validation.map((check) => ({
+        path: check.log,
+        label: `${check.command} · exit ${check.exitCode}`,
+      })),
+      initial: 0,
     },
   };
 }
