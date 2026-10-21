@@ -31,6 +31,7 @@ import {
   readActiveConfiguration,
   readRunnerControl,
 } from "./cli-runner-control.js";
+import { resolveConfigPath, withinCheckout } from "./config-discovery.js";
 import { createTerminalNotificationWriter, Monitor } from "./tui/index.js";
 import { defaultWebPort } from "./web/contracts.js";
 import { startWebMonitor } from "./web/lifecycle.js";
@@ -54,8 +55,7 @@ const program = new Command()
   .version(packageVersion)
   .option(
     "-c, --config <file>",
-    "configuration path (default: $AGENT_WORKFLOWS_CONFIG or agent-workflows.json)",
-    process.env.AGENT_WORKFLOWS_CONFIG || "agent-workflows.json",
+    "configuration path (default: $AGENT_WORKFLOWS_CONFIG, ./agent-workflows.json, or the configuration in $AGENT_WORKFLOWS_HOME that manages this checkout)",
   )
   .option(
     "--config-base-directory <directory>",
@@ -70,8 +70,14 @@ async function configuration(): Promise<Configuration> {
     resolve(configBaseDirectory(), path),
   );
 }
+let discoveredConfigPath: string | undefined;
 function configPath(): string {
-  return resolve(launchDirectory, program.opts().config);
+  discoveredConfigPath ??= resolveConfigPath(
+    launchDirectory,
+    program.opts().config,
+    { discover: true },
+  );
+  return discoveredConfigPath;
 }
 function configBaseDirectory(): string {
   const selected = program.opts().configBaseDirectory as string | undefined;
@@ -119,6 +125,12 @@ program
   .command("init")
   .description("Write a configuration scaffold without overwriting files")
   .action(async () => {
+    // A new file belongs where the user asked, never in a discovered location.
+    discoveredConfigPath = resolveConfigPath(
+      launchDirectory,
+      program.opts().config,
+      { discover: false },
+    );
     const base = configBaseDirectory();
     const checkout = process.cwd();
     const externalState = resolve(
@@ -194,12 +206,18 @@ program
     ) => checks.push({ name, status, detail });
     const report = (project?: string) => {
       const ok = checks.every((item) => item.status !== "fail");
+      let resolvedConfigPath: string | undefined;
+      try {
+        resolvedConfigPath = configPath();
+      } catch {
+        // Ambiguous discovery is already reported as the configuration check.
+      }
       console.log(
         JSON.stringify(
           {
             ok,
             version: packageVersion,
-            configPath: configPath(),
+            configPath: resolvedConfigPath,
             project,
             protocols: { inline: true, delegated: ok },
             checks,
@@ -223,27 +241,18 @@ program
       return report();
     }
     const base = configBaseDirectory();
-    const canonical = (path: string) => {
-      try {
-        return realpathSync(path);
-      } catch {
-        return resolve(path);
-      }
-    };
-    const here = canonical(launchDirectory);
     const project = options.project
       ? config.projects.find((candidate) => candidate.id === options.project)
-      : config.projects.find((candidate) => {
-          const checkout = canonical(resolve(base, candidate.checkout));
-          return here === checkout || here.startsWith(checkout + "/");
-        });
+      : config.projects.find((candidate) =>
+          withinCheckout(launchDirectory, resolve(base, candidate.checkout)),
+        );
     if (!project) {
       check(
         "project",
         "fail",
         options.project
           ? `Unknown project: ${options.project}`
-          : `No configured project checkout contains ${here}`,
+          : `No configured project checkout contains ${launchDirectory}`,
       );
       return report();
     }

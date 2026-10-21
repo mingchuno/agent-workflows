@@ -1,7 +1,8 @@
 # `agent-workflows.json` reference
 
 Use this file to define one runner and one or more projects. The CLI reads
-`agent-workflows.json` by default; pass `--config PATH` for another file. Start
+`agent-workflows.json` by default; pass `--config PATH` for another file, or see
+[configuration lookup](#configuration-lookup). Start
 with `agent-workflows init`, then replace the generated repository, checkout,
 agent, and validation values before running it. The file is strict JSON: unknown
 properties are rejected.
@@ -150,7 +151,7 @@ checked when the runner starts.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `id` | identifier | **Required** | Stable runner identity that scopes stored records and queues. |
+| `id` | identifier | **Required** | Stable runner identity that scopes stored records and queues; must be unique per database ([details](operations.md#several-runners-on-one-database)). |
 | `projectBase` | partial project settings | None | Shared settings for projects that explicitly opt in. |
 | `projects` | nonempty `Project[]` | **Required** | Managed projects; IDs and canonical checkout roots must be unique. |
 | `databaseUrlEnv` | string | `AGENT_WORKFLOWS_DATABASE_URL` | Name of the variable containing a PostgreSQL URL with a username. |
@@ -290,6 +291,25 @@ behavior and exact defaults.
 Commands run in the canonical checkout. Command names and arguments are passed
 unchanged and are not rebased to the config directory. `validationProfiles`
 names use the identifier pattern above. Each profile must contain at least one command.
+
+## Configuration lookup
+
+Commands select one file in this order:
+
+1. `--config PATH`, resolved from the launch directory.
+2. `AGENT_WORKFLOWS_CONFIG`.
+3. `agent-workflows.json` in the launch directory.
+4. The single `*.json` file directly in `$AGENT_WORKFLOWS_HOME` (default
+   `$XDG_CONFIG_HOME/agent-workflows`, else `~/.config/agent-workflows`) with a
+   project whose `checkout` contains the launch directory or shares its Git
+   repository, which includes linked worktrees.
+
+Discovery resolves `checkout` from the file's own directory and ignores
+`--config-base-directory`. When several files match, the command fails and asks
+for `--config`. `init` never uses discovery. `doctor` reports the selected
+`configPath`; scripts and agents should pass it explicitly afterwards. Keep each
+configuration's `id`, checkouts, `stateDirectory` and web port distinct; see
+[several runners on one database](operations.md#several-runners-on-one-database).
 
 ## Paths and startup
 

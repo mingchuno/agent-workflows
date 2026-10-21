@@ -14,6 +14,13 @@ that need the human.
 Run `agent-workflows doctor` from the repository. If the command is missing,
 treat the backend as absent. Read the JSON result.
 
+When doctor passes the `configuration` and `project` checks, record its
+`configPath` and `project`. Pass `--config CONFIG_PATH` before the subcommand
+and `--project PROJECT` to every later `agent-workflows` command, for example
+`agent-workflows --config CONFIG_PATH work list --project PROJECT`. Never guess
+another configuration file. If doctor finds no configuration but the human keeps
+one elsewhere, rerun doctor with `--config PATH`.
+
 | Result | Meaning |
 | --- | --- |
 | `protocols.delegated: true` | The project uses agent-workflows SDLC. Its policy is authoritative. |
@@ -41,7 +48,7 @@ acceptance, scope, safety or feasibility; record reversible defaults as
 `assumptions`.
 
 If the CLI and a configured project are available, run
-`agent-workflows work classify --project ID --file CONTRACT` and use its
+`agent-workflows --config CONFIG work classify --project ID --file CONTRACT` and use its
 `track`. Otherwise classify by hand: Track A only for a small change with a
 clear expected outcome, no declared risk, no open questions, and about ten files
 or fewer. Migrations, security, public API, production, infrastructure and

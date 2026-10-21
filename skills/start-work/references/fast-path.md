@@ -10,11 +10,11 @@ state; stop before pushing only when the human asked for local work.
 2. Implement the change. For a defect, add a regression test that fails before
    the fix.
 3. Validate with the project's own checks. Use the configured `validation`
-   commands from `agent-workflows config show` when available, otherwise the
+   commands from `agent-workflows --config CONFIG config show` when available, otherwise the
    commands in AGENTS.md or the package scripts. Read the full output. Report
    checks you could not run as limitations, never as passes.
 4. Check the diff against the track. With the CLI, run
-   `agent-workflows work classify --project ID --file CONTRACT --changed-from BASE`.
+   `agent-workflows --config CONFIG work classify --project ID --file CONTRACT --changed-from BASE`.
    Without it, inspect `git diff --stat BASE` and untracked files against the
    step 3 rules in [start-work](../SKILL.md). If `escalation` is not empty or the
    diff no longer fits Track A, stop. Tell the human what grew, and continue on

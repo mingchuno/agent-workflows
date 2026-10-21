@@ -1,21 +1,25 @@
 # Work API
 
-Commands read the configuration from `AGENT_WORKFLOWS_CONFIG`, else
-`agent-workflows.json` in the current directory; pass `--config PATH` otherwise.
-`doctor` reports the project ID for the current checkout. Work commands take
-`--project ID` and print JSON. Discover options with `agent-workflows work --help`.
+`doctor` resolves the configuration in this order: `--config PATH`,
+`AGENT_WORKFLOWS_CONFIG`, `agent-workflows.json` in the current directory, then
+the one file in `$AGENT_WORKFLOWS_HOME` (default `~/.config/agent-workflows`)
+whose project manages this checkout or one of its worktrees. It reports the
+resolved `configPath` and `project`. Pass both explicitly to every other command
+so a changed directory or environment cannot select another runner's
+configuration. Work commands print JSON. Discover options with
+`agent-workflows work --help`.
 
 ```sh
 agent-workflows doctor
-agent-workflows work classify --project app --file /tmp/work-contract.json
-agent-workflows work classify --project app --file /tmp/work-contract.json --changed-from BASE
-agent-workflows work list --project app
-agent-workflows work inspect WORK_ID --project app
-agent-workflows work create --issue 123 --project app
-agent-workflows work create --title "Fix missing-size sorting" --key missing-size-sort --project app
-agent-workflows work propose WORK_ID --revision CURRENT_REVISION --file /tmp/work-contract.json --project app
-agent-workflows work sync-approvals WORK_ID --project app
-agent-workflows work submit WORK_ID --revision CURRENT_REVISION --project app
+agent-workflows --config CONFIG work classify --project app --file /tmp/work-contract.json
+agent-workflows --config CONFIG work classify --project app --file /tmp/work-contract.json --changed-from BASE
+agent-workflows --config CONFIG work list --project app
+agent-workflows --config CONFIG work inspect WORK_ID --project app
+agent-workflows --config CONFIG work create --issue 123 --project app
+agent-workflows --config CONFIG work create --title "Fix missing-size sorting" --key missing-size-sort --project app
+agent-workflows --config CONFIG work propose WORK_ID --revision CURRENT_REVISION --file /tmp/work-contract.json --project app
+agent-workflows --config CONFIG work sync-approvals WORK_ID --project app
+agent-workflows --config CONFIG work submit WORK_ID --revision CURRENT_REVISION --project app
 ```
 
 `classify` needs only the configuration: no database, worker or Work Item. It

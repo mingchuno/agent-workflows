@@ -307,3 +307,65 @@ test("doctor resolves the project from the working directory and checks the data
   );
   assert.doesNotMatch(result.stdout, /fixture-token/);
 });
+
+test("doctor discovers the configuration that manages a linked worktree", async () => {
+  const { root, git } = await repository();
+  const home = await mkdtemp(join(tmpdir(), "aw-config-home-"));
+  const worktree = `${root}-worktree`;
+  await git("worktree", "add", "-b", "session", worktree);
+  const write = (name: string, id: string) =>
+    writeFile(
+      join(home, name),
+      JSON.stringify({
+        id,
+        stateDirectory: `${root}-state-${id}`,
+        projects: [
+          {
+            id: "app",
+            checkout: root,
+            hosting: {
+              provider: "github",
+              origin: "https://github.com",
+              repository: "fixture/fixture",
+              tokenEnv: "FIXTURE_HOST_TOKEN",
+            },
+            agent: { provider: "codex" },
+            sdlc: { enabled: true },
+          },
+        ],
+      }),
+    );
+  await write("app.json", "app");
+  await writeFile(join(home, "notes.json"), "not configuration");
+  const doctor = () =>
+    command(
+      process.execPath,
+      [
+        "--import",
+        import.meta.resolve("tsx"),
+        fileURLToPath(new URL("../packages/cli/src/cli.ts", import.meta.url)),
+        "doctor",
+      ],
+      {
+        cwd: worktree,
+        env: {
+          ...process.env,
+          AGENT_WORKFLOWS_CONFIG: "",
+          AGENT_WORKFLOWS_HOME: home,
+          AGENT_WORKFLOWS_DATABASE_URL: "",
+        },
+        timeoutMs: 20000,
+        allowFailure: true,
+      },
+    );
+  const found = JSON.parse((await doctor()).stdout);
+  assert.equal(found.configPath, join(home, "app.json"));
+  assert.equal(found.project, "app");
+  assert.equal(found.checks[0].status, "pass");
+
+  await write("other.json", "other");
+  const ambiguous = JSON.parse((await doctor()).stdout);
+  assert.equal(ambiguous.checks[0].name, "configuration");
+  assert.equal(ambiguous.checks[0].status, "fail");
+  assert.match(ambiguous.checks[0].detail, /Several configurations/);
+});

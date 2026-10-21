@@ -45,8 +45,8 @@ protected path stops before publication and moves to Track B or C.
    agent-workflows run
    ```
 
-   Commands read the configuration from `AGENT_WORKFLOWS_CONFIG`, else
-   `agent-workflows.json` in the current directory.
+   Commands find the configuration as described in
+   [configuration lookup](../configuration.md#configuration-lookup).
 4. Invoke `$start-work` in Codex or `/start-work` in a Copilot host that supports
    slash invocation, with an issue or a task. Confirm discovery with that host
    before relying on it.

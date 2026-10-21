@@ -15,7 +15,8 @@ the human confirms, and never overwrite an existing configuration.
 - `agent-workflows version` and `agent-workflows doctor`. If doctor already
   passes, report that and stop.
 - `git remote -v`: GitHub or GitLab, origin and `OWNER/REPOSITORY`.
-- An existing configuration at `$AGENT_WORKFLOWS_CONFIG` or `agent-workflows.json`.
+- An existing configuration: what `agent-workflows doctor` reports as
+  `configPath`, which also searches `$AGENT_WORKFLOWS_HOME`.
 - `gh auth status` or `glab auth status`, and which of `codex` or `copilot` is
   installed and signed in.
 - PostgreSQL: a URL the human already uses, `pg_isready`, or Docker.
@@ -25,10 +26,15 @@ the human confirms, and never overwrite an existing configuration.
 
 1. **Goal.** Track A works inline with no setup. Recommend full setup only when
    the human wants approval-gated Track B and C work run by the worker.
-2. **Configuration location.** Recommend `agent-workflows.json` at the
-   repository root with `checkout: "."`, committed if the team shares the
-   policy, otherwise listed in `.git/info/exclude`. Elsewhere, set
-   `AGENT_WORKFLOWS_CONFIG` to its path.
+2. **Configuration location.** For one repository, recommend
+   `agent-workflows.json` at the repository root with `checkout: "."`,
+   committed if the team shares the policy, otherwise listed in
+   `.git/info/exclude`. For several repositories or a dedicated directory,
+   put each configuration in `$AGENT_WORKFLOWS_HOME` (default
+   `~/.config/agent-workflows`) with an absolute `checkout`; the CLI finds the
+   one that manages the current checkout. Before adding a second runner, check
+   the four collision conditions in the
+   [operations guide](https://github.com/mingchuno/agent-workflows/blob/main/docs/operations.md#several-runners-on-one-database).
 3. **Database.** PostgreSQL is required. Offer the human's existing server, or
    a local container such as
    `docker run -d --name agent-workflows-db -p 5432:5432 -e POSTGRES_PASSWORD=... postgres:17`.
@@ -41,7 +47,8 @@ the human confirms, and never overwrite an existing configuration.
 
 1. Install the CLI if missing, after the human agrees:
    `npm install -g @mingchuno/agent-workflows`.
-2. Run `agent-workflows init` in the repository root. It refuses to overwrite.
+2. Run `agent-workflows init` in the repository root, adding `--config PATH`
+   for a file outside it. It refuses to overwrite.
 3. Edit the generated file: project `id`, `hosting`, `agent.provider`,
    `validation`, and `sdlc` (`enabled: true`, `approvalSource`, `approvers`).
    Keep `stateDirectory` outside the checkout.
