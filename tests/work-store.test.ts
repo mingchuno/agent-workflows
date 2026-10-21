@@ -8,9 +8,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { projectSchema } from "../packages/core/src/config.js";
 import { Store } from "../packages/core/src/store.js";
-import { submitWork } from "../packages/core/src/work/admission.js";
 import { workRevision } from "../packages/core/src/work/policy.js";
 import { workContractSchema } from "../packages/core/src/work/schema.js";
+import { assertCheckoutReleased } from "../packages/core/src/workspace.js";
 import { repository } from "./fixtures.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -202,6 +202,49 @@ test("stored contract digest uses its redacted canonical representation", {
   }
 });
 
+test("replaying a submitted revision returns its latest attempt after a retry", {
+  skip: !databaseUrl,
+}, async () => {
+  const store = new Store(databaseUrl!, randomUUID());
+  try {
+    await store.initialize();
+    await store.registerProject(project.id);
+    const work = await store.workItems.create(
+      project.id,
+      { kind: "local", key: "replay" },
+      contract,
+    );
+    await store.workItems.approve(
+      work.id,
+      work.revision,
+      "scope",
+      { approvedBy: "operator", source: "local-operator" },
+      project,
+    );
+    const original = await store.workItems.submit(
+      work.id,
+      work.revision,
+      project,
+    );
+    await store.patchRun(original.id, { outcome: "failed" });
+    const retryId = await store.admitRetry(original.id, {
+      checkSafety: async () => ({
+        checkout: project.checkout,
+        branchTemplate: project.branchTemplate,
+      }),
+    });
+    const retry = await store.run(retryId);
+    assert.equal(retry.attempt, 2);
+    assert.equal(retry.work?.revision, work.revision);
+    assert.equal(
+      (await store.workItems.submit(work.id, work.revision, project)).id,
+      retryId,
+    );
+  } finally {
+    await store.close();
+  }
+});
+
 test("a newly approved revision recovers escalation only after stopped processes and a clean checkout", {
   skip: !databaseUrl,
 }, async () => {
@@ -248,12 +291,13 @@ test("a newly approved revision recovers escalation only after stopped processes
     );
     await writeFile(join(root, "unfinished.txt"), "preserve this");
     const submit = () =>
-      submitWork({
-        store,
-        project,
-        id: work.id,
-        revision: revised.revision,
-        recoveryStateDirectory: artifacts,
+      store.workItems.submit(work.id, revised.revision, project, {
+        checkSafety: (related) =>
+          assertCheckoutReleased({
+            project,
+            stateDirectory: artifacts,
+            runIds: related.map((run) => run.id),
+          }),
       });
     await assert.rejects(submit(), /Checkout must be clean/);
     assert.ok((await store.project(project.id)).blocked);

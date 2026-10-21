@@ -7,11 +7,11 @@ import { test } from "node:test";
 import { configSchema } from "../packages/core/src/config.js";
 import type { AgentInvocation } from "../packages/core/src/domain.js";
 import { Runner } from "../packages/core/src/runner.js";
+import { issueSource } from "../packages/core/src/work/policy.js";
 import {
   sdlcPolicySchema,
   workContractSchema,
 } from "../packages/core/src/work/schema.js";
-import { issueSource } from "../packages/core/src/work/store.js";
 import { repository } from "./fixtures.js";
 import {
   agent,

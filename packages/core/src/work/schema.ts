@@ -134,7 +134,8 @@ export interface DecisionReason {
     | "approval"
     | "design"
     | "track-escalation"
-    | "scope-expansion";
+    | "scope-expansion"
+    | "source-changed";
   message: string;
 }
 export interface WorkDecision {
@@ -148,6 +149,8 @@ export interface WorkDecision {
   reasons: DecisionReason[];
   trackReasons: string[];
   requiredGates: ApprovalGate[];
+  /** The gate a human may approve now; set only in an awaiting-approval state. */
+  awaitingGate?: ApprovalGate;
 }
 export interface WorkExecution {
   workItemId: string;

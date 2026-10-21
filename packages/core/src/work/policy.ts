@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { matchesGlob } from "node:path";
+import type { Issue } from "../domain.js";
 import type {
   ApprovalGate,
   ApprovalRecord,
@@ -8,6 +9,7 @@ import type {
   Track,
   WorkContract,
   WorkDecision,
+  WorkItem,
   WorkSource,
 } from "./schema.js";
 
@@ -46,6 +48,41 @@ export function gateRevision(
 ): string {
   const { design: _design, ...scope } = contract;
   return contentRevision(gate === "scope" ? scope : contract);
+}
+export function issueRevision(issue: Issue): string {
+  return contentRevision({
+    id: issue.id,
+    number: issue.number,
+    url: issue.url,
+    title: issue.title,
+    body: issue.body,
+  });
+}
+export function issueSource(
+  provider: "github" | "gitlab",
+  issue: Issue,
+): WorkSource {
+  return {
+    kind: provider,
+    issueId: issue.id,
+    number: issue.number,
+    url: issue.url,
+    revision: issueRevision(issue),
+  };
+}
+export function sourceKey(source: WorkSource): string {
+  return source.kind === "local"
+    ? `local:${source.key}`
+    : `${source.kind}:${source.issueId}`;
+}
+/** A hosted source observed after assessment invalidates the contract until reassessed. */
+export function sourceIsStale(
+  work: Pick<WorkItem, "contract" | "source">,
+): boolean {
+  return (
+    work.source.kind !== "local" &&
+    work.contract.sourceRevision !== work.source.revision
+  );
 }
 export function matchesPath(path: string, patterns: string[]): boolean {
   return patterns.some((pattern) => matchesGlob(path, pattern));
@@ -166,14 +203,41 @@ export function assessReadiness(
         code: "approval",
         message: `Current ${gate} approval is required`,
       });
-      return result(
-        gate === "scope"
-          ? "awaiting-scope-approval"
-          : "awaiting-design-approval",
-      );
+      return {
+        ...result(
+          gate === "scope"
+            ? "awaiting-scope-approval"
+            : "awaiting-design-approval",
+        ),
+        awaitingGate: gate,
+      };
     }
   }
   return result("ready");
+}
+/**
+ * The complete readiness verdict for a persisted Work Item: contract readiness,
+ * current approvals, and whether its hosted source changed since assessment.
+ */
+export function evaluateWork(
+  work: Pick<WorkItem, "contract" | "source">,
+  approvals: ApprovalRecord[],
+  policy: SdlcPolicy,
+): WorkDecision {
+  const decision = assessReadiness(work.contract, approvals, policy);
+  if (!sourceIsStale(work)) return decision;
+  const { awaitingGate: _gate, ...stale } = decision;
+  return {
+    ...stale,
+    state: "needs-info",
+    reasons: [
+      ...stale.reasons,
+      {
+        code: "source-changed",
+        message: "Hosted issue changed; explicitly reassess the current source",
+      },
+    ],
+  };
 }
 export function reassessChanges(
   contract: WorkContract,

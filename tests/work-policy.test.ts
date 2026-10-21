@@ -6,6 +6,7 @@ import { createQueuedWorkRun } from "../packages/core/src/run-record.js";
 import {
   assessReadiness,
   contractRevision,
+  evaluateWork,
   gateRevision,
   reassessChanges,
   resolveTrack,
@@ -177,6 +178,38 @@ test("approval hashing is canonical and design authoring preserves scope approva
     ).state,
     "awaiting-scope-approval",
   );
+});
+
+test("a hosted source edited after assessment withholds every gate until reassessed", () => {
+  const scoped = {
+    ...contract,
+    assessment: { ...contract.assessment, proposedTrack: "B" as const },
+    sourceRevision: "assessed",
+  };
+  const source = {
+    kind: "github" as const,
+    issueId: "1",
+    number: 1,
+    url: "https://github.com/a/b/issues/1",
+    revision: "assessed",
+  };
+  const current = evaluateWork({ contract: scoped, source }, [], policy);
+  assert.equal(current.state, "awaiting-scope-approval");
+  assert.equal(current.awaitingGate, "scope");
+  const edited = evaluateWork(
+    { contract: scoped, source: { ...source, revision: "edited" } },
+    [approved("scope", scoped)],
+    policy,
+  );
+  assert.equal(edited.state, "needs-info");
+  assert.equal(edited.awaitingGate, undefined);
+  assert.ok(edited.reasons.some((reason) => reason.code === "source-changed"));
+  const local = evaluateWork(
+    { contract: scoped, source: { kind: "local", key: "task" } },
+    [approved("scope", scoped)],
+    policy,
+  );
+  assert.equal(local.state, "ready");
 });
 
 test("actual changes detect risk escalation and scope expansion before repair", () => {

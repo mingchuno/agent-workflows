@@ -1,52 +1,44 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { and, eq } from "drizzle-orm";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import type { Project } from "../config.js";
+import {
+  hasActiveAttempt,
+  nextAttempt,
+  type RunAdmission,
+} from "../db/admission.js";
 import * as tables from "../db/schema.js";
-import { BlockedError, type Issue, type RunRecord } from "../domain.js";
+import { BlockedError, type RunRecord } from "../domain.js";
 import { createQueuedWorkRun } from "../run-record.js";
 import { redactValue } from "../runtime/redaction.js";
 import {
-  assessReadiness,
+  ApprovalForbiddenError,
+  WorkConflictError,
+  WorkItemNotFoundError,
+} from "./errors.js";
+import {
   contentRevision,
+  evaluateWork,
   gateRevision,
+  sourceIsStale,
+  sourceKey,
   workRevision,
 } from "./policy.js";
 import {
   type ApprovalGate,
   type ApprovalRecord,
+  type WorkDecision,
   type WorkItem,
   type WorkSource,
   workContractSchema,
   workSourceSchema,
 } from "./schema.js";
 
-export function issueRevision(issue: Issue): string {
-  return contentRevision({
-    id: issue.id,
-    number: issue.number,
-    url: issue.url,
-    title: issue.title,
-    body: issue.body,
-  });
-}
-export function issueSource(
-  provider: "github" | "gitlab",
-  issue: Issue,
-): WorkSource {
-  return {
-    kind: provider,
-    issueId: issue.id,
-    number: issue.number,
-    url: issue.url,
-    revision: issueRevision(issue),
-  };
-}
-export function sourceKey(source: WorkSource): string {
-  return source.kind === "local"
-    ? `local:${source.key}`
-    : `${source.kind}:${source.issueId}`;
+export interface WorkInspection {
+  work: WorkItem;
+  approvals: ApprovalRecord[];
+  decision: WorkDecision;
 }
 export class WorkStore {
   private readonly db;
@@ -54,6 +46,7 @@ export class WorkStore {
     pool: Pool,
     private readonly scope: string,
     private readonly redact: (text: string) => string,
+    private readonly admission: RunAdmission,
   ) {
     this.db = drizzle(pool);
   }
@@ -134,7 +127,7 @@ export class WorkStore {
       .select()
       .from(tables.workItems)
       .where(this.predicate(id));
-    if (!row) throw new Error(`Unknown work item: ${id}`);
+    if (!row) throw new WorkItemNotFoundError(`Unknown work item: ${id}`);
     return row.record;
   }
   async list(projectId?: string): Promise<WorkItem[]> {
@@ -153,7 +146,13 @@ export class WorkStore {
     return rows.map((row) => row.record);
   }
   async approvals(id: string): Promise<ApprovalRecord[]> {
-    const rows = await this.db
+    return this.approvalsIn(this.db, id);
+  }
+  private async approvalsIn(
+    db: Pick<NodePgDatabase, "select">,
+    id: string,
+  ): Promise<ApprovalRecord[]> {
+    const rows = await db
       .select()
       .from(tables.workApprovals)
       .where(
@@ -165,23 +164,16 @@ export class WorkStore {
       .orderBy(tables.workApprovals.id);
     return rows.map((row) => row.record);
   }
-  async inspect(id: string, project: Project) {
+  async inspect(id: string, project: Project): Promise<WorkInspection> {
     const work = await this.get(id);
     if (work.projectId !== project.id)
-      throw new Error("Work item belongs to another project");
+      throw new WorkItemNotFoundError("Work item belongs to another project");
     const approvals = await this.approvals(id);
-    const decision = assessReadiness(work.contract, approvals, project.sdlc);
-    if (
-      work.source.kind !== "local" &&
-      work.contract.sourceRevision !== work.source.revision
-    ) {
-      decision.state = "needs-info";
-      decision.reasons.push({
-        code: "uncertainty",
-        message: "Hosted issue changed; explicitly reassess the current source",
-      });
-    }
-    return { work, approvals, decision };
+    return {
+      work,
+      approvals,
+      decision: evaluateWork(work, approvals, project.sdlc),
+    };
   }
   async propose(
     id: string,
@@ -194,9 +186,11 @@ export class WorkStore {
         .from(tables.workItems)
         .where(this.predicate(id))
         .for("update");
-      if (!row) throw new Error(`Unknown work item: ${id}`);
+      if (!row) throw new WorkItemNotFoundError(`Unknown work item: ${id}`);
       if (row.record.revision !== expectedRevision)
-        throw new Error("Work revision changed; inspect before proposing");
+        throw new WorkConflictError(
+          "Work revision changed; inspect before proposing",
+        );
       const contract = this.contract(input, row.record.source);
       const work: WorkItem = {
         ...row.record,
@@ -225,7 +219,7 @@ export class WorkStore {
         .from(tables.workItems)
         .where(this.predicate(id))
         .for("update");
-      if (!row) throw new Error(`Unknown work item: ${id}`);
+      if (!row) throw new WorkItemNotFoundError(`Unknown work item: ${id}`);
       if (sourceKey(row.record.source) !== sourceKey(source))
         throw new Error("Source identity differs from work item");
       if (contentRevision(row.record.source) === contentRevision(source))
@@ -258,14 +252,14 @@ export class WorkStore {
     project: Project,
   ): Promise<ApprovalRecord> {
     if (!operator.approvedBy.trim())
-      throw new Error("Approval attribution is required");
+      throw new ApprovalForbiddenError("Approval attribution is required");
     if (operator.source !== project.sdlc.approvalSource)
-      throw new Error("Approval source does not match policy");
+      throw new ApprovalForbiddenError("Approval source does not match policy");
     if (
       project.sdlc.approvers.length &&
       !project.sdlc.approvers.includes(operator.approvedBy)
     )
-      throw new Error("Operator is not an allowed approver");
+      throw new ApprovalForbiddenError("Operator is not an allowed approver");
     return this.db.transaction(async (tx) => {
       const [row] = await tx
         .select()
@@ -273,47 +267,32 @@ export class WorkStore {
         .where(this.predicate(id))
         .for("update");
       if (!row || row.record.projectId !== project.id)
-        throw new Error("Unknown work item for project");
+        throw new WorkItemNotFoundError("Unknown work item for project");
       const work = row.record;
       if (work.revision !== expectedRevision)
-        throw new Error("Work revision changed; inspect before approving");
-      if (
-        work.source.kind !== "local" &&
-        work.contract.sourceRevision !== work.source.revision
-      )
-        throw new Error("Source changed; reassess before approving");
-      if (gate === "design" && !work.contract.design)
-        throw new Error("Design is required before design approval");
-      const existing = await tx
-        .select()
-        .from(tables.workApprovals)
-        .where(
-          and(
-            eq(tables.workApprovals.scope, this.scope),
-            eq(tables.workApprovals.workItemId, id),
-          ),
+        throw new WorkConflictError(
+          "Work revision changed; inspect before approving",
         );
+      if (sourceIsStale(work))
+        throw new WorkConflictError(
+          "Source changed; reassess before approving",
+        );
+      if (gate === "design" && !work.contract.design)
+        throw new WorkConflictError(
+          "Design is required before design approval",
+        );
+      const existing = await this.approvalsIn(tx, id);
       const repeated = existing.find(
         (item) =>
-          item.record.gate === gate &&
-          item.record.revision === gateRevision(work.contract, gate) &&
-          item.record.approvedBy === operator.approvedBy &&
-          item.record.source === operator.source &&
-          item.record.evidence === operator.evidence,
+          item.gate === gate &&
+          item.revision === gateRevision(work.contract, gate) &&
+          item.approvedBy === operator.approvedBy &&
+          item.source === operator.source &&
+          item.evidence === operator.evidence,
       );
-      if (repeated) return repeated.record;
-      const decision = assessReadiness(
-        work.contract,
-        existing.map((item) => item.record),
-        project.sdlc,
-      );
-      if (
-        decision.state !==
-        (gate === "scope"
-          ? "awaiting-scope-approval"
-          : "awaiting-design-approval")
-      )
-        throw new Error(`Work is not awaiting ${gate} approval`);
+      if (repeated) return repeated;
+      if (evaluateWork(work, existing, project.sdlc).awaitingGate !== gate)
+        throw new WorkConflictError(`Work is not awaiting ${gate} approval`);
       const approval: ApprovalRecord = {
         id: randomUUID(),
         workItemId: id,
@@ -334,26 +313,21 @@ export class WorkStore {
       return approval;
     });
   }
+  /**
+   * Admit the exact revision as a Run. Replaying an admitted revision returns
+   * its latest attempt. A blocked project is admitted only with `recovery`,
+   * whose safety check runs under the project lock and must not write.
+   */
   async submit(
     id: string,
     expectedRevision: string,
     project: Project,
-    recovery?: { checkSafety: (history: RunRecord[]) => Promise<void> },
+    recovery?: { checkSafety: (related: RunRecord[]) => Promise<void> },
   ): Promise<RunRecord> {
     if (!project.sdlc.enabled || !project.workflows.implementation.enabled)
       throw new Error("SDLC implementation is disabled");
     return this.db.transaction(async (tx) => {
-      const [state] = await tx
-        .select()
-        .from(tables.projects)
-        .where(
-          and(
-            eq(tables.projects.scope, this.scope),
-            eq(tables.projects.id, project.id),
-          ),
-        )
-        .for("update");
-      if (!state) throw new Error("Project is not registered");
+      const state = await this.admission.lockProject(tx, project.id);
       if ((state.paused && !state.blocked) || (state.blocked && !recovery))
         throw new BlockedError("Project is paused or blocked");
       const [row] = await tx
@@ -362,106 +336,53 @@ export class WorkStore {
         .where(this.predicate(id))
         .for("update");
       if (!row || row.record.projectId !== project.id)
-        throw new Error("Unknown work item for project");
+        throw new WorkItemNotFoundError("Unknown work item for project");
       const work = row.record;
       if (work.revision !== expectedRevision)
-        throw new Error("Work revision changed; inspect before submitting");
+        throw new WorkConflictError(
+          "Work revision changed; inspect before submitting",
+        );
       if (work.source.kind === "local" && !project.sdlc.allowLocalTasks)
         throw new BlockedError("Local work is disabled by policy");
-      if (
-        work.source.kind !== "local" &&
-        work.contract.sourceRevision !== work.source.revision
-      )
+      if (sourceIsStale(work))
         throw new BlockedError("Source changed; reassess before submitting");
-      const approvalRows = await tx
-        .select()
-        .from(tables.workApprovals)
-        .where(
-          and(
-            eq(tables.workApprovals.scope, this.scope),
-            eq(tables.workApprovals.workItemId, id),
-          ),
-        );
-      const decision = assessReadiness(
-        work.contract,
-        approvalRows.map((item) => item.record),
+      const decision = evaluateWork(
+        work,
+        await this.approvalsIn(tx, id),
         project.sdlc,
       );
       if (decision.state !== "ready")
         throw new BlockedError(
           decision.reasons.map((reason) => reason.message).join("; "),
         );
-      const history = await tx
-        .select()
-        .from(tables.runs)
-        .where(
-          and(
-            eq(tables.runs.scope, this.scope),
-            eq(tables.runs.taskKey, `work:${id}`),
-          ),
-        )
-        .orderBy(tables.runs.attempt);
-      const same = history.find(
+      const history = await this.admission.history(tx, `work:${id}`);
+      // Retries pin the same revision, so the latest attempt is the answer.
+      const same = history.findLast(
         (item) => item.record.work?.revision === work.revision,
       );
       if (same) return same.record;
-      if (
-        history.some((item) =>
-          ["queued", "running"].includes(item.record.outcome),
-        )
-      )
+      if (hasActiveAttempt(history.map((item) => item.record)))
         throw new BlockedError("Work already has an active run");
       if (state.blocked) {
-        const related = (
-          await tx
-            .select()
-            .from(tables.runs)
-            .where(
-              and(
-                eq(tables.runs.scope, this.scope),
-                sql`${tables.runs.record}->>'projectId' = ${project.id}`,
-              ),
-            )
-        ).map((item) => item.record);
-        if (related.some((run) => ["queued", "running"].includes(run.outcome)))
+        const related = await this.admission.projectRuns(tx, project.id);
+        if (hasActiveAttempt(related))
           throw new BlockedError("Project still has queued or active work");
         await recovery!.checkSafety(related);
-        await tx
-          .update(tables.projects)
-          .set({ blocked: null })
-          .where(
-            and(
-              eq(tables.projects.scope, this.scope),
-              eq(tables.projects.id, project.id),
-            ),
-          );
-        await tx
-          .insert(tables.events)
-          .values(this.event("project", { id: project.id, blocked: null }));
       }
-      const run = createQueuedWorkRun(
-        work,
-        project,
-        (history.at(-1)?.attempt ?? 0) + 1,
-      );
-      await tx.insert(tables.runs).values({
-        scope: this.scope,
-        id: run.id,
-        taskKey: run.taskKey,
-        attempt: run.attempt,
-        record: run,
+      const run = createQueuedWorkRun(work, project, nextAttempt(history));
+      return this.admission.insert(tx, run, {
+        unblock: state.blocked !== null,
+        events: [
+          {
+            kind: "work-submitted",
+            payload: {
+              workItemId: id,
+              revision: work.revision,
+              track: decision.track,
+            },
+          },
+        ],
       });
-      await tx
-        .insert(tables.events)
-        .values([
-          this.event("run", run, run.id),
-          this.event(
-            "work-submitted",
-            { workItemId: id, revision: work.revision, track: decision.track },
-            run.id,
-          ),
-        ]);
-      return run;
     });
   }
 }

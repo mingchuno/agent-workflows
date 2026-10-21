@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
-import { userInfo } from "node:os";
 import { resolve } from "node:path";
 import {
+  assertCheckoutReleased,
   type Configuration,
   changedPathsSince,
   classifyWork,
@@ -11,9 +11,9 @@ import {
   issueSource,
   type Project,
   type Store,
-  submitWork,
   syncWorkApprovals,
   workContractSchema,
+  workOperator,
 } from "@mingchuno/agent-workflows-core";
 import type { Command } from "commander";
 
@@ -204,20 +204,12 @@ export function registerWorkCommands(
         id: string,
         options: { project: string; revision: string; gate: string },
       ) =>
-        execute(options.project, async (store, project) => {
-          if (project.sdlc.approvalSource !== "local-operator")
-            throw new Error(
-              "This project requires authenticated provider approval",
-            );
-          await store.workItems.approve(
-            id,
-            options.revision,
-            gateSchema.parse(options.gate),
-            { approvedBy: userInfo().username, source: "local-operator" },
-            project,
-          );
-          return store.workItems.inspect(id, project);
-        }),
+        execute(options.project, (store, project) =>
+          workOperator({ store, projects: async () => [project] }).approve(id, {
+            gate: gateSchema.parse(options.gate),
+            revision: options.revision,
+          }),
+        ),
     );
   command("sync-approvals <id>").action(
     async (id: string, options: { project: string }) =>
@@ -255,15 +247,21 @@ export function registerWorkCommands(
             );
           }
           return {
-            run: await submitWork({
-              store,
-              project,
+            run: await store.workItems.submit(
               id,
-              revision: options.revision,
-              ...(options.recover
-                ? { recoveryStateDirectory: config.stateDirectory }
-                : {}),
-            }),
+              options.revision,
+              project,
+              options.recover
+                ? {
+                    checkSafety: (related) =>
+                      assertCheckoutReleased({
+                        project,
+                        stateDirectory: config.stateDirectory,
+                        runIds: related.map((run) => run.id),
+                      }),
+                  }
+                : undefined,
+            ),
           };
         }),
     );

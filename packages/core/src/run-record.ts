@@ -35,19 +35,61 @@ function queuedRun(
     branch: input.branch,
   };
 }
+function branchName(
+  template: string,
+  subject: Issue | LocalSubject,
+  attempt: number,
+  id: string,
+): string {
+  return template
+    .replaceAll(
+      "{issue}",
+      "number" in subject ? String(subject.number) : subject.id,
+    )
+    .replaceAll("{attempt}", String(attempt))
+    .replaceAll("{run}", id);
+}
 export function createQueuedRun(input: QueuedRunInput): RunRecord {
   return queuedRun({
     ...input,
     subject:
       "number" in input.issue ? { ...input.issue, kind: "issue" } : input.issue,
-    branch: input.branchTemplate
-      .replaceAll(
-        "{issue}",
-        "number" in input.issue ? String(input.issue.number) : input.issue.id,
-      )
-      .replaceAll("{attempt}", String(input.attempt))
-      .replaceAll("{run}", input.id),
+    branch: branchName(
+      input.branchTemplate,
+      input.issue,
+      input.attempt,
+      input.id,
+    ),
   });
+}
+
+/** A new attempt of `previous`, carrying its review identity and pinned Work contract. */
+export function createRetryRun(
+  previous: RunRecord,
+  input: Omit<QueuedRunInput, "projectId" | "taskKey" | "retryOf" | "issue"> & {
+    issue?: Issue;
+  },
+): RunRecord {
+  const base = {
+    ...input,
+    projectId: previous.projectId,
+    taskKey: previous.taskKey,
+    retryOf: previous.id,
+  };
+  if (previous.subject.kind === "change-request")
+    return {
+      ...createQueuedReviewRun({ ...base, request: previous.subject }),
+      reviewPublicationId: previous.reviewPublicationId,
+      review: previous.review,
+      reviewHead: previous.reviewHead,
+    };
+  const retry = createQueuedRun({
+    ...base,
+    issue: input.issue ?? previous.subject,
+  });
+  // Changed paths belong to the previous attempt's checkout snapshot.
+  if (previous.work) retry.work = { ...previous.work, changedPaths: undefined };
+  return retry;
 }
 
 export function createQueuedWorkRun(
@@ -55,7 +97,7 @@ export function createQueuedWorkRun(
   project: Project,
   attempt = 1,
 ): RunRecord {
-  const subject: RunSubject =
+  const subject: Issue | LocalSubject =
     work.source.kind === "local"
       ? {
           kind: "local",
@@ -64,7 +106,6 @@ export function createQueuedWorkRun(
           body: work.contract.intent,
         }
       : {
-          kind: "issue",
           id: work.source.issueId,
           number: work.source.number,
           title: work.contract.title,
@@ -73,22 +114,15 @@ export function createQueuedWorkRun(
           labels: project.workflows.implementation.labels,
           open: true,
         };
-  const id = crypto.randomUUID();
-  const run = queuedRun({
-    id,
+  const run = createQueuedRun({
+    id: crypto.randomUUID(),
     projectId: project.id,
     checkout: project.checkout,
     taskKey: `work:${work.id}`,
     attempt,
-    subject,
+    issue: subject,
     now: new Date().toISOString(),
-    branch: project.branchTemplate
-      .replaceAll(
-        "{issue}",
-        subject.kind === "local" ? work.id : String(subject.number),
-      )
-      .replaceAll("{attempt}", String(attempt))
-      .replaceAll("{run}", id),
+    branchTemplate: project.branchTemplate,
   });
   run.work = {
     workItemId: work.id,

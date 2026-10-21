@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type {
-  MonitorWorkItem,
   WorkApproval,
   WorkItemsSnapshot,
+  WorkItemView,
 } from "../src/web/contracts.js";
 import { readMonitor } from "./api.js";
 import styles from "./app.module.css";
@@ -38,12 +38,7 @@ export function WorkItemsView({
     ) ?? [];
   const selected =
     items.find((item) => item.work.id === selectedId) ?? items[0];
-  const gate =
-    selected?.decision.state === "awaiting-scope-approval"
-      ? "scope"
-      : selected?.decision.state === "awaiting-design-approval"
-        ? "design"
-        : undefined;
+  const gate = selected?.decision.awaitingGate;
   const unavailable = disabled || pending || snapshot.isError || !snapshot.data;
   const confirmationCurrent =
     confirmation &&
@@ -79,7 +74,7 @@ export function WorkItemsView({
         throw new Error(
           result.error ?? "Approval failed. Refresh the Work Item.",
         );
-      const approved = result as MonitorWorkItem;
+      const approved = result as WorkItemView;
       setNotice(
         `Recorded ${confirmation.approval.gate} approval. Work Item is ${approved.decision.state}.`,
       );

@@ -1,7 +1,7 @@
 import type { Project } from "../config.js";
 import type { HostingAdapter } from "../domain.js";
 import type { Store } from "../store.js";
-import { issueRevision } from "./store.js";
+import { issueRevision, sourceIsStale } from "./policy.js";
 
 export async function syncWorkApprovals(
   id: string,
@@ -33,20 +33,14 @@ export async function syncWorkApprovals(
   if (
     !issue.open ||
     issueRevision(issue) !== source.revision ||
-    work.contract.sourceRevision !== source.revision
+    sourceIsStale(work)
   )
     throw new Error("Source changed; reassess before syncing approval");
   const comments = await hosting.listApprovalComments(source.number);
   let count = 0;
   for (const gate of ["scope", "design"] as const) {
     const { decision } = await store.workItems.inspect(id, project);
-    if (
-      decision.state !==
-      (gate === "scope"
-        ? "awaiting-scope-approval"
-        : "awaiting-design-approval")
-    )
-      continue;
+    if (decision.awaitingGate !== gate) continue;
     const body = `agent-workflows approve ${id} ${gate} ${work.revision}`;
     const comment = comments.find(
       (entry) =>

@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { and, eq, gt, isNull, Param, SQL } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
+import { hasActiveAttempt, nextAttempt, RunAdmission } from "./db/admission.js";
 import { tryLock, unlockAll } from "./db/locks.js";
 import { migrateDatabase } from "./db/migrations.js";
 import * as tables from "./db/schema.js";
 import type { ExecutionRecord, Issue, RunRecord } from "./domain.js";
 import { recoveryUnavailable } from "./recovery.js";
-import { createQueuedReviewRun, createQueuedRun } from "./run-record.js";
+import { createRetryRun } from "./run-record.js";
 import { redactValue } from "./runtime/redaction.js";
 import { WorkStore } from "./work/store.js";
 
@@ -61,6 +62,7 @@ export class Store {
   readonly workItems: WorkStore;
   readonly pool: Pool;
   private readonly db: NodePgDatabase;
+  private readonly admission: RunAdmission;
   private ownership?: PoolClient;
   constructor(
     databaseUrl: string,
@@ -69,7 +71,8 @@ export class Store {
   ) {
     this.pool = new Pool({ connectionString: databaseUrl });
     this.db = drizzle(this.pool);
-    this.workItems = new WorkStore(this.pool, scope, redact);
+    this.admission = new RunAdmission(scope, redact);
+    this.workItems = new WorkStore(this.pool, scope, redact, this.admission);
   }
   async initialize(): Promise<void> {
     await migrateDatabase(this.pool);
@@ -194,26 +197,17 @@ export class Store {
    */
   async admitRetry(runId: string, admission: RetryAdmission): Promise<string> {
     const original = await this.run(runId);
-    const { projects, runs, events } = tables;
-    const projectPredicate = and(
-      eq(projects.scope, this.scope),
-      eq(projects.id, original.projectId),
-    );
     return this.db.transaction(async (tx) => {
-      // Lock the project, not just the original run: retries of different
-      // attempts of the same task must compete for the same admission.
-      const [project] = await tx
-        .select({ id: projects.id })
-        .from(projects)
-        .where(projectPredicate)
-        .for("update");
-      if (!project) throw new Error(`Unknown project: ${original.projectId}`);
+      await this.admission.lockProject(tx, original.projectId);
       if (admission.commandId) {
         const [existing] = await tx
-          .select({ record: runs.record })
-          .from(runs)
+          .select({ record: tables.runs.record })
+          .from(tables.runs)
           .where(
-            and(eq(runs.scope, this.scope), eq(runs.id, admission.commandId)),
+            and(
+              eq(tables.runs.scope, this.scope),
+              eq(tables.runs.id, admission.commandId),
+            ),
           );
         if (existing) {
           if (existing.record.retryOf !== runId)
@@ -223,25 +217,14 @@ export class Store {
           return existing.record.id;
         }
       }
-      const history = await tx
-        .select({ record: runs.record, attempt: runs.attempt })
-        .from(runs)
-        .where(
-          and(eq(runs.scope, this.scope), eq(runs.taskKey, original.taskKey)),
-        )
-        .orderBy(runs.id)
-        .for("update");
+      const history = await this.admission.history(tx, original.taskKey);
       const previous = history.find((row) => row.record.id === runId)?.record;
       if (!previous) throw new Error(`Unknown run: ${runId}`);
       if (!["failed", "blocked", "cancelled"].includes(previous.outcome))
         throw new Error(
           "Only failed, blocked or cancelled runs can be retried",
         );
-      if (
-        history.some(({ record }) =>
-          ["queued", "running"].includes(record.outcome),
-        )
-      )
+      if (hasActiveAttempt(history.map((row) => row.record)))
         throw new Error("This task already has a queued or active retry");
       if (
         previous.subject.kind === "change-request" &&
@@ -249,54 +232,16 @@ export class Store {
       )
         throw new Error("Review run is missing its publication identity");
       const target = await admission.checkSafety(previous);
-      const attempt = Math.max(...history.map((row) => row.attempt)) + 1;
-      const id = admission.commandId ?? randomUUID();
-      const now = new Date().toISOString();
-      const input = {
-        id,
-        projectId: previous.projectId,
+      const retry = createRetryRun(previous, {
+        id: admission.commandId ?? randomUUID(),
         checkout: target.checkout,
-        taskKey: previous.taskKey,
-        attempt,
-        retryOf: previous.id,
-        issue: target.issue ?? previous.subject,
-        now,
+        attempt: nextAttempt(history),
+        issue: target.issue,
+        now: new Date().toISOString(),
         branchTemplate: target.branchTemplate,
-      };
-      const retry =
-        previous.subject.kind === "change-request"
-          ? createQueuedReviewRun({ ...input, request: previous.subject })
-          : createQueuedRun(input);
-      if (previous.work)
-        retry.work = { ...previous.work, changedPaths: undefined };
-      if (previous.subject.kind === "change-request") {
-        retry.reviewPublicationId = previous.reviewPublicationId;
-        retry.review = previous.review;
-        retry.reviewHead = previous.reviewHead;
-      }
-      const persisted = redactValue(retry, this.redact) as RunRecord;
-      // A conflict must fail admission, never return an unpersisted run ID.
-      await tx.insert(runs).values({
-        scope: this.scope,
-        id,
-        taskKey: retry.taskKey,
-        attempt,
-        record: persisted,
       });
-      await tx.update(projects).set({ blocked: null }).where(projectPredicate);
-      await tx.insert(events).values([
-        {
-          scope: this.scope,
-          runId: null,
-          kind: "project",
-          payload: redactValue(
-            { id: previous.projectId, blocked: null },
-            this.redact,
-          ),
-        },
-        { scope: this.scope, runId: id, kind: "run", payload: persisted },
-      ]);
-      return id;
+      await this.admission.insert(tx, retry, { unblock: true });
+      return retry.id;
     });
   }
   /** Persist recovery intent before dispatch; the command ID is its durable DBOS ID. */
@@ -305,26 +250,10 @@ export class Store {
     admission: RecoveryAdmission,
   ): Promise<string> {
     const original = await this.run(runId);
-    const { projects, runs, events } = tables;
-    const projectPredicate = and(
-      eq(projects.scope, this.scope),
-      eq(projects.id, original.projectId),
-    );
+    const { runs, events } = tables;
     return this.db.transaction(async (tx) => {
-      const [project] = await tx
-        .select()
-        .from(projects)
-        .where(projectPredicate)
-        .for("update");
-      if (!project) throw new Error(`Unknown project: ${original.projectId}`);
-      const history = await tx
-        .select({ record: runs.record })
-        .from(runs)
-        .where(
-          and(eq(runs.scope, this.scope), eq(runs.taskKey, original.taskKey)),
-        )
-        .orderBy(runs.id)
-        .for("update");
+      const project = await this.admission.lockProject(tx, original.projectId);
+      const history = await this.admission.history(tx, original.taskKey);
       const previous = history.find(
         ({ record }) => record.id === runId,
       )?.record;

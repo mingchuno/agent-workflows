@@ -273,9 +273,13 @@ Invocation settles only after its work stops. SDK adapters enforce process-group
 lifecycle. `processFile` records controlled subprocess ownership.
 
 `Store.workItems` persists contracts and append-only approvals independently of
-Runs. `inspect` derives readiness, `propose` requires the expected Work revision,
-and `submit` atomically admits one Run for that revision. `submitWork` adds explicit
-recovery safety checks. `syncWorkApprovals` imports authenticated allowed-human
+Runs. `inspect` returns the `evaluateWork` verdict (readiness, source staleness and
+`awaitingGate`), `propose` requires the expected Work revision, and `submit`
+atomically admits one Run for that revision; replaying it returns the latest
+attempt. On a blocked project, `submit` requires a recovery `checkSafety`, such as
+`assertCheckoutReleased`. `workOperator` gives interactive surfaces list, inspect
+and local approval with typed `WorkItemNotFoundError`, `ApprovalForbiddenError` and
+`WorkConflictError`. `syncWorkApprovals` imports authenticated allowed-human
 host comments. See the [task contract](engineering/task-contract.md) and
 [operator guide](engineering/sdlc.md) for gate and credential boundaries.
 

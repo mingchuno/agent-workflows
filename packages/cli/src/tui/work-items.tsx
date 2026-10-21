@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MonitorWorkItem, WorkApproval } from "../web/contracts.js";
+import type { WorkApproval, WorkItemView } from "../web/contracts.js";
 import { tuiRefreshIntervalMs } from "./constants.js";
 import type { MonitorSource } from "./data.js";
 import { ConfirmDialog } from "./dialogs.js";
@@ -20,7 +20,7 @@ export function WorkItemsView({
   rows: number;
   onClose: () => void;
 }) {
-  const [items, setItems] = useState<MonitorWorkItem[]>([]);
+  const [items, setItems] = useState<WorkItemView[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [offset, setOffset] = useState(0);
   const [connected, setConnected] = useState(false);
@@ -75,12 +75,7 @@ export function WorkItemsView({
   );
   const selected =
     visible.find((item) => item.work.id === selectedId) ?? visible[0];
-  const gate =
-    selected?.decision.state === "awaiting-scope-approval"
-      ? "scope"
-      : selected?.decision.state === "awaiting-design-approval"
-        ? "design"
-        : undefined;
+  const gate = selected?.decision.awaitingGate;
   const allowed =
     connected &&
     !pending &&

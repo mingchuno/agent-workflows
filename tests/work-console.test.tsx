@@ -5,13 +5,13 @@ import stringWidth from "string-width";
 import { Monitor } from "../packages/cli/src/tui/index.js";
 import { WorkItemsView } from "../packages/cli/src/tui/work-items.js";
 import type {
-  MonitorWorkItem,
   WorkApproval,
+  WorkItemView,
 } from "../packages/cli/src/web/contracts.js";
 import { workContractSchema } from "../packages/core/src/work/schema.js";
 import { monitorFixture, settle, until } from "./tui-fixtures.js";
 
-function workItem(): MonitorWorkItem {
+function workItem(): WorkItemView {
   return {
     work: {
       id: "work-one",
@@ -37,6 +37,7 @@ function workItem(): MonitorWorkItem {
         { code: "approval", message: "Current scope approval is required" },
       ],
       requiredGates: ["scope"],
+      awaitingGate: "scope",
     },
     approvalSource: "local-operator",
     runIds: [],
@@ -50,7 +51,12 @@ test("terminal monitor opens Work Items and approval starts on Cancel", async ()
   source.workItems = async () => [item];
   source.approveWork = async (id, approval) => {
     approvals.push({ id, approval });
-    item.decision = { ...item.decision, state: "ready", reasons: [] };
+    item.decision = {
+      ...item.decision,
+      state: "ready",
+      reasons: [],
+      awaitingGate: undefined,
+    };
     return item;
   };
   const view = render(

@@ -44,9 +44,9 @@ import { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
 import { syncWorkApprovals } from "./work/approvals.js";
 import { assertWorkAuthorized } from "./work/authorization.js";
+import { issueSource, sourceIsStale } from "./work/policy.js";
 import type { WorkItem } from "./work/schema.js";
-import { issueSource } from "./work/store.js";
-import { ExistingCheckout } from "./workspace.js";
+import { assertCheckoutReleased, ExistingCheckout } from "./workspace.js";
 
 const runnerPollIntervalMs = 100;
 const shutdownPollIntervalMs = 20;
@@ -234,12 +234,7 @@ export class Runner {
         work.id,
         issueSource(project.hosting.provider, current),
       );
-      const fresh = await this.store.workItems.get(work.id);
-      if (
-        fresh.source.kind !== "local" &&
-        fresh.contract.sourceRevision !== fresh.source.revision
-      )
-        return;
+      if (sourceIsStale(await this.store.workItems.get(work.id))) return;
       await syncWorkApprovals(work.id, project, this.store, hosting);
     }
     const inspection = await this.store.workItems.inspect(work.id, project);
@@ -717,10 +712,12 @@ export class Runner {
           throw new Error(
             "Reassess the Work Item source and submit its new revision instead of refreshing an approved run",
           );
-        await assertProcessesStopped(
-          resolve(this.config.stateDirectory, runId),
-        );
-        await (this.options.workspace ?? new ExistingCheckout()).check(project);
+        await assertCheckoutReleased({
+          project,
+          stateDirectory: this.config.stateDirectory,
+          runIds: [runId],
+          workspace: this.options.workspace ?? new ExistingCheckout(),
+        });
         let issue: Issue | undefined;
         if (options.refreshIssue && previous.subject.kind !== "issue")
           throw new Error(

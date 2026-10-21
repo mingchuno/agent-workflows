@@ -7,11 +7,11 @@ import {
 import type { Store } from "../store.js";
 import {
   contentRevision,
+  issueRevision,
   matchesPath,
   reassessChanges,
   workRevision,
 } from "./policy.js";
-import { issueRevision } from "./store.js";
 
 export async function assertWorkAuthorized(
   run: RunRecord,
@@ -31,10 +31,11 @@ export async function assertWorkAuthorized(
     run.work.workItemId,
     project,
   );
+  // The revision digests contract and source, so a pinned copy that still
+  // hashes to the current revision is the contract and source now stored.
   if (
     work.revision !== run.work.revision ||
-    workRevision(run.work.contract, run.work.source) !== work.revision ||
-    contentRevision(work.source) !== contentRevision(run.work.source)
+    workRevision(run.work.contract, run.work.source) !== work.revision
   )
     throw new BlockedError("Work contract or source changed after admission");
   if (work.source.kind === "local") {

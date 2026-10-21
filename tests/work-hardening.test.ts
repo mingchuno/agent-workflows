@@ -18,8 +18,8 @@ import { projectSchema } from "../packages/core/src/config.js";
 import { createQueuedWorkRun } from "../packages/core/src/run-record.js";
 import { Store } from "../packages/core/src/store.js";
 import { syncWorkApprovals } from "../packages/core/src/work/approvals.js";
+import { issueSource } from "../packages/core/src/work/policy.js";
 import { workContractSchema } from "../packages/core/src/work/schema.js";
-import { issueSource } from "../packages/core/src/work/store.js";
 import { repository } from "./fixtures.js";
 import { FixtureHosting } from "./runner-fixtures.js";
 
