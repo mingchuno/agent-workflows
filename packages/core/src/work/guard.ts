@@ -2,6 +2,7 @@ import type { Project } from "../config.js";
 import {
   BlockedError,
   type HostingAdapter,
+  isBlockedError,
   type RunRecord,
 } from "../domain.js";
 import type { Store } from "../store.js";
@@ -13,11 +14,52 @@ import {
   workRevision,
 } from "./policy.js";
 
-export async function assertWorkAuthorized(
+// Steps whose effects the admitted authorization must still cover.
+const guardedSteps = new Set([
+  "eligibility",
+  "prepare",
+  "implementation",
+  "fix",
+  "validation",
+  "review",
+  "publication",
+  "commit",
+  "push",
+  "change-request",
+  "review-publication",
+]);
+
+export function guardsStep(name: string): boolean {
+  return guardedSteps.has(name);
+}
+
+/**
+ * Throw a BlockedError when the Run's effects exceed its admitted
+ * authorization: changed contract or source, disabled policy, a pending gate,
+ * changed paths beyond the track, or incomplete validation before non-draft
+ * publication. Escalating a Work Item Run records a `work-escalated` event.
+ */
+export async function guardWork(
   run: RunRecord,
   project: Project,
-  store: Store,
-  hosting: HostingAdapter,
+  dependencies: { store: Store; hosting: HostingAdapter },
+): Promise<void> {
+  try {
+    await authorize(run, project, dependencies);
+  } catch (error) {
+    if (run.work && isBlockedError(error))
+      await dependencies.store.emit(run.id, "work-escalated", {
+        workItemId: run.work.workItemId,
+        reason: String(error),
+      });
+    throw error;
+  }
+}
+
+async function authorize(
+  run: RunRecord,
+  project: Project,
+  { store, hosting }: { store: Store; hosting: HostingAdapter },
 ): Promise<void> {
   if (run.subject.kind === "change-request") return;
   if (!run.work) {
@@ -67,28 +109,16 @@ export async function assertWorkAuthorized(
   );
   if (reasons.length)
     throw new BlockedError(reasons.map((reason) => reason.message).join("; "));
-  if (run.readiness?.draft === false) {
-    const checks = workValidation(run, project);
-    const results = run.validation ?? [];
-    if (
-      !checks.length ||
-      run.validationStatus !== "passed" ||
-      checks.length !== results.length ||
-      checks.some(
-        (check, index) =>
-          check.command !== results[index]?.command ||
-          contentRevision(check.args) !==
-            contentRevision(results[index]?.args) ||
-          results[index]?.exitCode !== 0,
-      )
-    )
-      throw new BlockedError(
-        "Current required validation differs from completed checks",
-      );
-  }
+  // Resolving the checks also rejects unknown validation profiles early.
+  const complete = validationComplete(run, project);
+  if (run.readiness?.draft === false && !complete)
+    throw new BlockedError(
+      "Current required validation differs from completed checks",
+    );
 }
 
-export function workValidation(
+/** Configured checks plus the contract's and matching risk rules' profiles. */
+export function requiredValidation(
   run: RunRecord,
   project: Project,
 ): Project["validation"] {
@@ -112,4 +142,21 @@ export function workValidation(
     commands.push(...checks);
   }
   return commands;
+}
+
+/** Every required check ran, in order, with its current arguments, and passed. */
+export function validationComplete(run: RunRecord, project: Project): boolean {
+  const checks = requiredValidation(run, project);
+  const results = run.validation ?? [];
+  return (
+    checks.length > 0 &&
+    run.validationStatus === "passed" &&
+    checks.length === results.length &&
+    checks.every(
+      (check, index) =>
+        check.command === results[index]?.command &&
+        contentRevision(check.args) === contentRevision(results[index]?.args) &&
+        results[index]?.exitCode === 0,
+    )
+  );
 }

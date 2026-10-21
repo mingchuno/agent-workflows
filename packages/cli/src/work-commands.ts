@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  admitWork,
   assertCheckoutReleased,
+  BlockedError,
   type Configuration,
   changedPathsSince,
   classifyWork,
@@ -103,10 +105,6 @@ export function registerWorkCommands(
               project.id,
               issueSource(project.hosting.provider, issue),
               contract,
-            );
-            await store.workItems.refreshSource(
-              work.id,
-              issueSource(project.hosting.provider, issue),
             );
             return store.workItems.inspect(work.id, project);
           }
@@ -235,23 +233,13 @@ export function registerWorkCommands(
         options: { project: string; revision: string; recover?: boolean },
       ) =>
         execute(options.project, async (store, project, config) => {
-          const { work } = await store.workItems.inspect(id, project);
-          if (work.source.kind !== "local") {
-            const issue = await createHosting(project).getIssue(
-              work.source.number,
-            );
-            if (!issue.open) throw new Error("Issue is closed");
-            await store.workItems.refreshSource(
-              id,
-              issueSource(project.hosting.provider, issue),
-            );
-          }
-          return {
-            run: await store.workItems.submit(
-              id,
-              options.revision,
-              project,
-              options.recover
+          const admission = await admitWork(
+            id,
+            project,
+            { store, hosting: () => createHosting(project) },
+            {
+              revision: options.revision,
+              recovery: options.recover
                 ? {
                     checkSafety: (related) =>
                       assertCheckoutReleased({
@@ -261,8 +249,11 @@ export function registerWorkCommands(
                       }),
                   }
                 : undefined,
-            ),
-          };
+            },
+          );
+          if (admission.state === "waiting")
+            throw new BlockedError(admission.reason);
+          return { run: admission.run };
         }),
     );
 }

@@ -42,10 +42,9 @@ import { assertStateDirectory } from "./runtime/paths.js";
 import { createRedactor, runtimeLogger } from "./runtime/redaction.js";
 import { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
-import { syncWorkApprovals } from "./work/approvals.js";
-import { assertWorkAuthorized } from "./work/authorization.js";
-import { issueSource, sourceIsStale } from "./work/policy.js";
-import type { WorkItem } from "./work/schema.js";
+import { admitWork } from "./work/admission.js";
+import { guardWork } from "./work/guard.js";
+import { issueSource } from "./work/policy.js";
 import { assertCheckoutReleased, ExistingCheckout } from "./workspace.js";
 
 const runnerPollIntervalMs = 100;
@@ -219,41 +218,6 @@ export class Runner {
         }),
     );
   }
-  private async admitWork(
-    project: Project,
-    hosting: HostingAdapter,
-    work: WorkItem,
-  ): Promise<void> {
-    if (
-      project.sdlc.approvalSource !== "local-operator" &&
-      work.source.kind !== "local"
-    ) {
-      const current = await hosting.getIssue(work.source.number);
-      if (!current.open) return;
-      await this.store.workItems.refreshSource(
-        work.id,
-        issueSource(project.hosting.provider, current),
-      );
-      if (sourceIsStale(await this.store.workItems.get(work.id))) return;
-      await syncWorkApprovals(work.id, project, this.store, hosting);
-    }
-    const inspection = await this.store.workItems.inspect(work.id, project);
-    if (inspection.decision.state !== "ready") return;
-    if (work.source.kind !== "local") {
-      const current = await hosting.getIssue(work.source.number);
-      if (!current.open) return;
-      await this.store.workItems.refreshSource(
-        work.id,
-        issueSource(project.hosting.provider, current),
-      );
-      if (
-        (await this.store.workItems.inspect(work.id, project)).decision
-          .state !== "ready"
-      )
-        return;
-    }
-    await this.store.workItems.submit(work.id, work.revision, project);
-  }
   private async pollProject(project: Project): Promise<void> {
     const state = await this.store.project(project.id);
     if (state.paused || state.blocked || this.stopping) return;
@@ -265,14 +229,10 @@ export class Runner {
       if (this.stopping) return;
       const now = new Date().toISOString();
       if (project.sdlc.enabled) {
-        const work = await this.store.workItems.create(
+        await this.store.workItems.create(
           project.id,
           issueSource(project.hosting.provider, issue),
           { title: issue.title, intent: issue.body || issue.title },
-        );
-        await this.store.workItems.refreshSource(
-          work.id,
-          issueSource(project.hosting.provider, issue),
         );
         continue;
       }
@@ -307,7 +267,10 @@ export class Runner {
           continue;
         // One unreadable or misconfigured item must not starve the others.
         try {
-          await this.admitWork(project, hosting, work);
+          await admitWork(work.id, project, {
+            store: this.store,
+            hosting: () => hosting,
+          });
         } catch (error) {
           await this.store.emit(null, "work-poll-error", {
             projectId: project.id,
@@ -702,12 +665,10 @@ export class Runner {
         if (this.controllers.has(runId))
           throw new Error("Work has not stopped");
         const project = this.projectForRun(previous);
-        await assertWorkAuthorized(
-          previous,
-          project,
-          this.store,
-          this.hosting.get(project.id)!,
-        );
+        await guardWork(previous, project, {
+          store: this.store,
+          hosting: this.hosting.get(project.id)!,
+        });
         if (previous.work && options.refreshIssue)
           throw new Error(
             "Reassess the Work Item source and submit its new revision instead of refreshing an approved run",

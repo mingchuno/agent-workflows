@@ -75,6 +75,10 @@ export class WorkStore {
       ),
     );
   }
+  /**
+   * Intake is idempotent on the source identity: an existing item keeps its
+   * contract and observes the given source, which can change its revision.
+   */
   async create(
     projectId: string,
     inputSource: WorkSource,
@@ -92,7 +96,7 @@ export class WorkStore {
       createdAt: now,
       updatedAt: now,
     };
-    return this.db.transaction(async (tx) => {
+    const stored = await this.db.transaction(async (tx) => {
       const inserted = await tx
         .insert(tables.workItems)
         .values({
@@ -121,6 +125,9 @@ export class WorkStore {
       await tx.insert(tables.events).values(this.event("work-created", work));
       return work;
     });
+    return stored.id === work.id
+      ? stored
+      : this.refreshSource(stored.id, source);
   }
   async get(id: string): Promise<WorkItem> {
     const [row] = await this.db

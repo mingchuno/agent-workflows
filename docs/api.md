@@ -273,14 +273,21 @@ Invocation settles only after its work stops. SDK adapters enforce process-group
 lifecycle. `processFile` records controlled subprocess ownership.
 
 `Store.workItems` persists contracts and append-only approvals independently of
-Runs. `inspect` returns the `evaluateWork` verdict (readiness, source staleness and
+Runs. `create` is idempotent on the source identity; an existing item keeps its
+contract and observes the given source. `inspect` returns the `evaluateWork` verdict (readiness, source staleness and
 `awaitingGate`), `propose` requires the expected Work revision, and `submit`
 atomically admits one Run for that revision; replaying it returns the latest
 attempt. On a blocked project, `submit` requires a recovery `checkSafety`, such as
 `assertCheckoutReleased`. `workOperator` gives interactive surfaces list, inspect
 and local approval with typed `WorkItemNotFoundError`, `ApprovalForbiddenError` and
 `WorkConflictError`. `syncWorkApprovals` imports authenticated allowed-human
-host comments. See the [task contract](engineering/task-contract.md) and
+host comments. `admitWork(id, project, { store, hosting: () => adapter }, { revision?, recovery? })`
+is Work admission: it observes the hosted issue, imports provider approvals and
+submits the observed (or operator-inspected) revision, returning `admitted` with
+the Run or `waiting` with a reason. Workflows guard each effect with
+`guardWork`, which escalates with `BlockedError` and a `work-escalated` event.
+`validationComplete` is the one rule for required SDLC validation, shared by
+Readiness and the guard. See the [task contract](engineering/task-contract.md) and
 [operator guide](engineering/sdlc.md) for gate and credential boundaries.
 
 `HostingAdapter` provides issue and PR/MR pagination/revalidation (`listChanges`/`getChange` return `ReviewRequest`), instance-qualified `identity`, change-request lookup/create, remote head, and idempotent review publication. `preflight` is optional. `publishReview` optionally receives `reviewTarget: { request, labels }` for eligibility and exact diff-reference checks before effects. Reconciliation keys must be stable across response loss; providers must never infer successful publication from agent prose.

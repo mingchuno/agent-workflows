@@ -7,6 +7,7 @@ export * from "./prompts.js";
 export * from "./review-positions.js";
 export * from "./runner.js";
 export * from "./store.js";
+export * from "./work/admission.js";
 export * from "./work/approvals.js";
 export * from "./work/classify.js";
 export * from "./work/errors.js";

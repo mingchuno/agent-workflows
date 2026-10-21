@@ -31,6 +31,11 @@ Recorded human authorization of a scope or design digest. Scope excludes the
 design, so design authoring preserves approved scope. Design binds the whole
 contract. Source edits require reassessment and can invalidate both gates.
 
+**Work admission**:
+Observing a Work Item's hosted source, importing provider approvals, and
+submitting the observed revision as a Run once policy reports it ready. A closed
+issue, a source needing reassessment, or a missing gate leaves the item waiting.
+
 **Escalation**:
 Execution stops because current policy, source evidence, or actual changed paths
 exceed the admitted authorization. Completed work and evidence remain inspectable.

@@ -31,24 +31,16 @@ import { prepareReviewPositions } from "./review-positions.js";
 import { CommandTimeoutError, command } from "./runtime/process.js";
 import type { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
-import { assertWorkAuthorized, workValidation } from "./work/authorization.js";
+import {
+  guardsStep,
+  guardWork,
+  requiredValidation,
+  validationComplete,
+} from "./work/guard.js";
 
 export type { InvocationTask } from "./invocation.js";
 
 const maxStepAttempts = 3;
-const authorizedSteps = new Set([
-  "eligibility",
-  "prepare",
-  "implementation",
-  "fix",
-  "validation",
-  "review",
-  "publication",
-  "commit",
-  "push",
-  "change-request",
-  "review-publication",
-]);
 
 export interface OperationDependencies {
   executionEnvironment?: NodeJS.ProcessEnv;
@@ -94,24 +86,12 @@ export class Operations {
             throw new BlockedError(
               "Configured checkout differs from the recorded run checkout",
             );
-          if (authorizedSteps.has(name)) {
-            try {
-              await assertWorkAuthorized(
-                run,
-                this.dependencies.currentProject?.() ??
-                  this.dependencies.project,
-                store,
-                this.dependencies.hosting,
-              );
-            } catch (error) {
-              if (run.work)
-                await store.emit(run.id, "work-escalated", {
-                  workItemId: run.work.workItemId,
-                  reason: String(error),
-                });
-              throw error;
-            }
-          }
+          if (guardsStep(name))
+            await guardWork(
+              run,
+              this.dependencies.currentProject?.() ?? this.dependencies.project,
+              { store, hosting: this.dependencies.hosting },
+            );
           const result = await operation(run);
           await store.emit(this.runId, "step", {
             name,
@@ -167,7 +147,6 @@ export class Operations {
         await this.dependencies.store.patchRun(run.id, {
           validationProfile: run.work.contract.verification.profile,
         });
-        workValidation(run, project);
         return project.workflows.implementation.enabled;
       }
       if (
@@ -369,7 +348,7 @@ Blocking threshold: ${this.dependencies.project.workflows.implementation.review.
       const directory = join(this.dependencies.artifacts, run.id);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const checks = run.work
-        ? workValidation(run, project)
+        ? requiredValidation(run, project)
         : selectValidation(run.subject.body, project).commands;
       for (const [index, check] of checks.entries()) {
         const startedAt = new Date().toISOString();
@@ -635,12 +614,7 @@ Set complete=false and explain limitations when inspection is incomplete. Assign
       if (run.validation?.some((check) => check.exitCode !== 0))
         reasons.push("Configured validation failed");
       if (run.work) {
-        const checks = workValidation(run, this.dependencies.project);
-        if (
-          !checks.length ||
-          run.validationStatus !== "passed" ||
-          run.validation?.length !== checks.length
-        )
+        if (!validationComplete(run, this.dependencies.project))
           reasons.push("Configured validation is incomplete");
         if (run.work.contract.verification.manualChecks.length)
           reasons.push("Manual verification remains for the operator");
