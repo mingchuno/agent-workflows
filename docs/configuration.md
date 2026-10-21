@@ -178,6 +178,11 @@ checked when the runner starts.
 
 ### Workflows
 
+Projects can opt into adaptive engineering intake with `sdlc.enabled`. The
+[SDLC operator guide](engineering/sdlc.md) covers tracks, protected path rules,
+local tasks, validation profiles, and human approval sources. SDLC settings
+inherit through `projectBase`; projects without opt-in retain label-based intake.
+
 Both workflows share one project checkout and serial queue. Configure intake under
 `workflows`; configure agent instructions, profiles, and deadlines under `stages`.
 

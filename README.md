@@ -6,6 +6,11 @@ A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues i
 
 Supports Codex and Copilot SDKs, GitHub, and GitLab.com/self-hosted GitLab. Human review and merging remain separate.
 
+Opt-in [adaptive SDLC](docs/engineering/sdlc.md) adds local or issue-backed Work
+Items, deterministic Track A/B/C policy, revision-bound human approvals, and a
+shared `start-work` intake skill. The existing worker executes approved work.
+See the [task contract](docs/engineering/task-contract.md) for schemas and gates.
+
 ## When to use it
 
 DBOS provides durable execution, checkpoints and queues. This SDK supplies the

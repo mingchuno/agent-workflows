@@ -12,11 +12,17 @@ Authenticate the selected local agent runtime before starting. Codex SDK uses th
 | Runtime context controls                    | Rejected                                                             | Compaction/exhaustion utilization fractions                       |
 | Structured publication/review               | Application JSON schema validation                                   | Application JSON schema validation                                |
 | Session ID                                  | `thread.started` event                                               | Session creation response                                         |
-| All stage permissions | Workspace-write sandbox; approval policy `never` | Implementation permission handler; reads, shell and writes approved except managed approvals |
+| Implementation and legacy publication permissions | Workspace-write sandbox; approval policy `never` | Reads, shell and writes approved except managed approvals |
+| Review and SDLC publication permissions | Read-only sandbox, network and web search disabled | Read tools and fixed Git inspection tool; shell, writes and external tools rejected |
 | Cancellation                                | Owned worker process group, TERM then KILL                           | Owned worker process group, TERM then KILL                        |
 | Inspection/resumption                       | Saved thread ID; SDK `resumeThread` supports local persisted threads | Saved session ID; SDK `resumeSession` supports persisted sessions |
 
-All stages use implementation-level permissions. Copilot permission approvals are not an operating-system sandbox. Publication, review and format correction are instructed to preserve source, index, branch and revision; checkout checks reject mutation after invocation. Use runtime-writable scratch directories or ignored paths for temporary command output. Run selected issues and skills with the permissions of the local runtime account.
+Review starts with restricted permissions. SDLC publication also starts in a fresh
+restricted session. Legacy publication retains the configured implementation
+session behavior. Checkout checks reject source, index, branch or revision
+mutation during preserved stages and format correction. Copilot tool permissions
+are not an operating-system sandbox. Run selected issues and skills with the
+permissions of the local runtime account.
 
 The runner deliberately does not automatically resume interrupted agent work. Runtime session existence does not establish whether old processes are still writing. Use runtime-specific tools/SDKs to inspect sessions after stopping the runner and establishing ownership; there is no universal session-opening command.
 
@@ -27,6 +33,13 @@ workers through the runner's process environment. SDK callers get the same
 inheritance from their own process environment. The installed Codex SDK forwards
 that environment to its executable; Copilot uses it for its local runtime, with
 SDK-specific adjustments such as removing `NODE_DEBUG`.
+
+For [SDLC Work Items](engineering/sdlc.md), agent and validation environments omit
+the configured database and hosting credential variables, including aliases with
+equal values. Git and hosting publication remain runner-owned. Separate model
+credentials or stored runtime login are required when a hosting token would
+otherwise supply model authentication. Environment filtering does not isolate
+same-account files or parent processes.
 
 Commands launched inside a provider remain subject to its runtime configuration.
 For example, Codex's [shell environment policy](https://developers.openai.com/codex/config-advanced/#shell-environment-policy)

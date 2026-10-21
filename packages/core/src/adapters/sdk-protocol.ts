@@ -12,8 +12,11 @@ import type {
 import type { AgentProfile } from "../config.js";
 import { defaultStageTimeoutMs } from "../defaults.js";
 import { copilotResponseSchema } from "./copilot-schema.js";
+import { inspectionTool, mayReadPath } from "./inspection.js";
 
 export interface WorkerInput {
+  permissionMode?: "read-only" | "workspace-write";
+  inspectionBase?: string;
   provider: "codex" | "copilot";
   operation: string;
   id: string;
@@ -46,7 +49,10 @@ export async function runCodex(
     model: input.profile.model,
     modelReasoningEffort: input.profile
       .reasoningEffort as ThreadOptions["modelReasoningEffort"],
-    sandboxMode: "workspace-write",
+    sandboxMode: input.permissionMode ?? "workspace-write",
+    ...(input.permissionMode === "read-only"
+      ? { networkAccessEnabled: false, webSearchMode: "disabled" as const }
+      : {}),
     approvalPolicy: "never",
   };
   const thread = input.resumeSessionId
@@ -112,6 +118,32 @@ export async function runCopilot(
       return;
     }
     const options: SessionConfig = {
+      ...(input.permissionMode === "read-only"
+        ? {
+            enableConfigDiscovery: false,
+            availableTools: [
+              "view",
+              "read_file",
+              "glob",
+              "grep",
+              "inspect_git",
+            ],
+            tools: [inspectionTool(input.cwd, input.inspectionBase)],
+            hooks: {
+              onPreToolUse: async (request) => ({
+                permissionDecision: [
+                  "view",
+                  "read_file",
+                  "glob",
+                  "grep",
+                  "inspect_git",
+                ].includes(request.toolName)
+                  ? ("allow" as const)
+                  : ("deny" as const),
+              }),
+            },
+          }
+        : {}),
       model: input.profile.model,
       reasoningEffort: input.profile
         .reasoningEffort as SessionConfig["reasoningEffort"],
@@ -120,7 +152,10 @@ export async function runCopilot(
         ? { enabled: true, ...input.profile.context }
         : undefined,
       onPermissionRequest: async (request) =>
-        request.managedApprovalRequired
+        request.managedApprovalRequired ||
+        (input.permissionMode === "read-only" &&
+          (request.kind !== "read" ||
+            !(await mayReadPath(input.cwd, request.path))))
           ? { kind: "reject" }
           : { kind: "approve-once" },
     };

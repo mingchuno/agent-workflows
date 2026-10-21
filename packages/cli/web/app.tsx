@@ -7,12 +7,16 @@ import styles from "./app.module.css";
 import { ConfigurationView } from "./configuration.js";
 import { executionDuration, reference } from "./format.js";
 import { selectMonitorRuns } from "./selection.js";
+import { WorkItemsView } from "./work-items.js";
 import { RunWorkspace } from "./workspace.js";
 
 const fixturePreview = import.meta.env.VITE_MONITOR_FIXTURES === "true";
 
 export function App() {
-  const [showConfiguration, setShowConfiguration] = useState(false);
+  const [view, setView] = useState<"projects" | "configuration" | "work-items">(
+    "projects",
+  );
+  const showConfiguration = view === "configuration";
   const [runPickerExpanded, setRunPickerExpanded] = useState(false);
   const runPickerToggle = useRef<HTMLButtonElement>(null);
   const [projectId, setProjectId] = useState<string>();
@@ -42,7 +46,7 @@ export function App() {
   }, [selectedProjectId, selectedRunId]);
   const unavailable = fixturePreview || snapshot.isError || !snapshot.data;
   return (
-    <div className={styles.shell} data-configuration={showConfiguration}>
+    <div className={styles.shell} data-configuration={view !== "projects"}>
       <a className={styles.skip} href="#workspace">
         Skip to workspace
       </a>
@@ -55,8 +59,8 @@ export function App() {
           <button
             type="button"
             className={styles.project}
-            aria-current={!showConfiguration ? "page" : undefined}
-            onClick={() => setShowConfiguration(false)}
+            aria-current={view === "projects" ? "page" : undefined}
+            onClick={() => setView("projects")}
           >
             Projects
           </button>
@@ -64,9 +68,17 @@ export function App() {
             type="button"
             className={styles.project}
             aria-current={showConfiguration ? "page" : undefined}
-            onClick={() => setShowConfiguration(true)}
+            onClick={() => setView("configuration")}
           >
             Configuration
+          </button>
+          <button
+            type="button"
+            className={styles.project}
+            aria-current={view === "work-items" ? "page" : undefined}
+            onClick={() => setView("work-items")}
+          >
+            Work Items
           </button>
         </nav>
         {!showConfiguration && (
@@ -102,7 +114,7 @@ export function App() {
       <aside
         className={styles.runPane}
         aria-label="Runs"
-        hidden={showConfiguration}
+        hidden={view !== "projects"}
         data-expanded={runPickerExpanded}
       >
         <div className={styles.runHeading}>
@@ -191,7 +203,9 @@ export function App() {
           <span>
             {showConfiguration
               ? "Active configuration"
-              : (project?.id ?? "Connecting")}
+              : view === "work-items"
+                ? "Work Items"
+                : (project?.id ?? "Connecting")}
           </span>
           <span className={styles.connection}>
             {snapshot.isError
@@ -250,6 +264,8 @@ export function App() {
             reloadDisabled={unavailable || commands.pending}
             onReload={() => commands.submit({ kind: "reload", target: "" })}
           />
+        ) : view === "work-items" ? (
+          <WorkItemsView projectId={project?.id} disabled={unavailable} />
         ) : run ? (
           <RunWorkspace
             key={run.id}

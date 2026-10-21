@@ -1,6 +1,11 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { userInfo } from "node:os";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { Store } from "@mingchuno/agent-workflows-core";
+import type {
+  Project,
+  RunRecord,
+  Store,
+} from "@mingchuno/agent-workflows-core";
 import { configurationJson } from "@mingchuno/agent-workflows-core";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -14,7 +19,7 @@ import {
 } from "../cli-runner-control.js";
 import { discoverRuns, runFilters } from "../monitor/discovery.js";
 import { webAssetDirectory } from "./assets.js";
-import { monitorCommandSchema } from "./contracts.js";
+import { monitorCommandSchema, workApprovalSchema } from "./contracts.js";
 import { MonitorEvidence } from "./evidence.js";
 import type { WebStartup } from "./lifecycle.js";
 
@@ -160,6 +165,137 @@ export function monitorServer(store: Store, startup: WebStartup) {
   app.get("/api/runs/:id", async (context) =>
     context.json(await evidence.detail(context.req.param("id"))),
   );
+  const workProject = async (id: string) => {
+    const work = await store.workItems.get(id).catch((error) => {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("Unknown work item:")
+      )
+        throw new HTTPException(404, { message: "Work item not found" });
+      throw error;
+    });
+    if (!startup.projectIds.includes(work.projectId))
+      throw new HTTPException(404, { message: "Work item not found" });
+    const configuration = await readActiveConfiguration(
+      startup.configPath,
+      startup.scope,
+    );
+    const project = configuration.projects.find(
+      (item) => item.id === work.projectId && item.sdlc.enabled,
+    );
+    if (!project)
+      throw new HTTPException(404, { message: "SDLC project not found" });
+    return project;
+  };
+  const inspectWork = async (
+    id: string,
+    project?: Project,
+    runs?: RunRecord[],
+  ) => {
+    project ??= await workProject(id);
+    const inspection = await store.workItems.inspect(id, project);
+    const runIds = (runs ?? (await store.runs()))
+      .filter(
+        (run) => run.projectId === project.id && run.work?.workItemId === id,
+      )
+      .map((run) => run.id);
+    return {
+      ...inspection,
+      approvalSource: project.sdlc.approvalSource,
+      runIds,
+    };
+  };
+  app.get("/api/work-items", async (context) => {
+    const configuration = await readActiveConfiguration(
+      startup.configPath,
+      startup.scope,
+    );
+    const projects = configuration.projects.filter(
+      (project) =>
+        startup.projectIds.includes(project.id) && project.sdlc.enabled,
+    );
+    const items = [];
+    const runs = await store.runs();
+    for (const project of projects) {
+      for (const work of await store.workItems.list(project.id))
+        items.push(await inspectWork(work.id, project, runs));
+    }
+    return context.json({ items });
+  });
+  app.get("/api/work-items/:id", async (context) =>
+    context.json(await inspectWork(context.req.param("id"))),
+  );
+  app.use("/api/work-items/:id/approve", bodyLimit({ maxSize: 4096 }));
+  app.post("/api/work-items/:id/approve", async (context) => {
+    const parsed = workApprovalSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success)
+      return context.json(
+        { error: "Provide a scope or design gate and the inspected revision" },
+        400,
+      );
+    const id = context.req.param("id");
+    const project = await workProject(id);
+    if (project.sdlc.approvalSource !== "local-operator")
+      return context.json(
+        {
+          error:
+            "This project requires authenticated allowed-human approval from its configured host",
+        },
+        403,
+      );
+    const operator = userInfo().username;
+    if (
+      project.sdlc.approvers.length &&
+      !project.sdlc.approvers.includes(operator)
+    )
+      return context.json(
+        {
+          error:
+            "This local operator is not an allowed approver for the project",
+        },
+        403,
+      );
+    const { work, decision } = await store.workItems.inspect(id, project);
+    if (work.revision !== parsed.data.revision)
+      return context.json(
+        {
+          error:
+            "Work revision changed. Inspect the current contract before approving.",
+        },
+        409,
+      );
+    const requiredState =
+      parsed.data.gate === "scope"
+        ? "awaiting-scope-approval"
+        : "awaiting-design-approval";
+    if (decision.state !== requiredState)
+      return context.json(
+        {
+          error:
+            "This gate is no longer awaiting approval. Refresh the Work Item.",
+        },
+        409,
+      );
+    try {
+      await store.workItems.approve(
+        id,
+        parsed.data.revision,
+        parsed.data.gate,
+        { approvedBy: operator, source: "local-operator" },
+        project,
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /revision changed|Source changed/.test(error.message)
+      )
+        return context.json({ error: error.message }, 409);
+      throw error;
+    }
+    return context.json(await inspectWork(id));
+  });
   app.get("/api/runs/:id/log", async (context) => {
     const parsed = logQuerySchema.safeParse(context.req.query());
     if (!parsed.success)

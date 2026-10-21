@@ -9,6 +9,7 @@ import type { ExecutionRecord, Issue, RunRecord } from "./domain.js";
 import { recoveryUnavailable } from "./recovery.js";
 import { createQueuedReviewRun, createQueuedRun } from "./run-record.js";
 import { redactValue } from "./runtime/redaction.js";
+import { WorkStore } from "./work/store.js";
 
 export interface EventRecord {
   sequence: number;
@@ -57,6 +58,7 @@ interface RecoveryAdmission {
 }
 /** Public persisted query surface. All queries work without a running executor. */
 export class Store {
+  readonly workItems: WorkStore;
   readonly pool: Pool;
   private readonly db: NodePgDatabase;
   private ownership?: PoolClient;
@@ -67,6 +69,7 @@ export class Store {
   ) {
     this.pool = new Pool({ connectionString: databaseUrl });
     this.db = drizzle(this.pool);
+    this.workItems = new WorkStore(this.pool, scope, redact);
   }
   async initialize(): Promise<void> {
     await migrateDatabase(this.pool);
@@ -264,6 +267,8 @@ export class Store {
         previous.subject.kind === "change-request"
           ? createQueuedReviewRun({ ...input, request: previous.subject })
           : createQueuedRun(input);
+      if (previous.work)
+        retry.work = { ...previous.work, changedPaths: undefined };
       if (previous.subject.kind === "change-request") {
         retry.reviewPublicationId = previous.reviewPublicationId;
         retry.review = previous.review;
@@ -437,7 +442,8 @@ export class Store {
       .sort(
         (a, b) =>
           a.record.createdAt.localeCompare(b.record.createdAt) ||
-          a.record.subject.number - b.record.subject.number ||
+          ("number" in a.record.subject ? a.record.subject.number : 0) -
+            ("number" in b.record.subject ? b.record.subject.number : 0) ||
           a.attempt - b.attempt ||
           a.id.localeCompare(b.id),
       )

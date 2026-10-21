@@ -113,6 +113,8 @@ export class SDKAgent implements AgentAdapter {
     return this.worker(
       {
         operation: "invoke",
+        permissionMode: invocation.permissionMode,
+        inspectionBase: invocation.inspectionBase,
         id: invocation.id,
         cwd: invocation.cwd,
         prompt: invocation.prompt,
@@ -162,6 +164,7 @@ export class SDKAgent implements AgentAdapter {
         ],
         {
           cwd: invocation?.cwd ?? process.cwd(),
+          env: invocation?.environment,
           signal: AbortSignal.any([
             persistenceFailure.signal,
             ...(signal ? [signal] : []),

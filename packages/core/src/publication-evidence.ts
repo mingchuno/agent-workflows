@@ -25,6 +25,20 @@ export function withDeliveryEvidence(
       run.readiness.draft
         ? "Draft: further work is required."
         : "Ready for human review.",
+      ...(run.work
+        ? [
+            `Work Item: ${run.work.workItemId} (Track ${run.work.track})`,
+            `Contract revision: ${run.work.revision}`,
+            `Intent: ${run.work.contract.intent}`,
+            "Acceptance criteria:",
+            ...run.work.contract.acceptanceCriteria.map(
+              (criterion) => `- ${criterion}`,
+            ),
+            ...run.work.contract.verification.manualChecks.map(
+              (check) => `Operator check remaining: ${check}`,
+            ),
+          ]
+        : []),
       ...run.readiness.reasons,
       `Configured checks: ${run.validation?.length ? run.validation.map((check) => `${check.command} ${check.args.join(" ")}: exit ${check.exitCode}`).join("; ") : "not configured (skipped)"}`,
       `Agent-reported checks (not workflow-executed): ${JSON.stringify(run.agentReport?.validation ?? [])}`,

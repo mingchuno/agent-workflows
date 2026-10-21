@@ -195,6 +195,19 @@ export class GitHubHosting implements HostingAdapter {
       open: data.state === "open" && !data.pull_request,
     };
   }
+  async listApprovalComments(number: number) {
+    const comments = await this.client.paginate(
+      this.client.issues.listComments,
+      { ...this.repo, issue_number: number, per_page: hostingPageSize },
+    );
+    return comments.map((comment) => ({
+      id: String(comment.id),
+      body: comment.body ?? "",
+      author: comment.user?.login ?? "",
+      human: comment.user?.type === "User",
+      url: comment.html_url,
+    }));
+  }
   async findChange(branch: string): Promise<ChangeRequest | undefined> {
     const changes = await this.client.paginate(this.client.pulls.list, {
       ...this.repo,
@@ -217,7 +230,7 @@ export class GitHubHosting implements HostingAdapter {
       head: input.branch,
       base: input.base,
       title: input.publication.title,
-      body: `${input.publication.description}\n\nRefs ${input.issue.url}\n${marker(input.runId)}`,
+      body: `${input.publication.description}\n\n${"url" in input.issue ? `Refs ${input.issue.url}\n` : ""}${marker(input.runId)}`,
       draft: input.draft,
     });
     return { id: data.number, url: data.html_url, head: data.head.sha };
@@ -361,6 +374,21 @@ export class GitLabHosting implements HostingAdapter {
       open: issue.state === "opened",
     };
   }
+  async listApprovalComments(number: number) {
+    const notes = await this.client.IssueNotes.all(this.repository, number, {
+      perPage: hostingPageSize,
+    });
+    const issue = await this.getIssue(number);
+    return notes
+      .filter((note) => !note.system)
+      .map((note) => ({
+        id: String(note.id),
+        body: note.body,
+        author: note.author.username,
+        human: note.author.bot !== true,
+        url: `${issue.url}#note_${note.id}`,
+      }));
+  }
   async findChange(branch: string): Promise<ChangeRequest | undefined> {
     const changes = await this.client.MergeRequests.all({
       projectId: this.repository,
@@ -385,7 +413,7 @@ export class GitLabHosting implements HostingAdapter {
         ? `Draft: ${readyTitle(input.publication.title)}`
         : readyTitle(input.publication.title),
       {
-        description: `${input.publication.description}\n\nRefs ${input.issue.url}\n${marker(input.runId)}`,
+        description: `${input.publication.description}\n\n${"url" in input.issue ? `Refs ${input.issue.url}\n` : ""}${marker(input.runId)}`,
         removeSourceBranch: false,
       },
     );

@@ -9,6 +9,7 @@ import type {
   ReviewRequest,
 } from "../packages/core/src/domain.js";
 export class FixtureHosting implements HostingAdapter {
+  listApprovalComments?: HostingAdapter["listApprovalComments"];
   identity = "https://fixture.invalid/a/b";
   changes: ChangeRequest[] = [];
   branches = new Map<string, ChangeRequest>();

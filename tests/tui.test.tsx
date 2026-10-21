@@ -702,6 +702,7 @@ test("overview explains action restrictions and exact diagnostics remain accessi
   const { source, run } = monitorFixture();
   run.outcome = run.executions![0]!.outcome = "failed";
   run.error = "Error: concise failure\ncomplete diagnostic evidence";
+  assert.ok(run.subject.kind !== "local");
   run.subject.url = "https://example.test/issues/1?exact=yes";
   const view = render(<Monitor source={source} size={designTarget} />);
   try {

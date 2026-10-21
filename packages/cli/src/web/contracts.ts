@@ -3,6 +3,7 @@ import type {
   InvocationRecord,
   ProjectState,
   RunRecord,
+  SdlcPolicy,
   Store,
 } from "@mingchuno/agent-workflows-core";
 import { z } from "zod";
@@ -21,6 +22,20 @@ export const monitorCommandSchema = z.strictObject({
   target: z.string().max(256),
 });
 export type MonitorCommand = z.infer<typeof monitorCommandSchema>;
+export const workApprovalSchema = z.strictObject({
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  gate: z.enum(["scope", "design"]),
+});
+export type WorkApproval = z.infer<typeof workApprovalSchema>;
+export type MonitorWorkItem = Awaited<
+  ReturnType<Store["workItems"]["inspect"]>
+> & {
+  approvalSource: SdlcPolicy["approvalSource"];
+  runIds: string[];
+};
+export interface WorkItemsSnapshot {
+  items: MonitorWorkItem[];
+}
 export interface MonitorSnapshot {
   projects: ProjectState[];
   runs: RunRecord[];

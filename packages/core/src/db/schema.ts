@@ -11,8 +11,29 @@ import {
 } from "drizzle-orm/pg-core";
 import type { RunRecord } from "../domain.js";
 import type { InvocationRecord } from "../store.js";
+import type { ApprovalRecord, WorkItem } from "../work/schema.js";
 
 export const application = pgSchema("agent_workflows");
+export const workItems = application.table(
+  "work_items",
+  {
+    scope: text().notNull(),
+    id: text().notNull(),
+    projectId: text("project_id").notNull(),
+    sourceKey: text("source_key").notNull(),
+    record: jsonb().$type<WorkItem>().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scope, table.id] }),
+    unique("work_source_key").on(table.scope, table.projectId, table.sourceKey),
+  ],
+);
+export const workApprovals = application.table("work_approvals", {
+  scope: text().notNull(),
+  id: text().primaryKey(),
+  workItemId: text("work_item_id").notNull(),
+  record: jsonb().$type<ApprovalRecord>().notNull(),
+});
 export const projects = application.table(
   "projects",
   {

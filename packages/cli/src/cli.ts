@@ -2,6 +2,7 @@
 
 import { realpathSync, statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import { userInfo } from "node:os";
 import { basename, dirname, relative, resolve } from "node:path";
 import {
   type Configuration,
@@ -33,6 +34,7 @@ import {
 import { createTerminalNotificationWriter, Monitor } from "./tui/index.js";
 import { defaultWebPort } from "./web/contracts.js";
 import { startWebMonitor } from "./web/lifecycle.js";
+import { registerWorkCommands } from "./work-commands.js";
 
 const launchDirectory = process.cwd();
 const packageVersion: string = JSON.parse(
@@ -420,6 +422,64 @@ program
       await render(
         React.createElement(Monitor, {
           source: {
+            workItems: async () => {
+              const active = await readActiveConfiguration(
+                configPath(),
+                config.id,
+              );
+              const runs = await store.runs();
+              const items = [];
+              for (const project of active.projects.filter(
+                (item) =>
+                  item.sdlc.enabled &&
+                  config.projects.some((selected) => selected.id === item.id),
+              )) {
+                for (const work of await store.workItems.list(project.id))
+                  items.push({
+                    ...(await store.workItems.inspect(work.id, project)),
+                    approvalSource: project.sdlc.approvalSource,
+                    runIds: runs
+                      .filter((run) => run.work?.workItemId === work.id)
+                      .map((run) => run.id),
+                  });
+              }
+              return items;
+            },
+            approveWork: async (id, approval) => {
+              const active = await readActiveConfiguration(
+                configPath(),
+                config.id,
+              );
+              const work = await store.workItems.get(id);
+              const project = active.projects.find(
+                (item) =>
+                  item.id === work.projectId &&
+                  item.sdlc.enabled &&
+                  config.projects.some((selected) => selected.id === item.id),
+              );
+              if (!project)
+                throw new Error(
+                  "Work item is outside the selected SDLC projects",
+                );
+              if (project.sdlc.approvalSource !== "local-operator")
+                throw new Error(
+                  "This project requires authenticated allowed-human approval through its configured host",
+                );
+              await store.workItems.approve(
+                id,
+                approval.revision,
+                approval.gate,
+                { approvedBy: userInfo().username, source: "local-operator" },
+                project,
+              );
+              return {
+                ...(await store.workItems.inspect(id, project)),
+                approvalSource: project.sdlc.approvalSource,
+                runIds: (await store.runs())
+                  .filter((run) => run.work?.workItemId === id)
+                  .map((run) => run.id),
+              };
+            },
             projects: async () =>
               (await store.projects()).filter((project) =>
                 config.projects.some((active) => active.id === project.id),
@@ -444,6 +504,11 @@ program
       ).waitUntilExit();
     });
   });
+registerWorkCommands(program, {
+  pathBaseDirectory: configBaseDirectory,
+  configuration,
+  withStore: withConfiguredStore,
+});
 try {
   await program.parseAsync();
 } catch (error) {

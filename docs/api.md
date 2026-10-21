@@ -155,7 +155,9 @@ see [recovery rules](operations.md#publication-recovery) and
 
 `task` separates `defaultPrompt` from an optional `context(run)` supplier.
 Optional `preserveCheckout` rejects source/index/branch/revision mutation after
-the invocation; it does not restrict tool permissions. `resumeSessionId` selects
+the invocation. Built-in review and preserved SDLC stages also request restricted
+tool permissions. Other custom stages retain their existing permission behavior.
+`resumeSessionId` selects
 a persisted session; omission starts fresh. Zod `outputContract` validates the
 response. Stage overrides replace only `defaultPrompt`. Custom stages have no
 inferred built-in default; resolve file-based custom stages before invocation
@@ -259,7 +261,23 @@ Caveats:
 
 `prepare`, `prepareReview`, `commit` and `push` receive an optional final `AbortSignal`. Custom workspaces must stop their subprocesses before settling a cancelled operation. The existing-checkout strategy journals Git processes under the Git directory; ownership acquisition rejects surviving process groups after a runner crash.
 
-`AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)` receives working directory, prompt, optional application-owned `outputSchema`, optional `resumeSessionId`, abort signal, stage `timeoutMs` and session/event callbacks. All invocations receive implementation-level permissions. The abort signal also covers cancellation and time spent validating the profile. Honor `resumeSessionId` without silently creating a new session. Call `session(id)` immediately when available, using the requested ID when resuming. Await event persistence; invocation must not settle until its work has stopped. SDK adapters enforce process-group lifecycle; custom adapters must uphold the same contract. `processFile` is available for controlled subprocess ownership.
+`AgentAdapter.validate(profile)` returns observable effective settings. `invoke(input)`
+receives working directory, prompt, optional application-owned `outputSchema`,
+optional `resumeSessionId`, abort signal, stage `timeoutMs`, and session/event
+callbacks. Honor `permissionMode`, `inspectionBase`, and the supplied `environment`.
+SDLC environments omit runner control credentials. Built-in review and SDLC
+publication request read-only permissions. The abort signal covers cancellation
+and profile validation. Honor `resumeSessionId` without silently starting a new
+session. Call `session(id)` immediately when available and await event persistence.
+Invocation settles only after its work stops. SDK adapters enforce process-group
+lifecycle. `processFile` records controlled subprocess ownership.
+
+`Store.workItems` persists contracts and append-only approvals independently of
+Runs. `inspect` derives readiness, `propose` requires the expected Work revision,
+and `submit` atomically admits one Run for that revision. `submitWork` adds explicit
+recovery safety checks. `syncWorkApprovals` imports authenticated allowed-human
+host comments. See the [task contract](engineering/task-contract.md) and
+[operator guide](engineering/sdlc.md) for gate and credential boundaries.
 
 `HostingAdapter` provides issue and PR/MR pagination/revalidation (`listChanges`/`getChange` return `ReviewRequest`), instance-qualified `identity`, change-request lookup/create, remote head, and idempotent review publication. `preflight` is optional. `publishReview` optionally receives `reviewTarget: { request, labels }` for eligibility and exact diff-reference checks before effects. Reconciliation keys must be stable across response loss; providers must never infer successful publication from agent prose.
 Hosting adapters receive `ReviewPositions` with validated added-line locations

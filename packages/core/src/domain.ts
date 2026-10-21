@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AgentProfile, Project } from "./config.js";
+import type { WorkExecution } from "./work/schema.js";
 
 export interface Issue {
   id: string;
@@ -26,8 +27,16 @@ export interface ReviewRequest extends Issue {
 }
 export type RunSubject =
   | (Issue & { kind: "issue" })
+  | LocalSubject
   | (ReviewRequest & { kind: "change-request" });
+export interface LocalSubject {
+  kind: "local";
+  id: string;
+  title: string;
+  body: string;
+}
 export function subjectReference(subject: RunSubject): string {
+  if (subject.kind === "local") return `Local ${subject.id}`;
   return `${subject.kind === "change-request" ? "Review " : ""}#${subject.number}`;
 }
 export class StaleReviewError extends Error {
@@ -149,6 +158,15 @@ export interface Workspace {
   release(project: Project): Promise<void>;
 }
 export interface HostingAdapter {
+  listApprovalComments?(number: number): Promise<
+    Array<{
+      id: string;
+      body: string;
+      author: string;
+      human: boolean;
+      url: string;
+    }>
+  >;
   identity: string;
   preflight?(): Promise<void>;
   listChanges(labels: string[]): Promise<ReviewRequest[]>;
@@ -160,7 +178,7 @@ export interface HostingAdapter {
     branch: string;
     base: string;
     head: string;
-    issue: Issue;
+    issue: Issue | LocalSubject;
     publication: Publication;
     runId: string;
     draft: boolean;
@@ -176,6 +194,9 @@ export interface HostingAdapter {
   }): Promise<void>;
 }
 export interface AgentInvocation {
+  environment?: NodeJS.ProcessEnv;
+  permissionMode?: "read-only" | "workspace-write";
+  inspectionBase?: string;
   id: string;
   runId: string;
   step: string;
@@ -231,6 +252,7 @@ export interface ExecutionRecord {
   error?: string;
 }
 export interface RunRecord {
+  work?: WorkExecution;
   id: string;
   projectId: string;
   checkout: string;

@@ -44,7 +44,7 @@ test("migrations serialize fresh database startup and preserve records on restar
           "SELECT count(*)::integer AS count FROM agent_workflows_migrations.__drizzle_migrations",
         )
       ).rows[0].count,
-      1,
+      2,
     );
     // Built runtime must find shipped migrations outside the repository cwd.
     await promisify(execFile)(

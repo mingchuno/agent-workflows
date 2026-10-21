@@ -33,6 +33,7 @@ import {
   reviewTaskKey,
 } from "./review-intake.js";
 import { createQueuedReviewRun, createQueuedRun } from "./run-record.js";
+import { executionEnvironment } from "./runtime/environment.js";
 import {
   assertProcessesStopped,
   CheckoutOwnership,
@@ -41,6 +42,9 @@ import { assertStateDirectory } from "./runtime/paths.js";
 import { createRedactor, runtimeLogger } from "./runtime/redaction.js";
 import { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
+import { syncWorkApprovals } from "./work/approvals.js";
+import { assertWorkAuthorized } from "./work/authorization.js";
+import { issueSource } from "./work/store.js";
 import { ExistingCheckout } from "./workspace.js";
 
 const runnerPollIntervalMs = 100;
@@ -224,6 +228,18 @@ export class Runner {
     ).sort((a, b) => a.number - b.number)) {
       if (this.stopping) return;
       const now = new Date().toISOString();
+      if (project.sdlc.enabled) {
+        const work = await this.store.workItems.create(
+          project.id,
+          issueSource(project.hosting.provider, issue),
+          { title: issue.title, intent: issue.body || issue.title },
+        );
+        await this.store.workItems.refreshSource(
+          work.id,
+          issueSource(project.hosting.provider, issue),
+        );
+        continue;
+      }
       const id = randomUUID();
       const run = createQueuedRun({
         id,
@@ -236,6 +252,45 @@ export class Runner {
         branchTemplate: project.branchTemplate,
       });
       await this.store.insertRun(run);
+    }
+    if (project.sdlc.enabled && project.workflows.implementation.enabled) {
+      for (const work of await this.store.workItems.list(project.id)) {
+        if (this.stopping) return;
+        if (
+          project.sdlc.approvalSource !== "local-operator" &&
+          work.source.kind !== "local"
+        ) {
+          const current = await hosting.getIssue(work.source.number);
+          if (!current.open) continue;
+          await this.store.workItems.refreshSource(
+            work.id,
+            issueSource(project.hosting.provider, current),
+          );
+          const fresh = await this.store.workItems.get(work.id);
+          if (
+            fresh.source.kind !== "local" &&
+            fresh.contract.sourceRevision !== fresh.source.revision
+          )
+            continue;
+          await syncWorkApprovals(work.id, project, this.store, hosting);
+        }
+        const inspection = await this.store.workItems.inspect(work.id, project);
+        if (inspection.decision.state !== "ready") continue;
+        if (work.source.kind !== "local") {
+          const current = await hosting.getIssue(work.source.number);
+          if (!current.open) continue;
+          await this.store.workItems.refreshSource(
+            work.id,
+            issueSource(project.hosting.provider, current),
+          );
+          if (
+            (await this.store.workItems.inspect(work.id, project)).decision
+              .state !== "ready"
+          )
+            continue;
+        }
+        await this.store.workItems.submit(work.id, work.revision, project);
+      }
     }
     if (!project.workflows.review.enabled || this.stopping) return;
     const history = await this.store.runs();
@@ -434,6 +489,23 @@ export class Runner {
     const workspace = this.options.workspace ?? new ExistingCheckout();
     let recoveryChecked = false;
     const operations = new Operations(runId, {
+      executionEnvironment: executionEnvironment({
+        environment: process.env,
+        controlNames: [
+          configuration.databaseUrlEnv,
+          ...configuration.projects.map(
+            (candidate) => candidate.hosting.tokenEnv,
+          ),
+        ],
+        controlValues: [
+          this.options.databaseUrl,
+          ...configuration.projects.map(
+            (candidate) => process.env[candidate.hosting.tokenEnv] ?? "",
+          ),
+        ],
+      }),
+      currentProject: () =>
+        this.config.projects.find((candidate) => candidate.id === project.id)!,
       promptBaseDirectory: this.promptBaseDirectory,
       store: this.store,
       project,
@@ -560,7 +632,7 @@ export class Runner {
           // Capture inputs after prepare fetches and checks out the actual base.
           fingerprint: "",
           recoverySupported:
-            run.subject.kind === "issue" && !this.options.workflow,
+            run.subject.kind !== "change-request" && !this.options.workflow,
           createdAt: run.createdAt,
           outcome: run.outcome,
           phase: run.phase,
@@ -605,16 +677,26 @@ export class Runner {
         if (this.controllers.has(runId))
           throw new Error("Work has not stopped");
         const project = this.projectForRun(previous);
+        await assertWorkAuthorized(
+          previous,
+          project,
+          this.store,
+          this.hosting.get(project.id)!,
+        );
+        if (previous.work && options.refreshIssue)
+          throw new Error(
+            "Reassess the Work Item source and submit its new revision instead of refreshing an approved run",
+          );
         await assertProcessesStopped(
           resolve(this.config.stateDirectory, runId),
         );
         await (this.options.workspace ?? new ExistingCheckout()).check(project);
         let issue: Issue | undefined;
-        if (options.refreshIssue && previous.subject.kind === "change-request")
+        if (options.refreshIssue && previous.subject.kind !== "issue")
           throw new Error(
             "Issue refresh does not apply to review runs; retry reviews the recorded revision",
           );
-        if (options.refreshIssue) {
+        if (options.refreshIssue && previous.subject.kind === "issue") {
           const hosting =
             this.hosting.get(project.id) ?? this.options.hosting(project);
           const current = await hosting.getIssue(previous.subject.number);
