@@ -95,24 +95,34 @@ export const approvalRecordSchema = z.strictObject({
   evidence: z.url().optional(),
 });
 export type ApprovalRecord = z.infer<typeof approvalRecordSchema>;
-export const sdlcPolicySchema = z.strictObject({
-  enabled: z.boolean().default(false),
-  defaultTrack: trackSchema.default("B"),
-  allowLocalTasks: z.boolean().default(true),
-  approvalSource: z
-    .enum(["local-operator", "github", "gitlab"])
-    .default("local-operator"),
-  approvers: texts.default([]),
-  riskRules: z
-    .array(
-      z.strictObject({
-        paths: z.array(repositoryPathSchema).min(1),
-        minimumTrack: trackSchema,
-        validationProfile: text.regex(/^[a-zA-Z0-9_-]+$/).optional(),
-      }),
-    )
-    .default([]),
-});
+export const sdlcPolicySchema = z
+  .strictObject({
+    enabled: z.boolean().default(false),
+    defaultTrack: trackSchema.default("B"),
+    allowLocalTasks: z.boolean().default(true),
+    approvalSource: z
+      .enum(["local-operator", "github", "gitlab"])
+      .default("local-operator"),
+    approvers: texts.default([]),
+    riskRules: z
+      .array(
+        z.strictObject({
+          paths: z.array(repositoryPathSchema).min(1),
+          minimumTrack: trackSchema,
+          validationProfile: text.regex(/^[a-zA-Z0-9_-]+$/).optional(),
+        }),
+      )
+      .default([]),
+  })
+  .refine(
+    (policy) =>
+      policy.approvalSource === "local-operator" || policy.approvers.length > 0,
+    {
+      path: ["approvers"],
+      message:
+        "Provider approvals require an explicit human approver allowlist",
+    },
+  );
 export type SdlcPolicy = z.infer<typeof sdlcPolicySchema>;
 export interface DecisionReason {
   code:

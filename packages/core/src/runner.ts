@@ -44,6 +44,7 @@ import { Store } from "./store.js";
 import { selectValidation } from "./validation-selection.js";
 import { syncWorkApprovals } from "./work/approvals.js";
 import { assertWorkAuthorized } from "./work/authorization.js";
+import type { WorkItem } from "./work/schema.js";
 import { issueSource } from "./work/store.js";
 import { ExistingCheckout } from "./workspace.js";
 
@@ -218,6 +219,46 @@ export class Runner {
         }),
     );
   }
+  private async admitWork(
+    project: Project,
+    hosting: HostingAdapter,
+    work: WorkItem,
+  ): Promise<void> {
+    if (
+      project.sdlc.approvalSource !== "local-operator" &&
+      work.source.kind !== "local"
+    ) {
+      const current = await hosting.getIssue(work.source.number);
+      if (!current.open) return;
+      await this.store.workItems.refreshSource(
+        work.id,
+        issueSource(project.hosting.provider, current),
+      );
+      const fresh = await this.store.workItems.get(work.id);
+      if (
+        fresh.source.kind !== "local" &&
+        fresh.contract.sourceRevision !== fresh.source.revision
+      )
+        return;
+      await syncWorkApprovals(work.id, project, this.store, hosting);
+    }
+    const inspection = await this.store.workItems.inspect(work.id, project);
+    if (inspection.decision.state !== "ready") return;
+    if (work.source.kind !== "local") {
+      const current = await hosting.getIssue(work.source.number);
+      if (!current.open) return;
+      await this.store.workItems.refreshSource(
+        work.id,
+        issueSource(project.hosting.provider, current),
+      );
+      if (
+        (await this.store.workItems.inspect(work.id, project)).decision
+          .state !== "ready"
+      )
+        return;
+    }
+    await this.store.workItems.submit(work.id, work.revision, project);
+  }
   private async pollProject(project: Project): Promise<void> {
     const state = await this.store.project(project.id);
     if (state.paused || state.blocked || this.stopping) return;
@@ -254,42 +295,31 @@ export class Runner {
       await this.store.insertRun(run);
     }
     if (project.sdlc.enabled && project.workflows.implementation.enabled) {
+      const attempts = (await this.store.runs()).filter(
+        (run) => run.projectId === project.id && run.work,
+      );
       for (const work of await this.store.workItems.list(project.id)) {
         if (this.stopping) return;
+        // An admitted revision or an attempt in flight needs no host polling.
         if (
-          project.sdlc.approvalSource !== "local-operator" &&
-          work.source.kind !== "local"
-        ) {
-          const current = await hosting.getIssue(work.source.number);
-          if (!current.open) continue;
-          await this.store.workItems.refreshSource(
-            work.id,
-            issueSource(project.hosting.provider, current),
-          );
-          const fresh = await this.store.workItems.get(work.id);
-          if (
-            fresh.source.kind !== "local" &&
-            fresh.contract.sourceRevision !== fresh.source.revision
+          attempts.some(
+            (run) =>
+              run.work!.workItemId === work.id &&
+              (run.work!.revision === work.revision ||
+                ["queued", "running"].includes(run.outcome)),
           )
-            continue;
-          await syncWorkApprovals(work.id, project, this.store, hosting);
+        )
+          continue;
+        // One unreadable or misconfigured item must not starve the others.
+        try {
+          await this.admitWork(project, hosting, work);
+        } catch (error) {
+          await this.store.emit(null, "work-poll-error", {
+            projectId: project.id,
+            workItemId: work.id,
+            error: this.redact(String(error)),
+          });
         }
-        const inspection = await this.store.workItems.inspect(work.id, project);
-        if (inspection.decision.state !== "ready") continue;
-        if (work.source.kind !== "local") {
-          const current = await hosting.getIssue(work.source.number);
-          if (!current.open) continue;
-          await this.store.workItems.refreshSource(
-            work.id,
-            issueSource(project.hosting.provider, current),
-          );
-          if (
-            (await this.store.workItems.inspect(work.id, project)).decision
-              .state !== "ready"
-          )
-            continue;
-        }
-        await this.store.workItems.submit(work.id, work.revision, project);
       }
     }
     if (!project.workflows.review.enabled || this.stopping) return;

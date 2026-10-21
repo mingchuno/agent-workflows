@@ -341,3 +341,118 @@ test("closed enterprise history does not starve later ready work", {
     await runner.shutdown();
   }
 });
+
+test("one failing Work Item does not stop the project poll", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project } = await repository();
+  project.sdlc = sdlcPolicySchema.parse({ enabled: true });
+  const hosting = new FixtureHosting();
+  const deleted = { ...hosting.issues[0]!, id: "9", number: 9 };
+  hosting.issues = [];
+  hosting.getIssue = async (number) => {
+    throw new Error(`Issue ${number} not found`);
+  };
+  const runner = new Runner({
+    config: configSchema.parse({
+      id: `sdlc_${randomUUID().replaceAll("-", "")}`,
+      stateDirectory: await mkdtemp(join(tmpdir(), "aw-sdlc-")),
+      projects: [project],
+    }),
+    databaseUrl: databaseUrl!,
+    hosting: () => hosting,
+    agents: { codex: agent },
+  });
+  try {
+    await runner.start();
+    const fastTrack = {
+      acceptanceCriteria: ["Requested file exists"],
+      assessment: { proposedTrack: "A", complexity: "small" },
+    };
+    const broken = await runner.store.workItems.create(
+      project.id,
+      issueSource("github", deleted),
+      { title: deleted.title, intent: deleted.body, ...fastTrack },
+    );
+    const local = await runner.store.workItems.create(
+      project.id,
+      { kind: "local", key: "still-admitted" },
+      { title: "Add a file", intent: "Add the requested file", ...fastTrack },
+    );
+    await runner.poll();
+    const runs = await runner.store.runs();
+    assert.deepEqual(
+      runs.map((run) => run.work?.workItemId),
+      [local.id],
+    );
+    const failures = (await runner.store.events()).filter(
+      (event) => event.kind === "work-poll-error",
+    );
+    assert.equal(failures.length, 1);
+    assert.equal(
+      (failures[0]!.payload as { workItemId: string }).workItemId,
+      broken.id,
+    );
+  } finally {
+    await runner.shutdown();
+  }
+});
+
+test("admitted Work Items cost no hosting calls on later polls", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project } = await repository();
+  project.sdlc = sdlcPolicySchema.parse({
+    enabled: true,
+    approvalSource: "github",
+    approvers: ["human"],
+  });
+  const hosting = new FixtureHosting();
+  const issue = hosting.issues[0]!;
+  hosting.issues = [];
+  let hostingCalls = 0;
+  const getIssue = hosting.getIssue.bind(hosting);
+  hosting.getIssue = async (number) => {
+    hostingCalls++;
+    return number === issue.number ? issue : getIssue(number);
+  };
+  hosting.listApprovalComments = async () => {
+    hostingCalls++;
+    return [];
+  };
+  const runner = new Runner({
+    config: configSchema.parse({
+      id: `sdlc_${randomUUID().replaceAll("-", "")}`,
+      stateDirectory: await mkdtemp(join(tmpdir(), "aw-sdlc-")),
+      projects: [project],
+    }),
+    databaseUrl: databaseUrl!,
+    hosting: () => hosting,
+    agents: { codex: agent },
+  });
+  try {
+    await runner.start();
+    await runner.store.workItems.create(
+      project.id,
+      issueSource("github", issue),
+      {
+        title: issue.title,
+        intent: issue.body,
+        acceptanceCriteria: ["Requested file exists"],
+        scopePaths: ["implemented.txt"],
+        assessment: { proposedTrack: "A", complexity: "small" },
+      },
+    );
+    await runner.poll();
+    await waitFor(async () =>
+      (await runner.store.runs()).some((run) => run.outcome === "completed"),
+    );
+    const before = hostingCalls;
+    await runner.poll();
+    await runner.poll();
+    assert.equal(hostingCalls, before);
+    assert.equal((await runner.store.runs()).length, 1);
+  } finally {
+    await runner.shutdown();
+  }
+});

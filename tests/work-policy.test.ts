@@ -332,3 +332,44 @@ test("partial project SDLC overrides preserve inherited approval and protected-p
     defaultTrack: "A",
   });
 });
+
+test("provider approval policies require an explicit approver allowlist", () => {
+  for (const approvalSource of ["github", "gitlab"] as const) {
+    assert.equal(
+      sdlcPolicySchema.safeParse({ enabled: true, approvalSource }).success,
+      false,
+    );
+    assert.equal(
+      sdlcPolicySchema.safeParse({
+        enabled: true,
+        approvalSource,
+        approvers: ["human"],
+      }).success,
+      true,
+    );
+  }
+  assert.equal(sdlcPolicySchema.safeParse({ enabled: true }).success, true);
+  assert.throws(
+    () =>
+      configSchema.parse({
+        id: "test",
+        projectBase: { sdlc: { enabled: true, approvers: ["human"] } },
+        projects: [
+          {
+            id: "project",
+            checkout: "/tmp",
+            inheritProjectBase: true,
+            hosting: {
+              provider: "github",
+              origin: "https://github.com",
+              repository: "a/b",
+              tokenEnv: "TOKEN",
+            },
+            agent: { provider: "codex" },
+            sdlc: { approvalSource: "github", approvers: [] },
+          },
+        ],
+      }),
+    /approver/,
+  );
+});

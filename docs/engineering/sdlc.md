@@ -69,7 +69,10 @@ intake skill never runs these commands. Conversational agreement and issue label
 do not create approval records.
 
 The worker admits a ready Work Item on its next poll. Final approval can therefore
-start implementation without another prompt. With the worker stopped, ready work
+start implementation without another prompt. Polling skips a Work Item whose
+current revision is already admitted or whose attempt is still active. A Work Item
+that fails during polling records a `work-poll-error` event without blocking other
+work in the project. With the worker stopped, ready work
 remains persisted. A later worker start resumes intake. Explicit submission uses
 the same eligibility checks and returns an existing admission for the same revision.
 
@@ -108,7 +111,8 @@ agent-workflows approve WORK_ID scope CURRENT_REVISION
 For the design gate, the human substitutes `design` and the complete revision
 they inspected. The runner reads source-host comments and accepts only configured
 human approvers at the current revision. It ignores bots, outsiders, and stale
-comments. The intake agent never posts approval comments.
+comments. The intake agent never posts approval comments. Configuration loading
+rejects a `github` or `gitlab` approval source without a nonempty `approvers` list.
 
 The worker imports permitted approval during polling. To import existing comments
 without waiting for another poll, run the sync command.
