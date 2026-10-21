@@ -103,3 +103,8 @@ export async function waitFor(predicate: () => Promise<boolean>) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
+/** Scan after current state: `poll` joins a scan that may predate the caller's writes. */
+export async function freshPoll(runner: { poll(): Promise<void> }) {
+  await runner.poll();
+  await runner.poll();
+}

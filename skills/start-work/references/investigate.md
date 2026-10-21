@@ -1,12 +1,8 @@
----
-name: investigate-work
-description: Investigate engineering requirements or a reported defect before proposing a Work Item contract. Use when start-work finds unclear behavior, conflicting evidence, or missing acceptance criteria.
----
+# Investigate before asking
 
-# Investigate work
-
-Read the current Work Item and [the work API](../start-work/references/work-api.md).
-Preserve the source identity and current revision.
+Use when requirements are unclear, evidence conflicts, or a defect needs a root
+cause. On the delegated protocol, preserve the Work Item's source identity and
+revision.
 
 For requirements, inspect the ticket, relevant code and tests, domain context,
 and prior decisions. Separate requested behavior from observed implementation.
@@ -30,6 +26,5 @@ remaining choices have recorded reversible defaults or no longer change the
 contract. Do not generate questions to meet a quota.
 
 Map blockers into `assessment.uncertainties`, findings into cited references,
-and defaults into `assumptions`. Return the result to
-[start-work](../start-work/SKILL.md) for proposal and policy assessment. An
-investigation does not grant approval or start implementation.
+and defaults into `assumptions`, then return to [start-work](../SKILL.md) step 3.
+An investigation does not grant approval or start implementation.

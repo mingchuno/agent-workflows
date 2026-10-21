@@ -7,40 +7,53 @@ and GitHub. Use the [enterprise example](../../examples/sdlc-enterprise.json)
 for issue-backed work with Copilot and GitLab. Replace repository, checkout,
 approver, and validation settings before running either example.
 
-## Start the worker and intake session
+## Choose a protocol
 
-1. Configure PostgreSQL and authenticate the selected host and agent runtime as
-   described in [provider prerequisites](../providers.md).
-2. Keep the state directory outside the source checkout. Start the resident worker.
+`start-work` is the only skill engineers invoke. It classifies the task and
+follows one protocol ([ADR 0010](../adr/0010-inline-fast-path.md)).
 
-   ```sh
-   agent-workflows --config agent-workflows.json run
-   ```
+| Track | Protocol | Needs |
+| --- | --- | --- |
+| A | Inline: the interactive session implements, validates, reviews and opens the change request. | Nothing beyond the agent and host CLI. With configuration, `work classify` enforces the project's floors. |
+| B, C | Delegated: a Work Item waits for recorded approval, then the worker executes it. | Configuration, PostgreSQL, host credentials and a running worker. |
 
-3. Install all four repository skill directories into the interactive runtime's
-   project skill directory. Once the skills exist in your distribution branch,
-   use the existing [Skills CLI](https://github.com/vercel-labs/skills) from the
-   target project and select the intended agent host.
+A Track A diff that exceeds `sdlc.fastTrackMaxFiles` (default 10) or matches a
+protected path stops before publication and moves to Track B or C.
+
+## Set up delegated work
+
+1. Install the skills from the target project with the
+   [Skills CLI](https://github.com/vercel-labs/skills), selecting the agent host.
 
    ```sh
    npx skills add mingchuno/agent-workflows \
      --skill start-work \
-     --skill investigate-work \
-     --skill design-change \
-     --skill capture-knowledge
+     --skill setup-agent-workflows
    ```
 
-   For unpublished local changes, copy those four folders from `skills/` into
-   `.agents/skills/`. Preserve their names and sibling references. Follow company
-   policy for reviewed, pinned skill distribution or an internal mirror.
-4. In an interactive Codex session, invoke `$start-work` with an issue or task.
-   In a Copilot host that supports slash invocation, use `/start-work`. Confirm
-   discovery with that host before relying on it. IDE invocation differs by host.
+   For unpublished local changes, copy those folders from `skills/` into
+   `.agents/skills/`. Follow company policy for reviewed, pinned skill
+   distribution or an internal mirror.
+2. Invoke `setup-agent-workflows` once per repository. It writes the
+   configuration, prepares PostgreSQL and credentials with you, and verifies
+   them with `agent-workflows doctor`. To do this by hand, follow
+   [provider prerequisites](../providers.md) and keep the state directory
+   outside the source checkout.
+3. Start the resident worker in its own terminal.
 
-The primary entry point is the conversational skill. The existing CLI persists
-contracts and enforces state transitions. No separate `devflow` tool is required.
-The runner's implementation and review stages retain their own prompts. Installing
-the intake skills does not establish that an SDK-created session loads them.
+   ```sh
+   agent-workflows run
+   ```
+
+   Commands read the configuration from `AGENT_WORKFLOWS_CONFIG`, else
+   `agent-workflows.json` in the current directory.
+4. Invoke `$start-work` in Codex or `/start-work` in a Copilot host that supports
+   slash invocation, with an issue or a task. Confirm discovery with that host
+   before relying on it.
+
+The CLI persists contracts and enforces state transitions. The runner's
+implementation and review stages keep their own prompts. Installing the skills
+does not establish that an SDK-created session loads them.
 
 ## Inspect and approve work
 
@@ -151,8 +164,8 @@ readiness. Outstanding manual checks, missing configured validation, or incomple
 review prevent fully verified readiness. A completed draft Run is delivered work
 that still needs attention.
 
-The operator owns merge, production verification, and deployment. Use
-`capture-knowledge` when the completed change establishes a durable decision or
+The operator owns merge, production verification, and deployment. `start-work`
+captures knowledge when the completed change establishes a durable decision or
 domain invariant. Keep task plans and run evidence out of permanent domain docs.
 
 ## Verify a controlled pilot
@@ -161,7 +174,8 @@ Run these scenarios on disposable repositories before using a new runtime setup.
 
 | Scenario | Evidence to inspect |
 | --- | --- |
-| Local Track A request | One Work Item and one Run without planning approval. |
+| `start-work` Track A request | One change request from the interactive session, no Work Item. |
+| Oversized Track A diff | `work classify --changed-from` reports escalation before publication. |
 | Hosted Track B request | No Run before current scope approval. |
 | Track C migration | No Run before current scope and design approval. |
 | Fresh interactive session | The same Work Item resumes without reconstructing a prompt. |

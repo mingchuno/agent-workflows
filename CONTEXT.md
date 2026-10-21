@@ -21,6 +21,11 @@ The deterministic minimum engineering control for work. A permits a clear,
 low-risk task without planning approval. B requires scope approval. C additionally
 requires approved technical design and recovery considerations.
 
+**Protocol**:
+How `start-work` carries out a Track. Inline: the interactive session does the
+work and opens the change request, without a Work Item (Track A). Delegated: a
+Work Item waits for recorded approval and a Run executes it (Tracks B and C).
+
 **Approval gate**:
 Recorded human authorization of a scope or design digest. Scope excludes the
 design, so design authoring preserves approved scope. Design binds the whole

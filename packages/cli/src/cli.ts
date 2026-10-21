@@ -52,7 +52,11 @@ const program = new Command()
   .name("agent-workflows")
   .description("Local durable issue-to-review workflows")
   .version(packageVersion)
-  .option("-c, --config <file>", "configuration path", "agent-workflows.json")
+  .option(
+    "-c, --config <file>",
+    "configuration path (default: $AGENT_WORKFLOWS_CONFIG or agent-workflows.json)",
+    process.env.AGENT_WORKFLOWS_CONFIG || "agent-workflows.json",
+  )
   .option(
     "--config-base-directory <directory>",
     "base directory for paths contained in configuration",
@@ -167,6 +171,129 @@ program
     console.log(
       "Created configuration. Set repository and credentials before running.",
     );
+  });
+program
+  .command("doctor")
+  .description(
+    "Check the configuration, project, credentials, database and worker that delegated work needs",
+  )
+  .option(
+    "-p, --project <id>",
+    "project to check (default: the project whose checkout contains the current directory)",
+  )
+  .action(async (options: { project?: string }) => {
+    const checks: {
+      name: string;
+      status: "pass" | "warn" | "fail";
+      detail: string;
+    }[] = [];
+    const check = (
+      name: string,
+      status: "pass" | "warn" | "fail",
+      detail: string,
+    ) => checks.push({ name, status, detail });
+    const report = (project?: string) => {
+      const ok = checks.every((item) => item.status !== "fail");
+      console.log(
+        JSON.stringify(
+          {
+            ok,
+            version: packageVersion,
+            configPath: configPath(),
+            project,
+            protocols: { inline: true, delegated: ok },
+            checks,
+          },
+          null,
+          2,
+        ),
+      );
+      if (!ok) process.exitCode = 1;
+    };
+    let config: Configuration;
+    try {
+      config = await configuration();
+      check("configuration", "pass", configPath());
+    } catch (error) {
+      check(
+        "configuration",
+        "fail",
+        `${error instanceof Error ? error.message : String(error)}. Run the setup-agent-workflows skill or agent-workflows init.`,
+      );
+      return report();
+    }
+    const base = configBaseDirectory();
+    const canonical = (path: string) => {
+      try {
+        return realpathSync(path);
+      } catch {
+        return resolve(path);
+      }
+    };
+    const here = canonical(launchDirectory);
+    const project = options.project
+      ? config.projects.find((candidate) => candidate.id === options.project)
+      : config.projects.find((candidate) => {
+          const checkout = canonical(resolve(base, candidate.checkout));
+          return here === checkout || here.startsWith(checkout + "/");
+        });
+    if (!project) {
+      check(
+        "project",
+        "fail",
+        options.project
+          ? `Unknown project: ${options.project}`
+          : `No configured project checkout contains ${here}`,
+      );
+      return report();
+    }
+    check("project", "pass", project.id);
+    check(
+      "sdlc",
+      project.sdlc.enabled ? "pass" : "fail",
+      project.sdlc.enabled
+        ? `approval source ${project.sdlc.approvalSource}`
+        : "Set sdlc.enabled for this project to delegate Track B and C work",
+    );
+    check(
+      "hosting-credentials",
+      process.env[project.hosting.tokenEnv] ? "pass" : "fail",
+      process.env[project.hosting.tokenEnv]
+        ? `${project.hosting.tokenEnv} is set`
+        : `Set ${project.hosting.tokenEnv}`,
+    );
+    try {
+      const store = new Store(databaseUrl(config), config.id);
+      try {
+        await Promise.race([
+          store.initialize().then(() => store.projects()),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Database connection timed out")),
+              10_000,
+            ).unref(),
+          ),
+        ]);
+        check("database", "pass", "Connected and migrated");
+      } finally {
+        await store.close();
+      }
+    } catch (error) {
+      check(
+        "database",
+        "fail",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const worker = await findRunnerControl(configPath());
+    check(
+      "worker",
+      worker ? "pass" : "warn",
+      worker
+        ? `Running as process ${worker.pid}`
+        : "Not running; admitted work waits until agent-workflows run starts",
+    );
+    report(project.id);
   });
 program
   .command("config")

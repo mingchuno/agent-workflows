@@ -1,18 +1,27 @@
 # Work API
 
-All commands use `agent-workflows --config <path> work` with `--project <id>`.
-Output is JSON. `--json` is accepted explicitly. Discover exact options with
-`agent-workflows work --help` and the subcommand's `--help`.
+Commands read the configuration from `AGENT_WORKFLOWS_CONFIG`, else
+`agent-workflows.json` in the current directory; pass `--config PATH` otherwise.
+`doctor` reports the project ID for the current checkout. Work commands take
+`--project ID` and print JSON. Discover options with `agent-workflows work --help`.
 
 ```sh
-agent-workflows --config agent-workflows.json work list --project app --json
-agent-workflows --config agent-workflows.json work inspect WORK_ID --project app --json
-agent-workflows --config agent-workflows.json work create --issue 123 --project app --json
-agent-workflows --config agent-workflows.json work create --title "Fix missing-size sorting" --key missing-size-sort --project app --json
-agent-workflows --config agent-workflows.json work propose WORK_ID --revision CURRENT_REVISION --file /tmp/work-contract.json --project app --json
-agent-workflows --config agent-workflows.json work sync-approvals WORK_ID --project app --json
-agent-workflows --config agent-workflows.json work submit WORK_ID --revision CURRENT_REVISION --project app --json
+agent-workflows doctor
+agent-workflows work classify --project app --file /tmp/work-contract.json
+agent-workflows work classify --project app --file /tmp/work-contract.json --changed-from BASE
+agent-workflows work list --project app
+agent-workflows work inspect WORK_ID --project app
+agent-workflows work create --issue 123 --project app
+agent-workflows work create --title "Fix missing-size sorting" --key missing-size-sort --project app
+agent-workflows work propose WORK_ID --revision CURRENT_REVISION --file /tmp/work-contract.json --project app
+agent-workflows work sync-approvals WORK_ID --project app
+agent-workflows work submit WORK_ID --revision CURRENT_REVISION --project app
 ```
+
+`classify` needs only the configuration: no database, worker or Work Item. It
+returns `track`, `protocol` (`inline` for Track A, `delegated` otherwise),
+`trackReasons`, and `missing` contract fields. With `--changed-from`, it also
+returns `changedPaths` and any `escalation` caused by the actual diff.
 
 Use actual returned IDs and revisions. Pass each value as a distinct process
 argument. Do not interpolate untrusted task text into shell source.
@@ -63,7 +72,9 @@ the requirements and may select a stricter track.
 `assessment.complexity` is `small`, `moderate`, or `large`. Risk flags are
 `security`, `migration`, `breaking-api`, `production`, `sensitive-data`,
 `cross-service`, and `irreversible`. Every declared risk flag requires Track C.
-Unresolved uncertainties prevent admission.
+Unresolved uncertainties prevent admission. Track A becomes B when
+`assessment.paths` or the actual diff exceeds `sdlc.fastTrackMaxFiles`
+(default 10).
 
 `verification.profile` optionally names an existing project validation profile.
 Baseline validation still applies. `manualChecks` records work left to the

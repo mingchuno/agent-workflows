@@ -1,12 +1,8 @@
----
-name: design-change
-description: Propose the technical design for controlled engineering work after scope approval. Use when a Work Item enters design or the user requests a bounded architecture decision.
----
+# Design a Track C change
 
-# Design change
-
-Read the current Work Item and [the work API](../start-work/references/work-api.md).
-Use the approved acceptance criteria and path boundaries as the design limits.
+Use after scope approval, when the Work Item state is `design`. Read
+[the work API](work-api.md). Use the approved acceptance criteria and path
+boundaries as the design limits.
 If inspection still requires scope approval, return that gate to the operator.
 
 Inspect the affected components, contracts, data lifecycle, and relevant ADRs.
@@ -28,7 +24,6 @@ Put the decision itself in the approved object. A mutable document link is not a
 substitute for design content. Use an ADR proposal only for a durable choice
 future maintainers need to understand.
 
-Return the design to [start-work](../start-work/SKILL.md) for `work propose` using
-the inspected revision. Present the revised contract for human design approval.
+Add the design with `work propose` using the inspected revision. Present the revised contract for human design approval.
 The backend preserves scope approval when only design changes. Scope edits
 invalidate dependent approval. Never invoke the operator approval command.

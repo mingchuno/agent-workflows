@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -15,14 +15,23 @@ import {
 } from "../packages/core/src/work/schema.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const skillNames = [
-  "start-work",
-  "investigate-work",
-  "design-change",
-  "capture-knowledge",
-];
+const skillNames = ["start-work", "setup-agent-workflows"];
 
-test("all intake skills have discoverable metadata and resolvable local references", async () => {
+async function markdownFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map((entry) =>
+      entry.isDirectory()
+        ? markdownFiles(resolve(directory, entry.name))
+        : entry.name.endsWith(".md")
+          ? [resolve(directory, entry.name)]
+          : [],
+    ),
+  );
+  return nested.flat();
+}
+
+test("skills have discoverable metadata and resolvable local references", async () => {
   for (const name of skillNames) {
     const path = resolve(root, "skills", name, "SKILL.md");
     const content = await readFile(path, "utf8");
@@ -33,17 +42,31 @@ test("all intake skills have discoverable metadata and resolvable local referenc
       /^description: .+$/m.test(frontmatter),
       `${name} has a discovery description`,
     );
-    const links = [...content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map(
-      (match) => match[1]!,
-    );
-    for (const link of links) {
-      if (/^(?:https?:|#)/.test(link)) continue;
-      assert.ok(
-        (await stat(resolve(dirname(path), link.split("#")[0]!))).isFile(),
-        `${name} reference ${link} resolves`,
-      );
+    for (const file of await markdownFiles(dirname(path))) {
+      const links = [
+        ...(await readFile(file, "utf8")).matchAll(/\[[^\]]+\]\(([^)]+)\)/g),
+      ].map((match) => match[1]!);
+      for (const link of links) {
+        if (/^(?:https?:|#)/.test(link)) continue;
+        assert.ok(
+          (await stat(resolve(dirname(file), link.split("#")[0]!))).isFile(),
+          `${file} reference ${link} resolves`,
+        );
+      }
     }
   }
+});
+
+test("setup is explicit-only in every supported host", async () => {
+  const directory = resolve(root, "skills/setup-agent-workflows");
+  assert.match(
+    await readFile(resolve(directory, "SKILL.md"), "utf8"),
+    /^disable-model-invocation: true$/m,
+  );
+  assert.match(
+    await readFile(resolve(directory, "agents/openai.yaml"), "utf8"),
+    /allow_implicit_invocation: false/,
+  );
 });
 
 test("the intake API example is a real standard-track contract with revision-bound approval", async () => {

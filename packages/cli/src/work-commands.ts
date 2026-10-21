@@ -4,6 +4,8 @@ import { userInfo } from "node:os";
 import { resolve } from "node:path";
 import {
   type Configuration,
+  changedPathsSince,
+  classifyWork,
   createHosting,
   gateSchema,
   issueSource,
@@ -30,14 +32,7 @@ export function registerWorkCommands(
   const work = program
     .command("work")
     .description("Assess, approve and submit revision-bound engineering work");
-  const execute = async (
-    projectId: string,
-    action: (
-      store: Store,
-      project: Project,
-      config: Configuration,
-    ) => Promise<unknown>,
-  ) => {
+  const resolveProject = async (projectId: string) => {
     const authored = await dependencies.configuration();
     const base = dependencies.pathBaseDirectory();
     const config = {
@@ -54,6 +49,17 @@ export function registerWorkCommands(
       (candidate) => candidate.id === projectId,
     );
     if (!project) throw new Error(`Unknown project: ${projectId}`);
+    return { config, project };
+  };
+  const execute = async (
+    projectId: string,
+    action: (
+      store: Store,
+      project: Project,
+      config: Configuration,
+    ) => Promise<unknown>,
+  ) => {
+    const { config, project } = await resolveProject(projectId);
     if (!project.sdlc.enabled)
       throw new Error("Enable sdlc for this project first");
     await dependencies.withStore(config, async (store) => {
@@ -118,6 +124,38 @@ export function registerWorkCommands(
           );
           return store.workItems.inspect(created.id, project);
         }),
+    );
+  command("classify")
+    .description(
+      "Classify a contract without the database; Track A runs inline in the current session",
+    )
+    .requiredOption("--file <path>", "WorkContract JSON")
+    .option(
+      "--changed-from <revision>",
+      "also check the checkout's changes since this revision",
+    )
+    .action(
+      async (options: {
+        project: string;
+        file: string;
+        changedFrom?: string;
+      }) => {
+        const { project } = await resolveProject(options.project);
+        const contract = workContractSchema.parse(
+          JSON.parse(await readFile(options.file, "utf8")),
+        );
+        const changed =
+          options.changedFrom === undefined
+            ? undefined
+            : await changedPathsSince(project.checkout, options.changedFrom);
+        console.log(
+          JSON.stringify(
+            classifyWork(contract, project.sdlc, changed),
+            null,
+            2,
+          ),
+        );
+      },
     );
   command("list").action(async (options: { project: string }) =>
     execute(options.project, async (store, project) =>

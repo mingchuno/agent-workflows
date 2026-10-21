@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import type { Project } from "../config.js";
@@ -412,13 +412,17 @@ export class WorkStore {
       )
         throw new BlockedError("Work already has an active run");
       if (state.blocked) {
-        const projectRuns = await tx
-          .select()
-          .from(tables.runs)
-          .where(eq(tables.runs.scope, this.scope));
-        const related = projectRuns
-          .map((item) => item.record)
-          .filter((run) => run.projectId === project.id);
+        const related = (
+          await tx
+            .select()
+            .from(tables.runs)
+            .where(
+              and(
+                eq(tables.runs.scope, this.scope),
+                sql`${tables.runs.record}->>'projectId' = ${project.id}`,
+              ),
+            )
+        ).map((item) => item.record);
         if (related.some((run) => ["queued", "running"].includes(run.outcome)))
           throw new BlockedError("Project still has queued or active work");
         await recovery!.checkSafety(related);

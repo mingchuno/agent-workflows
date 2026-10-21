@@ -27,5 +27,8 @@ deployments require authenticated allowed-human approval evidence and
 credential separation. Provider identity alone does not establish authority.
 
 This extends ADR 0005 without adding event-sourced projections or a second
-scheduler. It also supersedes ADR 0006's writable reviewer/publication policy
-for restricted stages once provider permission enforcement is enabled.
+scheduler. It also supersedes ADR 0006's writable reviewer policy for every Run,
+not only SDLC Runs: review starts in a read-only provider session. SDLC
+publication starts in a fresh read-only session; legacy publication keeps ADR
+0006's session reuse. Repair rounds run only for blocking findings or failed
+validation, for every Run.

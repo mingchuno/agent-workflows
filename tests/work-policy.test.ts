@@ -330,6 +330,7 @@ test("partial project SDLC overrides preserve inherited approval and protected-p
   assert.deepEqual(configuration.projects[0]!.sdlc, {
     ...inherited,
     defaultTrack: "A",
+    fastTrackMaxFiles: 10,
   });
 });
 
@@ -372,4 +373,25 @@ test("provider approval policies require an explicit approver allowlist", () => 
       }),
     /approver/,
   );
+});
+
+test("Track A escalates when expected or actual changes exceed the file limit", () => {
+  const limited = sdlcPolicySchema.parse({
+    enabled: true,
+    fastTrackMaxFiles: 2,
+  });
+  const files = ["src/sorting/a.ts", "src/sorting/b.ts", "src/sorting/c.ts"];
+  assert.equal(resolveTrack(contract, limited, files.slice(0, 2)).track, "A");
+  assert.ok(
+    reassessChanges(contract, "A", limited, files).some(
+      (reason) => reason.code === "track-escalation",
+    ),
+  );
+  const broad = workContractSchema.parse({
+    ...contract,
+    assessment: { ...contract.assessment, paths: files },
+  });
+  const decision = assessReadiness(broad, [], limited);
+  assert.equal(decision.track, "B");
+  assert.match(decision.trackReasons.join(" "), /exceed the Track A limit/);
 });

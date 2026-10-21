@@ -1,11 +1,9 @@
----
-name: capture-knowledge
-description: Check completed implementation and review evidence for durable domain or architecture knowledge. Propose a focused documentation update when future work needs it.
----
+# Capture durable knowledge
 
-# Capture knowledge
+Use after Track C delivery, or when a change establishes a durable domain or
+architecture decision. Skip it otherwise.
 
-Read the Work Item contract, final diff, review findings, and recorded validation.
+Read the contract, final diff, review findings, and recorded validation.
 Compare them with `CONTEXT.md`, applicable domain documentation, and `docs/adr/`.
 Read the repository's own documentation conventions before proposing an edit.
 

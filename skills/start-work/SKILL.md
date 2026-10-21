@@ -1,60 +1,61 @@
 ---
 name: start-work
-description: Start or resume engineering work from an issue, a local task, or a persisted Work Item. Investigate requirements and advance the authoritative Track A, B, or C workflow through agent-workflows.
+description: Start or resume engineering work from an issue, a task description, or a Work Item ID. Classifies the work into Track A, B, or C and follows the matching protocol, from a quick inline fix to approval-gated delegated execution.
 ---
 
 # Start work
 
-Use this skill for interactive intake. The runner owns implementation, validation,
-review, repair, and publication after admission.
+One entry point for engineering work. Classify first, then follow exactly one
+protocol. Keep replies short: the track, the next action, and only decisions
+that need the human.
 
-1. Resolve the repository, configuration path, and configured project. Read its
-   agent instructions and domain documentation. Use the existing
-   `agent-workflows` CLI. Read [the work API](references/work-api.md) before
-   issuing work commands.
-2. Run `work list` and inspect an existing Work Item when its ID, source identity,
-   or explicit local key matches the request. Resume that record. A similar title
-   alone does not establish identity.
-3. For new issue work, fetch the issue and relevant permitted comments. Create
-   the Work Item with `work create --issue`. Resolve ticket aliases through an
-   approved issue tool to the configured host's numeric issue ID. Ask for the
-   mapping if the result is ambiguous. For local work, choose a stable intake
-   key and use `work create --title --key`.
-4. Read relevant code, tests, domain context, and ADRs before asking questions.
-   Use [investigate-work](../investigate-work/SKILL.md) when requirements or
-   behavior remain unclear. Write material unresolved questions into
-   `assessment.uncertainties`. Record reversible defaults in `assumptions`.
-5. Write a complete WorkContract JSON file outside the source checkout. Keep the
-   observed source references and expected behavior concise. Select only
-   repository-configured validation profiles. Submit it with `work propose`
-   using the exact revision returned by inspection.
-6. Inspect again. Follow `decision.state` rather than a track inferred from the
-   conversation.
+## 1. Check the backend
 
-| State | Next action |
+Run `agent-workflows doctor` from the repository. If the command is missing,
+treat the backend as absent. Read the JSON result.
+
+| Result | Meaning |
 | --- | --- |
-| `needs-info` | Resolve the returned blockers and propose a revised contract. |
-| `awaiting-scope-approval` | Present intent, acceptance, scope boundaries, risk, and revision to the human operator. Wait for recorded approval. |
-| `design` | Use [design-change](../design-change/SKILL.md), then propose the design on the current contract. |
-| `awaiting-design-approval` | Present the design, verification, rollback, and revision to the human operator. Wait for recorded approval. |
-| `ready` | Submit the exact current revision, then inspect the returned Run. |
+| `protocols.delegated: true` | The project uses agent-workflows SDLC. Its policy is authoritative. |
+| `sdlc` check fails, or no configuration | No SDLC policy applies. Track A still works inline. |
+| Any other failing check | Delegated work is unavailable until it is fixed. Report the failing check and suggest the `setup-agent-workflows` skill. |
 
-The resident runner can admit a ready Work Item on its next poll. A successful
-proposal or approval may therefore start execution without another prompt.
-Repeated submission returns the existing admission for that revision.
+A `worker` warning only means admitted work waits until `agent-workflows run`
+starts.
 
-Approval is a human operator action. Never invoke `work approve`, manufacture an
-approval record, or treat ticket labels or conversational agreement as a stored
-approval. Re-read the Work Item after an approval, source edit, or fresh session.
-For provider-backed approval, `work sync-approvals` imports existing permitted
-human approval comments. The worker also syncs them during polling. Never post
-an approval comment on the human's behalf.
-If a command rejects a stale revision, inspect before making a new proposal.
+## 2. Resume or resolve the task
 
-Report the Work Item ID, effective track, current state, and one next action.
-Report a Run ID only after the backend returns it. Keep agent-reported checks
-separate from recorded workflow validation. An escalated Run requires a human
-decision before expanding scope. Merging and deployment remain with the human.
+If the input is a Work Item ID, or `work list` shows a Work Item with the same
+issue or local key, follow [the delegated protocol](references/delegated.md) to
+resume it. Similar titles alone do not establish identity.
 
-After implementation, use [capture-knowledge](../capture-knowledge/SKILL.md) for
-Track C or when the change establishes a durable domain or architecture decision.
+Otherwise, read the issue or task, then the relevant code, tests, domain context
+and ADRs. Investigate before asking. Use [investigate](references/investigate.md)
+when behavior is unclear or a defect needs a root cause.
+
+## 3. Classify
+
+Write a compact WorkContract JSON file outside the checkout. The fields are in
+[the work API](references/work-api.md). Ask only questions whose answers change
+acceptance, scope, safety or feasibility; record reversible defaults as
+`assumptions`.
+
+If the CLI and a configured project are available, run
+`agent-workflows work classify --project ID --file CONTRACT` and use its
+`track`. Otherwise classify by hand: Track A only for a small change with a
+clear expected outcome, no declared risk, no open questions, and about ten files
+or fewer. Migrations, security, public API, production, infrastructure and
+cross-service changes are Track C. Everything else is Track B. When unsure,
+choose the higher track.
+
+## 4. Follow one protocol
+
+| Track | Protocol |
+| --- | --- |
+| A | [Fast path](references/fast-path.md): this session implements, verifies, reviews and opens the change request. No Work Item, database or worker. |
+| B or C, delegated available | [Delegated](references/delegated.md): record the Work Item, wait for recorded human approval, and let the runner execute. |
+| B or C, no SDLC policy | Present the contract. Ask the human to choose: set up the backend with `setup-agent-workflows`, or approve the scope here and continue inline with the fast-path steps. Never choose for them. Record the approved scope in the change request. |
+
+When SDLC is enabled, Track B and C work must use the delegated protocol.
+
+Merging and deployment always remain with the human.

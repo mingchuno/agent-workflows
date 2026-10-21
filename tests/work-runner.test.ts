@@ -13,7 +13,12 @@ import {
 } from "../packages/core/src/work/schema.js";
 import { issueSource } from "../packages/core/src/work/store.js";
 import { repository } from "./fixtures.js";
-import { agent, FixtureHosting, waitFor } from "./runner-fixtures.js";
+import {
+  agent,
+  FixtureHosting,
+  freshPoll,
+  waitFor,
+} from "./runner-fixtures.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 for (const provider of ["codex", "copilot"] as const) {
@@ -80,7 +85,7 @@ for (const provider of ["codex", "copilot"] as const) {
           contract,
         );
         if (track !== "A") {
-          await runner.poll();
+          await freshPoll(runner);
           assert.equal((await runner.store.runs()).length, 0);
           await runner.store.workItems.approve(
             work.id,
@@ -91,7 +96,7 @@ for (const provider of ["codex", "copilot"] as const) {
           );
         }
         if (track === "C") {
-          await runner.poll();
+          await freshPoll(runner);
           assert.equal((await runner.store.runs()).length, 0);
           await runner.store.workItems.approve(
             work.id,
@@ -101,7 +106,7 @@ for (const provider of ["codex", "copilot"] as const) {
             project,
           );
         }
-        await runner.poll();
+        await freshPoll(runner);
         await waitFor(async () =>
           (await runner.store.runs()).some(
             (run) => !["queued", "running"].includes(run.outcome),
@@ -127,7 +132,7 @@ for (const provider of ["codex", "copilot"] as const) {
               call.environment.TEST_DATABASE_URL === undefined,
           ),
         );
-        await runner.poll();
+        await freshPoll(runner);
         assert.equal((await runner.store.runs()).length, 1);
       } finally {
         await runner.shutdown();
@@ -258,7 +263,7 @@ for (const scenario of [
           { approvedBy: "operator", source: "local-operator" },
           project,
         );
-      await runner.poll();
+      await freshPoll(runner);
       await waitFor(async () =>
         (await runner.store.runs()).some(
           (run) => !["queued", "running"].includes(run.outcome),
@@ -317,25 +322,33 @@ test("closed enterprise history does not starve later ready work", {
       open: true,
     };
     hosting.issues.push(next);
-    const work = await runner.store.workItems.create(
+    const contract = {
+      title: next.title,
+      intent: next.body,
+      acceptanceCriteria: ["Requested file exists"],
+      scopePaths: ["implemented.txt"],
+      assessment: { proposedTrack: "A", complexity: "small" },
+    };
+    // A background poll may already have taken in the labelled issue with a
+    // bare contract; propose the assessed contract onto whichever record exists.
+    const intake = await runner.store.workItems.create(
       project.id,
       issueSource("github", next),
-      {
-        title: next.title,
-        intent: next.body,
-        acceptanceCriteria: ["Requested file exists"],
-        scopePaths: ["implemented.txt"],
-        assessment: { proposedTrack: "A", complexity: "small" },
-      },
+      contract,
     );
-    await runner.poll();
+    const work = await runner.store.workItems.propose(
+      intake.id,
+      intake.revision,
+      contract,
+    );
+    await freshPoll(runner);
     await waitFor(async () =>
       (await runner.store.runs()).some((run) => run.outcome === "completed"),
     );
     const runs = await runner.store.runs();
     assert.equal(runs.length, 1);
     assert.equal(runs[0]!.work?.workItemId, work.id);
-    await runner.poll();
+    await freshPoll(runner);
     assert.equal((await runner.store.runs()).length, 1);
   } finally {
     await runner.shutdown();
@@ -379,7 +392,7 @@ test("one failing Work Item does not stop the project poll", {
       { kind: "local", key: "still-admitted" },
       { title: "Add a file", intent: "Add the requested file", ...fastTrack },
     );
-    await runner.poll();
+    await freshPoll(runner);
     const runs = await runner.store.runs();
     assert.deepEqual(
       runs.map((run) => run.work?.workItemId),
@@ -388,10 +401,12 @@ test("one failing Work Item does not stop the project poll", {
     const failures = (await runner.store.events()).filter(
       (event) => event.kind === "work-poll-error",
     );
-    assert.equal(failures.length, 1);
-    assert.equal(
-      (failures[0]!.payload as { workItemId: string }).workItemId,
-      broken.id,
+    assert.ok(failures.length > 0);
+    assert.ok(
+      failures.every(
+        (event) =>
+          (event.payload as { workItemId: string }).workItemId === broken.id,
+      ),
     );
   } finally {
     await runner.shutdown();
@@ -443,13 +458,13 @@ test("admitted Work Items cost no hosting calls on later polls", {
         assessment: { proposedTrack: "A", complexity: "small" },
       },
     );
-    await runner.poll();
+    await freshPoll(runner);
     await waitFor(async () =>
       (await runner.store.runs()).some((run) => run.outcome === "completed"),
     );
     const before = hostingCalls;
-    await runner.poll();
-    await runner.poll();
+    await freshPoll(runner);
+    await freshPoll(runner);
     assert.equal(hostingCalls, before);
     assert.equal((await runner.store.runs()).length, 1);
   } finally {

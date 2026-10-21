@@ -31,7 +31,10 @@ requires C. Supported risk flags are `security`, `migration`, `breaking-api`,
 `production`, `sensitive-data`, `cross-service`, and `irreversible`.
 
 The policy keeps a stricter proposed track and applies configured minimum tracks
-for expected and actual changed paths. An empty risk declaration is not proof of
+for expected and actual changed paths. Track A becomes B when the expected
+`assessment.paths` or actual changed files exceed `sdlc.fastTrackMaxFiles`
+(default 10). The decision's `trackReasons` explain each escalation. An empty
+risk declaration is not proof of
 semantic safety. Assessment, configured path rules, and human review contribute
 different evidence.
 

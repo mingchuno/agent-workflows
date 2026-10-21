@@ -104,6 +104,7 @@ export const sdlcPolicySchema = z
       .enum(["local-operator", "github", "gitlab"])
       .default("local-operator"),
     approvers: texts.default([]),
+    fastTrackMaxFiles: z.number().int().positive().default(10),
     riskRules: z
       .array(
         z.strictObject({
@@ -145,6 +146,7 @@ export interface WorkDecision {
     | "awaiting-design-approval"
     | "ready";
   reasons: DecisionReason[];
+  trackReasons: string[];
   requiredGates: ApprovalGate[];
 }
 export interface WorkExecution {

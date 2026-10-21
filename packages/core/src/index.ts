@@ -9,6 +9,7 @@ export * from "./runner.js";
 export * from "./store.js";
 export * from "./work/admission.js";
 export * from "./work/approvals.js";
+export * from "./work/classify.js";
 export * from "./work/policy.js";
 export * from "./work/schema.js";
 export * from "./work/store.js";

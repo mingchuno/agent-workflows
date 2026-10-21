@@ -189,7 +189,7 @@ Both workflows share one project checkout and serial queue. Configure intake und
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `workflows.implementation.enabled` | `true` | Discover issues and run `defaultWorkflow`. |
-| `workflows.implementation.review.maxFixRounds` | `2` | Maximum repair rounds after initial validation/review; nonnegative integer, including zero. |
+| `workflows.implementation.review.maxFixRounds` | `2` | Maximum repair rounds after initial validation/review; nonnegative integer, including zero. A round runs only for blocking findings or failed validation. |
 | `workflows.implementation.review.blockAtOrAbove` | `"P2"` | Blocking priority threshold: P0–P2 block by default; P3 does not. |
 | `workflows.implementation.labels` | `["ready-for-agent"]` | Issues must have every configured label. |
 | `workflows.review.enabled` | `false` | Discover existing PRs/MRs and run `reviewWorkflow`. |

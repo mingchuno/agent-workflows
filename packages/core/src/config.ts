@@ -162,6 +162,9 @@ const fragmentSdlcSchema = z.strictObject({
   allowLocalTasks: sdlcPolicySchema.shape.allowLocalTasks.unwrap().optional(),
   approvalSource: sdlcPolicySchema.shape.approvalSource.unwrap().optional(),
   approvers: sdlcPolicySchema.shape.approvers.unwrap().optional(),
+  fastTrackMaxFiles: sdlcPolicySchema.shape.fastTrackMaxFiles
+    .unwrap()
+    .optional(),
   riskRules: sdlcPolicySchema.shape.riskRules.unwrap().optional(),
 });
 const fragmentFields = {

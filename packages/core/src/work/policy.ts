@@ -84,6 +84,13 @@ export function resolveTrack(
       ...assessment.riskFlags.map((flag) => `Declared risk: ${flag}`),
     );
   }
+  const changedFiles = Math.max(assessment.paths.length, actualPaths.length);
+  if (track === "A" && changedFiles > policy.fastTrackMaxFiles) {
+    track = "B";
+    reasons.push(
+      `${changedFiles} changed files exceed the Track A limit of ${policy.fastTrackMaxFiles}`,
+    );
+  }
   const declaredPaths = [...assessment.paths, ...contract.scopePaths];
   for (const rule of policy.riskRules) {
     if (
@@ -105,7 +112,7 @@ export function assessReadiness(
   approvals: ApprovalRecord[],
   policy: SdlcPolicy,
 ): WorkDecision {
-  const { track } = resolveTrack(contract, policy);
+  const { track, reasons: trackReasons } = resolveTrack(contract, policy);
   const requiredGates: ApprovalGate[] =
     track === "A" ? [] : track === "B" ? ["scope"] : ["scope", "design"];
   const reasons: DecisionReason[] = [];
@@ -133,6 +140,7 @@ export function assessReadiness(
     track,
     state,
     reasons,
+    trackReasons,
     requiredGates,
   });
   if (reasons.length) return result("needs-info");
