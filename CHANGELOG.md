@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.13.0](https://github.com/mingchuno/agent-workflows/compare/v0.12.2...v0.13.0) (2026-10-22)
+
+
+### Features
+
+* **cli:** infer setup and fold onboarding into start-work ([#39](https://github.com/mingchuno/agent-workflows/issues/39)) ([984899a](https://github.com/mingchuno/agent-workflows/commit/984899ac29f1145413ef7be610d7448feb003185))
+* **sdlc:** add adaptive tracks behind a single start-work skill ([#37](https://github.com/mingchuno/agent-workflows/issues/37)) ([949495a](https://github.com/mingchuno/agent-workflows/commit/949495ac5e51f67a5773f2ea66a78605b1e0d766))
+* **sdlc:** approve with short issue comments and reopen the web monitor ([#40](https://github.com/mingchuno/agent-workflows/issues/40)) ([3b0411c](https://github.com/mingchuno/agent-workflows/commit/3b0411c2b11a3b1344ca3a50e797998c4c7362e4))
+* **sdlc:** Publish clarified Work contracts to the issue ([1bb363b](https://github.com/mingchuno/agent-workflows/commit/1bb363bcc090e850aee2fe95daf82abf407772fc))
+* **sdlc:** resume pending work and recover from the monitor ([#41](https://github.com/mingchuno/agent-workflows/issues/41)) ([670d78b](https://github.com/mingchuno/agent-workflows/commit/670d78bb772cad412bf88f41331eec19cb793c39))
+
 ## [0.12.2](https://github.com/mingchuno/agent-workflows/compare/v0.12.1...v0.12.2) (2026-10-16)
 
 
