@@ -94,6 +94,9 @@ export function WorkItemsView({
         ...(selected.approvalSource !== "local-operator"
           ? [
               `Approval requires an authenticated allowed human through ${selected.approvalSource}.`,
+              ...(selected.approvalComment
+                ? [`Comment on the issue: ${selected.approvalComment}`]
+                : []),
             ]
           : []),
         "",

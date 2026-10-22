@@ -24,6 +24,8 @@ const controlSchema = z.strictObject({
   pid: z.number().int().positive(),
   nonce: z.string(),
   configuration: configSchema.optional(),
+  /** Web monitor access URL, including its launch token. */
+  webUrl: z.url().optional(),
 });
 type RunnerControl = z.infer<typeof controlSchema>;
 
@@ -115,13 +117,31 @@ export async function publishActiveConfiguration(
   configPath: string,
   configuration: Configuration,
 ): Promise<void> {
-  const path = controlPath(configPath);
   const control = await readRunnerControl(configPath);
   if (control.pid !== process.pid || control.id !== configuration.id)
     throw new Error("Cannot publish another runner's configuration");
+  await replaceControl(configPath, { ...control, configuration });
+}
+
+/** Record the web monitor link so `monitor --web` can reopen it later. */
+export async function publishWebUrl(
+  configPath: string,
+  webUrl: string,
+): Promise<void> {
+  const control = await readRunnerControl(configPath);
+  if (control.pid !== process.pid)
+    throw new Error("Cannot publish another runner's web monitor");
+  await replaceControl(configPath, { ...control, webUrl });
+}
+
+async function replaceControl(
+  configPath: string,
+  record: RunnerControl,
+): Promise<void> {
+  const path = controlPath(configPath);
   const temporary = `${path}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, JSON.stringify({ ...control, configuration }), {
+    await writeFile(temporary, JSON.stringify(record), {
       flag: "wx",
       mode: 0o600,
     });
@@ -129,6 +149,11 @@ export async function publishActiveConfiguration(
   } finally {
     await rm(temporary, { force: true });
   }
+}
+
+/** The web monitor's address without its access token. */
+export function monitorAddress(webUrl: string): string {
+  return new URL(webUrl).origin + "/";
 }
 
 export async function findRunnerControl(

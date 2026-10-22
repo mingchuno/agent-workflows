@@ -4,8 +4,12 @@ import { test } from "node:test";
 import { projectSchema } from "../packages/core/src/config.js";
 import type { Issue } from "../packages/core/src/domain.js";
 import { Store } from "../packages/core/src/store.js";
+import { syncWorkApprovals } from "../packages/core/src/work/approvals.js";
 import { WorkConflictError } from "../packages/core/src/work/errors.js";
-import { issueSource } from "../packages/core/src/work/policy.js";
+import {
+  approvalComment,
+  issueSource,
+} from "../packages/core/src/work/policy.js";
 import {
   publishWork,
   renderContract,
@@ -317,5 +321,83 @@ test(
         /active run/,
       );
       assert.equal(hosting.created, 0);
+    }),
+);
+
+test("a published provider contract prints the short approval comment", () => {
+  const team = {
+    ...project.sdlc,
+    approvalSource: "github" as const,
+    approvers: ["lead"],
+  };
+  const rendered = renderContract("w1", contract, team);
+  const comment = approvalComment(contract, "scope");
+  assert.match(comment, /^\/approve scope [0-9a-f]{12}$/);
+  assert.ok(rendered.includes(`\`${comment}\``));
+  assert.match(rendered, /`lead`/);
+  // The code ignores the assessed source so publication cannot change it.
+  assert.equal(
+    approvalComment({ ...contract, sourceRevision: "other" }, "scope"),
+    comment,
+  );
+  assert.notEqual(
+    approvalComment({ ...contract, intent: "Something else" }, "scope"),
+    comment,
+  );
+  assert.match(
+    renderContract("w1", contract, project.sdlc),
+    /Approve in the agent-workflows monitor/,
+  );
+});
+
+test(
+  "a short approval comment counts only for the published contract after it last changed",
+  {
+    skip: !databaseUrl,
+  },
+  async () =>
+    withStore(async (store) => {
+      const team = projectSchema.parse({
+        ...project,
+        sdlc: { enabled: true, approvalSource: "github", approvers: ["lead"] },
+      });
+      const hosting = new PublishingHosting();
+      const work = await store.workItems.create(
+        team.id,
+        issueSource("github", hosting.issues[0]!),
+        contract,
+      );
+      const published = await publishWork(
+        work.id,
+        team,
+        { store, hosting },
+        { revision: work.revision },
+      );
+      assert.equal(
+        published.approvalComment,
+        approvalComment(published.work.contract, "scope"),
+      );
+      const changedAt = Date.parse(published.work.updatedAt);
+      const comment = (body: string, offset: number, author = "lead") => ({
+        id: String(offset),
+        body,
+        author,
+        human: true,
+        url: `https://fixture.invalid/c/${offset}`,
+        createdAt: new Date(changedAt + offset).toISOString(),
+      });
+      const short = published.approvalComment!;
+      const comments = [
+        comment(short, -1000),
+        comment(short, 1000, "outsider"),
+        comment(short.replace(/\w{12}$/, "0".repeat(12)), 1000),
+      ];
+      hosting.listApprovalComments = async () => comments;
+      assert.equal(await syncWorkApprovals(work.id, team, store, hosting), 0);
+      comments.push(comment(short, 1000));
+      assert.equal(await syncWorkApprovals(work.id, team, store, hosting), 1);
+      const after = await store.workItems.inspect(work.id, team);
+      assert.equal(after.decision.state, "ready");
+      assert.equal(after.approvalComment, undefined);
     }),
 );

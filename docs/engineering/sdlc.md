@@ -162,18 +162,23 @@ recorded safety checks permit them.
 ## Keep enterprise approval independent
 
 The enterprise example requires GitLab approval by the configured allowed human.
-Local `work approve` rejects that policy. After inspecting the current contract,
-the human posts this exact plain comment on the source issue.
+Local `work approve` rejects that policy. The published contract ends with the
+exact comment for each gate, and `start-work`, `work inspect` and the monitors
+show it for the gate awaiting approval. After reading the contract on the issue,
+the approver posts it as a plain comment:
 
 ```text
-agent-workflows approve WORK_ID scope CURRENT_REVISION
+/approve scope 3f9a2c1d4e5f
 ```
 
-For the design gate, the human substitutes `design` and the complete revision
-they inspected. The runner reads source-host comments and accepts only configured
-human approvers at the current revision. It ignores bots, outsiders, and stale
-comments. The intake agent never posts approval comments. Configuration loading
-rejects a `github` or `gitlab` approval source without a nonempty `approvers` list.
+The code is a digest of the gate's contract content, so it names the contract
+printed on the issue. A short comment counts only while the issue shows the Work
+Item's current contract, and only when posted after the Work Item last changed,
+so a comment from before a source edit or republication never approves the
+reassessed work. That comparison uses the host's comment time and the local
+clock; if a valid comment is ignored because of clock skew, post it again. The
+long form `agent-workflows approve WORK_ID GATE REVISION` with the full Work
+Item revision is still accepted.
 
 The worker imports permitted approval during polling. To import existing comments
 without waiting for another poll, run the sync command.

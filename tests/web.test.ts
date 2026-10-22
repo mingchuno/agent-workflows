@@ -4,8 +4,9 @@ import { symlink, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { createServer } from "node:net";
 import { networkInterfaces } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
+import { command } from "../packages/core/src/runtime/process.js";
 import { waitFor } from "./runner-fixtures.js";
 import { seedWebEvidence, unusedPort, webRunner } from "./web-fixtures.js";
 
@@ -420,5 +421,59 @@ test("web configuration shows accepted runner settings across reloads and reject
     assert.equal((await readConfig()).projects[0].pollIntervalMs, 12345);
   } finally {
     await runner.stop();
+  }
+});
+
+test("a taken default port falls back to a free one that monitor --web reopens", {
+  skip: !process.env.TEST_DATABASE_URL,
+}, async () => {
+  const occupied = createServer();
+  // Whoever holds the default port, the runner must move off it.
+  await new Promise<void>((done) => {
+    occupied.once("error", () => done());
+    occupied.listen(8787, "127.0.0.1", done);
+  });
+  const runner = await webRunner({ flags: [] });
+  try {
+    await waitFor(async () => runner.output().includes("Web monitor: http"));
+    const moved = /Port 8787 is in use; using (\d+)\./.exec(runner.output());
+    assert.ok(moved, runner.output());
+    const printed = /Web monitor: (\S+)/.exec(runner.output())![1]!;
+    assert.equal(new URL(printed).port, moved[1]);
+    const cli = (...args: string[]) =>
+      command(
+        process.execPath,
+        [
+          "--import",
+          import.meta.resolve("tsx"),
+          resolve("packages/cli/src/cli.ts"),
+          "--config",
+          runner.configPath,
+          ...args,
+        ],
+        {
+          cwd: runner.directory,
+          env: {
+            ...process.env,
+            AGENT_WORKFLOWS_DATABASE_URL: process.env.TEST_DATABASE_URL,
+          },
+          allowFailure: true,
+        },
+      );
+    await waitFor(async () =>
+      (await cli("monitor", "--web")).stdout.includes(printed),
+    );
+    assert.match(
+      (await cli("monitor", "--web", "work-1")).stdout,
+      new RegExp(`${printed.replace(/[?]/g, "\\?")}#work=work-1`),
+    );
+    const report = JSON.parse(
+      (await cli("doctor", "--json", "--project", "fixture")).stdout,
+    );
+    assert.equal(report.monitorUrl, `http://127.0.0.1:${moved[1]}/`);
+    assert.doesNotMatch(JSON.stringify(report), /token=/);
+  } finally {
+    await runner.stop();
+    await new Promise<void>((done) => occupied.close(() => done()));
   }
 });

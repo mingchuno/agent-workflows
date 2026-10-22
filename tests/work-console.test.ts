@@ -333,3 +333,37 @@ test("browser pins approval confirmation to the inspected Work Item revision", {
     await browser.close();
   }
 });
+
+test("a #work link opens the browser monitor at that Work Item", {
+  skip: !databaseUrl,
+}, async (t) => {
+  const runner = await webRunner();
+  t.after(() => runner.stop());
+  const browser = await chromium.launch();
+  try {
+    runner.config.projects[0]!.sdlc = sdlcPolicySchema.parse({ enabled: true });
+    await writeFile(runner.configPath, JSON.stringify(runner.config));
+    const commandId = await runner.store.request("reload", "");
+    await waitFor(async () =>
+      (await runner.store.commands()).some(
+        (command) => command.id === commandId && command.status === "success",
+      ),
+    );
+    const create = (key: string, title: string) =>
+      runner.store.workItems.create(
+        "fixture",
+        { kind: "local", key },
+        { title, intent: title },
+      );
+    await create("first", "First task");
+    const linked = await create("second", "Linked task");
+    const { url } = await runner.access();
+    const page = await browser.newPage();
+    await page.goto(`${url}#work=${linked.id}`);
+    await expect(
+      page.getByRole("heading", { name: "Linked task", exact: true }),
+    ).toBeVisible();
+  } finally {
+    await browser.close();
+  }
+});

@@ -16,6 +16,7 @@ documentation.
 - [0010: Run Track A inline and delegate only gated work](0010-inline-fast-path.md)
 - [0011: Publish clarified contracts to the issue](0011-publish-contracts-to-issues.md)
 - [0012: Onboard through start-work and existing sign-ins](0012-onboard-through-start-work.md)
+- [0013: Approve on the issue with a short contract code](0013-short-approval-comments.md)
 
 For observable behavior, see the [public SDK API](../api.md),
 [configuration reference](../configuration.md), and [operator guide](../operations.md).

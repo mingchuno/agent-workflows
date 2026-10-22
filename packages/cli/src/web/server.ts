@@ -83,7 +83,7 @@ export function monitorServer(store: Store, startup: WebStartup) {
     if (token !== undefined) {
       if (!sameSecret(token, startup.token))
         return context.text(
-          "Access link is invalid. Open the URL printed by run.",
+          "Access link is invalid. Run agent-workflows monitor --web for the current link.",
           401,
         );
       setCookie(context, cookieName, session, {
@@ -98,7 +98,10 @@ export function monitorServer(store: Store, startup: WebStartup) {
   app.use("/api/*", async (context, next) => {
     if (!sameSecret(getCookie(context, cookieName), session))
       return context.json(
-        { error: "Open the access URL printed by run to connect." },
+        {
+          error:
+            "Run agent-workflows monitor --web to open the monitor with access.",
+        },
         401,
       );
     await next();

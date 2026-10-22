@@ -15,6 +15,7 @@ import {
   publishWork,
   type Store,
   syncWorkApprovals,
+  type WorkInspection,
   workContractSchema,
   workOperator,
 } from "@mingchuno/agent-workflows-core";
@@ -23,6 +24,8 @@ import type { Command } from "commander";
 interface WorkCommandDependencies {
   pathBaseDirectory(): string;
   configuration(): Promise<Configuration>;
+  /** The running web monitor address without its token, if any. */
+  monitorUrl(): Promise<string | undefined>;
   withStore(
     config: Configuration,
     action: (store: Store) => Promise<void>,
@@ -67,9 +70,17 @@ export function registerWorkCommands(
       throw new Error("Enable sdlc for this project first");
     await dependencies.withStore(config, async (store) => {
       await store.registerProject(project.id);
-      console.log(
-        JSON.stringify(await action(store, project, config), null, 2),
-      );
+      const result = await action(store, project, config);
+      // Point the human at the Work Item in the web monitor, if it runs.
+      const monitor = await dependencies.monitorUrl();
+      const linked =
+        monitor && result && typeof result === "object" && "work" in result
+          ? {
+              ...result,
+              monitorUrl: `${monitor}#work=${encodeURIComponent((result as WorkInspection).work.id)}`,
+            }
+          : result;
+      console.log(JSON.stringify(linked, null, 2));
     });
   };
   const command = (syntax: string) =>

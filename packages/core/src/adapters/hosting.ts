@@ -256,6 +256,7 @@ export class GitHubHosting implements HostingAdapter {
       author: comment.user?.login ?? "",
       human: comment.user?.type === "User",
       url: comment.html_url,
+      createdAt: comment.created_at,
     }));
   }
   async findChange(branch: string): Promise<ChangeRequest | undefined> {
@@ -442,6 +443,7 @@ export class GitLabHosting implements HostingAdapter {
         author: note.author.username,
         human: note.author.bot !== true,
         url: `${issue.url}#note_${note.id}`,
+        createdAt: note.created_at,
       }));
   }
   async findChange(branch: string): Promise<ChangeRequest | undefined> {

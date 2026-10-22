@@ -10,13 +10,16 @@ import styles from "./app.module.css";
 
 export function WorkItemsView({
   projectId,
+  linkedWorkId,
   disabled,
 }: {
   projectId?: string;
+  /** Selected first and shown whatever the project selection. */
+  linkedWorkId?: string;
   disabled: boolean;
 }) {
   const client = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string>();
+  const [selectedId, setSelectedId] = useState(linkedWorkId);
   const [confirmation, setConfirmation] = useState<{
     id: string;
     title: string;
@@ -34,7 +37,10 @@ export function WorkItemsView({
   });
   const items =
     snapshot.data?.items.filter(
-      (item) => !projectId || item.work.projectId === projectId,
+      (item) =>
+        !projectId ||
+        item.work.projectId === projectId ||
+        item.work.id === linkedWorkId,
     ) ?? [];
   const selected =
     items.find((item) => item.work.id === selectedId) ?? items[0];
@@ -195,11 +201,18 @@ export function WorkItemsView({
             {JSON.stringify(selected.work.contract, null, 2)}
           </pre>
           {selected.approvalSource !== "local-operator" ? (
-            <p className={styles.attention}>
-              This project requires authenticated approval from an allowed human
-              through {selected.approvalSource}. Local monitor actions cannot
-              grant that approval.
-            </p>
+            <div className={styles.attention}>
+              <p>
+                This project requires authenticated approval from an allowed
+                human through {selected.approvalSource}. Local monitor actions
+                cannot grant that approval.
+              </p>
+              {selected.approvalComment && (
+                <p>
+                  Comment on the issue: <code>{selected.approvalComment}</code>
+                </p>
+              )}
+            </div>
           ) : gate && !confirmation ? (
             <button
               type="button"
