@@ -33,6 +33,11 @@ export function WorkItemsView({
     title: string;
     approval: WorkApproval;
   }>();
+  const [resubmission, setResubmission] = useState<{
+    id: string;
+    title: string;
+    revision: string;
+  }>();
   const refresh = useCallback(async () => {
     if (!source.workItems)
       throw new Error(
@@ -81,6 +86,10 @@ export function WorkItemsView({
     !pending &&
     selected?.approvalSource === "local-operator" &&
     Boolean(gate && source.approveWork);
+  const recoverable =
+    connected &&
+    !pending &&
+    Boolean(selected?.recoverable && source.resubmitWork);
   const height = rows - 8;
   const lines = selected
     ? [
@@ -91,6 +100,11 @@ export function WorkItemsView({
         selected.work.revision,
         "",
         ...selected.decision.reasons.map((reason) => reason.message),
+        ...(selected.recoverable
+          ? [
+              "The project is blocked by an earlier attempt. Preserve and clean the checkout, then press r to resubmit.",
+            ]
+          : []),
         ...(selected.approvalSource !== "local-operator"
           ? [
               `Approval requires an authenticated allowed human through ${selected.approvalSource}.`,
@@ -115,7 +129,13 @@ export function WorkItemsView({
   const maximum = Math.max(0, wrapLines(lines, columns - 4).length - height);
   const currentOffset = Math.min(offset, maximum);
   useInput((input, key) => {
-    if (key.ctrl || key.meta || key.eventType === "release" || confirmation)
+    if (
+      key.ctrl ||
+      key.meta ||
+      key.eventType === "release" ||
+      confirmation ||
+      resubmission
+    )
       return;
     if (key.escape || input === "w" || input === "q") onClose();
     else if (key.tab && visible.length) {
@@ -134,6 +154,12 @@ export function WorkItemsView({
         id: selected.work.id,
         title: selected.work.contract.title,
         approval: { revision: selected.work.revision, gate },
+      });
+    else if (input === "r" && recoverable && selected)
+      setResubmission({
+        id: selected.work.id,
+        title: selected.work.contract.title,
+        revision: selected.work.revision,
       });
     else if (key.home) setOffset(0);
     else if (key.end) setOffset(maximum);
@@ -164,6 +190,40 @@ export function WorkItemsView({
       setPending(false);
     }
   };
+  const resubmit = async () => {
+    if (!resubmission || !source.resubmitWork || pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
+    setResubmission(undefined);
+    setMessage("Checking the checkout and resubmitting...");
+    try {
+      await source.resubmitWork(resubmission.id, resubmission.revision);
+      setMessage("Resubmitted; the runner starts it on its next scan.");
+      setItems(await refresh());
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
+    }
+  };
+  if (resubmission)
+    return (
+      <ConfirmDialog
+        columns={columns}
+        rows={rows}
+        title="Resubmit after recovery"
+        subject={resubmission.title}
+        description={`Clear the project block and run this revision once earlier processes stopped and the checkout is clean.\n\n${resubmission.revision}`}
+        available={
+          recoverable &&
+          selected?.work.id === resubmission.id &&
+          selected.work.revision === resubmission.revision
+        }
+        onCancel={() => setResubmission(undefined)}
+        onConfirm={() => void resubmit()}
+      />
+    );
   if (confirmation)
     return (
       <ConfirmDialog
@@ -201,7 +261,7 @@ export function WorkItemsView({
       <Text>{chromeCells(message, columns - 4)}</Text>
       <Text>
         {chromeCells(
-          `${allowed ? `a approve ${gate} / ` : ""}Tab select / Up/Down scroll / PgUp/PgDn / Esc close`,
+          `${allowed ? `a approve ${gate} / ` : ""}${recoverable ? "r resubmit / " : ""}Tab select / Up/Down scroll / PgUp/PgDn / Esc close`,
           columns - 4,
         )}
       </Text>

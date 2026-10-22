@@ -27,6 +27,9 @@ export const workApprovalSchema = z.strictObject({
   gate: z.enum(["scope", "design"]),
 });
 export type WorkApproval = z.infer<typeof workApprovalSchema>;
+export const workResubmissionSchema = workApprovalSchema.pick({
+  revision: true,
+});
 export type { WorkItemView };
 export interface WorkItemsSnapshot {
   items: WorkItemView[];

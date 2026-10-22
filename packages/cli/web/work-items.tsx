@@ -25,6 +25,10 @@ export function WorkItemsView({
     title: string;
     approval: WorkApproval;
   }>();
+  const [resubmitting, setResubmitting] = useState<{
+    id: string;
+    revision: string;
+  }>();
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const [notice, setNotice] = useState("");
@@ -89,6 +93,32 @@ export function WorkItemsView({
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
       await snapshot.refetch();
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
+    }
+  };
+  const resubmit = async () => {
+    if (!resubmitting || unavailable || pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
+    setNotice("Checking the checkout and resubmitting…");
+    try {
+      const response = await fetch(
+        `/api/work-items/${encodeURIComponent(resubmitting.id)}/resubmit`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revision: resubmitting.revision }),
+        },
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Resubmission failed.");
+      setNotice("Resubmitted; the runner starts it on its next scan.");
+      setResubmitting(undefined);
+      await client.invalidateQueries({ queryKey: ["work-items"] });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       pendingRef.current = false;
       setPending(false);
@@ -228,6 +258,58 @@ export function WorkItemsView({
               Review {gate} approval
             </button>
           ) : null}
+          {selected.recoverable &&
+            (resubmitting?.id === selected.work.id ? (
+              <section
+                className={styles.attention}
+                aria-label="Resubmission confirmation"
+              >
+                <h4>Resubmit {selected.work.contract.title}?</h4>
+                <p>
+                  This clears the project block and runs the revision once
+                  earlier processes stopped and the checkout is clean.
+                </p>
+                <code>{resubmitting.revision}</code>
+                <div className={styles.toolbar}>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => setResubmitting(undefined)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      unavailable ||
+                      resubmitting.revision !== selected.work.revision
+                    }
+                    onClick={() => void resubmit()}
+                  >
+                    Confirm resubmission
+                  </button>
+                </div>
+              </section>
+            ) : (
+              <div className={styles.attention}>
+                <p>
+                  The project is blocked by an earlier attempt. Preserve and
+                  clean the checkout, then resubmit.
+                </p>
+                <button
+                  type="button"
+                  disabled={unavailable}
+                  onClick={() =>
+                    setResubmitting({
+                      id: selected.work.id,
+                      revision: selected.work.revision,
+                    })
+                  }
+                >
+                  Resubmit after recovery
+                </button>
+              </div>
+            ))}
           {confirmation && (
             <section
               className={styles.attention}

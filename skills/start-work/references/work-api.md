@@ -4,23 +4,25 @@
 `AGENT_WORKFLOWS_CONFIG`, `agent-workflows.json` in the current directory, then
 the one file in `$AGENT_WORKFLOWS_HOME` (default `~/.config/agent-workflows`)
 whose project manages this checkout or one of its worktrees. It reports the
-resolved `configPath` and `project`. Pass both explicitly to every other command
-so a changed directory or environment cannot select another runner's
-configuration. Work commands print JSON. Discover options with
-`agent-workflows work --help`.
+resolved `configPath` and `project`. Pass `--config` explicitly to every other
+command so a changed environment cannot select another runner's configuration.
+Work commands use the project containing the current directory unless given
+`--project`. They print compact JSON. `--file -` reads the contract from
+standard input. Discover options with `agent-workflows work --help`.
 
 ```sh
 agent-workflows doctor --json
-agent-workflows --config CONFIG work classify --project app --file /tmp/work-contract.json
-agent-workflows --config CONFIG work classify --project app --file /tmp/work-contract.json --changed-from BASE
-agent-workflows --config CONFIG work list --project app
-agent-workflows --config CONFIG work inspect WORK_ID --project app
-agent-workflows --config CONFIG work create --issue 123 --project app
-agent-workflows --config CONFIG work create --title "Fix missing-size sorting" --key missing-size-sort --project app
-agent-workflows --config CONFIG work propose WORK_ID --revision CURRENT_REVISION --file /tmp/work-contract.json --project app
-agent-workflows --config CONFIG work publish WORK_ID --revision CURRENT_REVISION --project app
-agent-workflows --config CONFIG work sync-approvals WORK_ID --project app
-agent-workflows --config CONFIG work submit WORK_ID --revision CURRENT_REVISION --project app
+agent-workflows --config CONFIG work classify --file /tmp/work-contract.json
+agent-workflows --config CONFIG work classify --file /tmp/work-contract.json --changed-from BASE
+agent-workflows --config CONFIG work list --brief
+agent-workflows --config CONFIG work inspect WORK_ID
+agent-workflows --config CONFIG work create --issue 123
+agent-workflows --config CONFIG work create --title "Fix missing-size sorting" --key missing-size-sort
+agent-workflows --config CONFIG work propose WORK_ID --revision CURRENT_REVISION --file /tmp/work-contract.json
+agent-workflows --config CONFIG work propose WORK_ID --revision CURRENT_REVISION --file /tmp/work-contract.json --publish
+agent-workflows --config CONFIG work publish WORK_ID --revision CURRENT_REVISION
+agent-workflows --config CONFIG work sync-approvals WORK_ID
+agent-workflows --config CONFIG work submit WORK_ID --revision CURRENT_REVISION
 ```
 
 `classify` needs only the configuration: no database, worker or Work Item. It
@@ -33,7 +35,9 @@ argument. Do not interpolate untrusted task text into shell source.
 
 `inspect`, `assess`, `create`, `propose`, and `publish` return `work`, `approvals`, and
 `decision`, plus `approvalComment` when an issue comment approves the awaiting
-gate and `monitorUrl`, a link to the Work Item, while the web monitor runs. `list` returns those inspections as an array. `submit` returns
+gate and `monitorUrl`, a link to the Work Item, while the web monitor runs. `list` returns those inspections as an array;
+`list --brief` returns `id`, `title`, `source`, `track`, `state` and any
+`approvalComment` per item. `submit` returns
 `run`. `work.revision` identifies the complete current contract and observed
 source. A fresh agent session resumes through these persisted values.
 

@@ -15,10 +15,11 @@ Run `agent-workflows doctor --json` from the repository. If the command is
 missing, treat the backend as absent. Read the JSON result.
 
 When doctor passes the `configuration` and `project` checks, record its
-`configPath` and `project`. Pass `--config CONFIG_PATH` before the subcommand
-and `--project PROJECT` to every later `agent-workflows` command, for example
-`agent-workflows --config CONFIG_PATH work list --project PROJECT`. Never guess
-another configuration file. If doctor finds no configuration but the human keeps
+`configPath`. Pass `--config CONFIG_PATH` before the subcommand of every later
+`agent-workflows` command, for example
+`agent-workflows --config CONFIG_PATH work list --brief`. Work commands select
+the project containing the current directory; pass `--project PROJECT` only
+when running from elsewhere. Never guess another configuration file. If doctor finds no configuration but the human keeps
 one elsewhere, rerun doctor with `--config PATH`.
 
 | Result | Meaning |
@@ -33,6 +34,11 @@ offer to [set it up](references/setup.md) before continuing.
 
 ## 2. Resume or resolve the task
 
+Without a task, run `work list --brief` and show each Work Item as one line:
+title, track, state and its next action (the human's approval, your
+clarification, or the worker). Ask which to resume. With no Work Items, ask for
+a task.
+
 If the input is a Work Item ID, or `work list` shows a Work Item with the same
 issue or local key, follow [the delegated protocol](references/delegated.md) to
 resume it. Similar titles alone do not establish identity.
@@ -43,13 +49,14 @@ when behavior is unclear or a defect needs a root cause.
 
 ## 3. Classify
 
-Write a compact WorkContract JSON file outside the checkout. The fields are in
+Write a compact WorkContract JSON file outside the checkout, or pass it on
+standard input with `--file -`. The fields are in
 [the work API](references/work-api.md). Ask only questions whose answers change
 acceptance, scope, safety or feasibility; record reversible defaults as
 `assumptions`.
 
 If the CLI and a configured project are available, run
-`agent-workflows --config CONFIG work classify --project ID --file CONTRACT` and use its
+`agent-workflows --config CONFIG work classify --file CONTRACT` and use its
 `track`. Otherwise classify by hand: Track A only for a small change with a
 clear expected outcome, no declared risk, no open questions, and about ten files
 or fewer. Migrations, security, public API, production, infrastructure and

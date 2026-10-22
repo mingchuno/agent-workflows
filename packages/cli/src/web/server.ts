@@ -20,7 +20,11 @@ import {
 } from "../cli-runner-control.js";
 import { discoverRuns, runFilters } from "../monitor/discovery.js";
 import { webAssetDirectory } from "./assets.js";
-import { monitorCommandSchema, workApprovalSchema } from "./contracts.js";
+import {
+  monitorCommandSchema,
+  workApprovalSchema,
+  workResubmissionSchema,
+} from "./contracts.js";
 import { MonitorEvidence } from "./evidence.js";
 import type { WebStartup } from "./lifecycle.js";
 
@@ -171,6 +175,7 @@ export function monitorServer(store: Store, startup: WebStartup) {
   );
   const work = workOperator({
     store,
+    stateDirectory: startup.stateDirectory,
     projects: async () =>
       (
         await readActiveConfiguration(startup.configPath, startup.scope)
@@ -195,6 +200,26 @@ export function monitorServer(store: Store, startup: WebStartup) {
     return context.json(
       await work.approve(context.req.param("id"), parsed.data),
     );
+  });
+  app.use("/api/work-items/:id/resubmit", bodyLimit({ maxSize: 4096 }));
+  app.post("/api/work-items/:id/resubmit", async (context) => {
+    const parsed = workResubmissionSchema.safeParse(
+      await context.req.json().catch(() => null),
+    );
+    if (!parsed.success)
+      return context.json({ error: "Provide the inspected revision" }, 400);
+    try {
+      return context.json(
+        await work.resubmit(context.req.param("id"), parsed.data.revision),
+      );
+    } catch (error) {
+      if (error instanceof WorkItemNotFoundError) throw error;
+      // Safety and policy refusals tell the operator what to fix first.
+      return context.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        409,
+      );
+    }
   });
   app.get("/api/runs/:id/log", async (context) => {
     const parsed = logQuerySchema.safeParse(context.req.query());

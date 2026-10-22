@@ -41,6 +41,7 @@ function workItem(): WorkItemView {
     },
     approvalSource: "local-operator",
     runIds: [],
+    recoverable: false,
   };
 }
 
@@ -175,6 +176,50 @@ test("terminal Work Items cannot locally approve enterprise gates", async () => 
     await settle();
     assert.equal(approvals, 0);
     assert.doesNotMatch(view.lastFrame()!, /Approve scope/);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("terminal Work Items resubmit recoverable work after confirmation", async () => {
+  const { source } = monitorFixture();
+  const item: WorkItemView = {
+    ...workItem(),
+    decision: {
+      track: "B",
+      state: "ready",
+      reasons: [],
+      requiredGates: ["scope"],
+    },
+    runIds: ["run-one"],
+    recoverable: true,
+  };
+  const resubmitted: string[] = [];
+  source.workItems = async () => [item];
+  source.resubmitWork = async (id, revision) => {
+    resubmitted.push(`${id}@${revision}`);
+    item.recoverable = false;
+    return item;
+  };
+  const view = render(
+    <WorkItemsView
+      source={source}
+      projectId="demo"
+      columns={100}
+      rows={28}
+      onClose={() => {}}
+    />,
+  );
+  try {
+    await until(() => view.lastFrame()!.includes("r resubmit"));
+    assert.match(view.lastFrame()!.replace(/\s+/g, " "), /press r to resubmit/);
+    view.stdin.write("r");
+    await until(() => view.lastFrame()!.includes("Resubmit after recovery"));
+    view.stdin.write("\t");
+    await settle();
+    view.stdin.write("\r");
+    await until(() => view.lastFrame()!.includes("Resubmitted"));
+    assert.deepEqual(resubmitted, [`work-one@${"1".repeat(64)}`]);
   } finally {
     view.unmount();
   }
