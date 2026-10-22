@@ -10,6 +10,8 @@ export interface WebStartup {
   stateDirectory: string;
   projectIds: string[];
   port: number;
+  /** Use any free port when `port` is the taken default. */
+  fallbackPort?: boolean;
   token: string;
 }
 
@@ -19,6 +21,9 @@ export function startWebMonitor(options: {
   configPath: string;
   databaseUrl: string;
   port: number;
+  fallbackPort?: boolean;
+  /** Receives the access URL once the server listens. */
+  onReady?: (url: string) => void;
 }) {
   const token = randomBytes(32).toString("hex");
   const redact = createRedactor([token, options.databaseUrl]);
@@ -46,10 +51,17 @@ export function startWebMonitor(options: {
     if (!message || typeof message !== "object") return;
     if ("ready" in message && message.ready === true) {
       clearTimeout(timer);
-      if (!stopping)
-        console.log(
-          `Web monitor: http://127.0.0.1:${options.port}/?token=${token}`,
-        );
+      const port =
+        "port" in message && typeof message.port === "number"
+          ? message.port
+          : options.port;
+      const url = `http://127.0.0.1:${port}/?token=${token}`;
+      if (!stopping) {
+        if (port !== options.port)
+          console.log(`Port ${options.port} is in use; using ${port}.`);
+        console.log(`Web monitor: ${url}`);
+        options.onReady?.(url);
+      }
     } else if ("error" in message && typeof message.error === "string") {
       clearTimeout(timer);
       warn(message.error);
@@ -76,6 +88,7 @@ export function startWebMonitor(options: {
     stateDirectory: options.config.stateDirectory,
     projectIds: options.config.projects.map((project) => project.id),
     port: options.port,
+    fallbackPort: options.fallbackPort ?? false,
     token,
   };
   child.send(startup, (error) => {

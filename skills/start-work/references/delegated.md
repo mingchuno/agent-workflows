@@ -39,7 +39,16 @@ cannot be approved until it is published.
 
 ## Approval
 
-Approval is a human action. Never run `work approve`, post an approval comment,
+Approval is a human action. Tell the human exactly where to give it, in one
+line:
+
+- `approvalComment` in the inspection: "Comment on the issue: `/approve scope 3f9a2c1d4e5f`".
+  It counts only from an allowed approver, after the contract was last published.
+- Otherwise, with `monitorUrl`: "Approve here: MONITOR_URL". Without it: "Start
+  `agent-workflows run`, then approve with `agent-workflows monitor --web WORK_ID`
+  or `a` in `agent-workflows monitor`."
+
+The worker continues on its own after approval; do not wait in a loop. Never run `work approve`, post an approval comment,
 or treat labels or agreement in conversation as a recorded approval. For
 provider approval, `work sync-approvals` imports existing human comments.
 

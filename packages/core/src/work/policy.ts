@@ -49,6 +49,24 @@ export function gateRevision(
   const { design: _design, ...scope } = contract;
   return contentRevision(gate === "scope" ? scope : contract);
 }
+/**
+ * A short code for the gate's contract content, without the assessed source
+ * revision so it can be printed in the issue it describes.
+ */
+export function approvalCode(
+  contract: WorkContract,
+  gate: ApprovalGate,
+): string {
+  const { sourceRevision: _source, ...content } = contract;
+  return gateRevision(content, gate).slice(0, 12);
+}
+/** The comment an allowed approver posts on the issue to approve a gate. */
+export function approvalComment(
+  contract: WorkContract,
+  gate: ApprovalGate,
+): string {
+  return `/approve ${gate} ${approvalCode(contract, gate)}`;
+}
 export function issueRevision(issue: Issue): string {
   return contentRevision({
     id: issue.id,

@@ -165,6 +165,8 @@ export interface HostingAdapter {
       author: string;
       human: boolean;
       url: string;
+      /** ISO time; required for short `/approve` comments. */
+      createdAt?: string;
     }>
   >;
   identity: string;

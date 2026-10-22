@@ -32,7 +32,8 @@ Use actual returned IDs and revisions. Pass each value as a distinct process
 argument. Do not interpolate untrusted task text into shell source.
 
 `inspect`, `assess`, `create`, `propose`, and `publish` return `work`, `approvals`, and
-`decision`. `list` returns those inspections as an array. `submit` returns
+`decision`, plus `approvalComment` when an issue comment approves the awaiting
+gate and `monitorUrl`, a link to the Work Item, while the web monitor runs. `list` returns those inspections as an array. `submit` returns
 `run`. `work.revision` identifies the complete current contract and observed
 source. A fresh agent session resumes through these persisted values.
 

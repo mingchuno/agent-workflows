@@ -18,6 +18,7 @@ import {
   WorkItemNotFoundError,
 } from "./errors.js";
 import {
+  approvalComment,
   contentRevision,
   evaluateWork,
   gateRevision,
@@ -39,6 +40,8 @@ export interface WorkInspection {
   work: WorkItem;
   approvals: ApprovalRecord[];
   decision: WorkDecision;
+  /** The issue comment an allowed approver posts for the awaiting gate. */
+  approvalComment?: string;
 }
 export class WorkStore {
   private readonly db;
@@ -176,10 +179,21 @@ export class WorkStore {
     if (work.projectId !== project.id)
       throw new WorkItemNotFoundError("Work item belongs to another project");
     const approvals = await this.approvals(id);
+    const decision = evaluateWork(work, approvals, project.sdlc);
     return {
       work,
       approvals,
-      decision: evaluateWork(work, approvals, project.sdlc),
+      decision,
+      ...(decision.awaitingGate &&
+      work.source.kind !== "local" &&
+      project.sdlc.approvalSource !== "local-operator"
+        ? {
+            approvalComment: approvalComment(
+              work.contract,
+              decision.awaitingGate,
+            ),
+          }
+        : {}),
     };
   }
   async propose(

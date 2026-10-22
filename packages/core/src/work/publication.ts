@@ -2,8 +2,18 @@ import type { Project } from "../config.js";
 import { BlockedError, type HostingAdapter, type Issue } from "../domain.js";
 import type { Store } from "../store.js";
 import { WorkConflictError } from "./errors.js";
-import { issueRevision, issueSource, resolveTrack } from "./policy.js";
-import type { SdlcPolicy, WorkContract, WorkItem } from "./schema.js";
+import {
+  approvalComment,
+  issueRevision,
+  issueSource,
+  resolveTrack,
+} from "./policy.js";
+import type {
+  ApprovalGate,
+  SdlcPolicy,
+  WorkContract,
+  WorkItem,
+} from "./schema.js";
 import type { WorkInspection } from "./store.js";
 
 const opening = (id: string) => `<!-- agent-workflows:contract:${id} -->`;
@@ -21,6 +31,27 @@ function section(title: string, lines: string[]): string[] {
 }
 function code(value: string): string {
   return `\`${value.replaceAll("`", "")}\``;
+}
+
+function approvalLines(contract: WorkContract, policy: SdlcPolicy): string[] {
+  if (policy.approvalSource === "local-operator")
+    return [
+      "Approve in the agent-workflows monitor (`agent-workflows monitor`).",
+    ];
+  const gates: ApprovalGate[] =
+    resolveTrack(contract, policy).track === "A" ? [] : ["scope"];
+  if (contract.design) gates.push("design");
+  return gates.length
+    ? [
+        `An allowed approver (${policy.approvers.map(code).join(", ")}) approves by commenting exactly:`,
+        "",
+        ...gates.map(
+          (gate) => `- ${gate}: ${code(approvalComment(contract, gate))}`,
+        ),
+        "",
+        "A comment counts only after this section was last published.",
+      ]
+    : [];
 }
 
 /** The managed issue section presenting a Work Item's contract. */
@@ -72,6 +103,7 @@ export function renderContract(
         ])
       : []),
     ...section("References", list(contract.references)),
+    ...section("Approval", approvalLines(contract, policy)),
     closing(id),
   ];
   return lines.join("\n");

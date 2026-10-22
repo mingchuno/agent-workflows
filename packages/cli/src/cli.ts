@@ -1,5 +1,6 @@
 #!/usr/bin/env -S node --
 
+import { spawn } from "node:child_process";
 import { realpathSync, statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
@@ -25,8 +26,10 @@ import {
 } from "./cli-config.js";
 import {
   findRunnerControl,
+  monitorAddress,
   publishActiveConfiguration,
   publishRunnerControl,
+  publishWebUrl,
   readActiveConfiguration,
   readRunnerControl,
 } from "./cli-runner-control.js";
@@ -107,6 +110,13 @@ function databaseUrl(config: Pick<Configuration, "databaseUrlEnv">): string {
   if (!value)
     throw new Error(`Set ${config.databaseUrlEnv} to a PostgreSQL URL`);
   return value;
+}
+function openBrowser(url: string): void {
+  const opener = process.platform === "darwin" ? "open" : "xdg-open";
+  // Opening is a convenience; the printed link still works.
+  spawn(opener, [url], { stdio: "ignore", detached: true })
+    .on("error", () => undefined)
+    .unref();
 }
 async function withStore(action: (store: Store) => Promise<void>) {
   const config = await configuration();
@@ -208,10 +218,13 @@ program
   .description("Start the worker and the web monitor; keep it running")
   .option("-p, --project <ids...>", "run selected project IDs")
   .option("--no-web", "disable the local web monitor")
-  .option("--web-port <port>", "local web monitor port", String(defaultWebPort))
+  .option(
+    "--web-port <port>",
+    `local web monitor port (default: ${defaultWebPort}, or a free port when it is taken)`,
+  )
   .action(
-    async (options: { project?: string[]; web: boolean; webPort: string }) => {
-      const webPort = Number(options.webPort);
+    async (options: { project?: string[]; web: boolean; webPort?: string }) => {
+      const webPort = Number(options.webPort ?? defaultWebPort);
       if (!Number.isInteger(webPort) || webPort < 1 || webPort > 65535)
         throw new Error("--web-port must be an integer between 1 and 65535");
       const path = configPath();
@@ -266,6 +279,9 @@ program
               configPath: path,
               databaseUrl: databaseUrl(config),
               port: webPort,
+              fallbackPort: options.webPort === undefined,
+              onReady: (url) =>
+                void publishWebUrl(path, url).catch(() => undefined),
             });
           } catch {
             console.error(
@@ -437,8 +453,25 @@ program
   .command("monitor")
   .description("Open the terminal monitor: runs, Work Items and approvals")
   .option("--notify", "notify when an observed execution reaches an outcome")
-  .action(async (options: { notify?: boolean }) => {
+  .option(
+    "--web [workItem]",
+    "open the running web monitor instead, optionally at a Work Item",
+  )
+  .action(async (options: { notify?: boolean; web?: boolean | string }) => {
     const control = await findRunnerControl(configPath());
+    if (options.web) {
+      if (!control?.webUrl)
+        throw new Error(
+          "No web monitor is running for this configuration; start agent-workflows run",
+        );
+      const url =
+        typeof options.web === "string"
+          ? `${control.webUrl}#work=${encodeURIComponent(options.web)}`
+          : control.webUrl;
+      console.log(`Web monitor: ${url}`);
+      if (process.stdout.isTTY) openBrowser(url);
+      return;
+    }
     if (control?.envFile) await loadEnvironmentFile(control.envFile);
     const config = control?.configuration ?? (await configuration());
     if (control && sha256(databaseUrl(config)) !== control.databaseUrlHash)
@@ -491,6 +524,10 @@ program
 registerWorkCommands(program, {
   pathBaseDirectory: configBaseDirectory,
   configuration,
+  monitorUrl: async () => {
+    const webUrl = (await findRunnerControl(configPath()))?.webUrl;
+    return webUrl && monitorAddress(webUrl);
+  },
   withStore: withConfiguredStore,
 });
 // Help lists groups in command order, so daily commands come first.

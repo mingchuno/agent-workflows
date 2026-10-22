@@ -12,9 +12,16 @@ import { RunWorkspace } from "./workspace.js";
 
 const fixturePreview = import.meta.env.VITE_MONITOR_FIXTURES === "true";
 
+/** `#work=ID` opens a Work Item, as linked by start-work and `monitor --web`. */
+function linkedWorkId(): string | undefined {
+  const value = new URLSearchParams(window.location.hash.slice(1)).get("work");
+  return value || undefined;
+}
+
 export function App() {
+  const [linkedWork] = useState(linkedWorkId);
   const [view, setView] = useState<"projects" | "configuration" | "work-items">(
-    "projects",
+    linkedWork ? "work-items" : "projects",
   );
   const showConfiguration = view === "configuration";
   const [runPickerExpanded, setRunPickerExpanded] = useState(false);
@@ -265,7 +272,11 @@ export function App() {
             onReload={() => commands.submit({ kind: "reload", target: "" })}
           />
         ) : view === "work-items" ? (
-          <WorkItemsView projectId={project?.id} disabled={unavailable} />
+          <WorkItemsView
+            projectId={project?.id}
+            linkedWorkId={linkedWork}
+            disabled={unavailable}
+          />
         ) : run ? (
           <RunWorkspace
             key={run.id}

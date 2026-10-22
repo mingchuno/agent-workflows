@@ -6,7 +6,7 @@ import {
   Store,
 } from "@mingchuno/agent-workflows-core";
 import type { Command } from "commander";
-import { findRunnerControl } from "./cli-runner-control.js";
+import { findRunnerControl, monitorAddress } from "./cli-runner-control.js";
 import { withinCheckout } from "./config-discovery.js";
 import { applyCliTokens, cliTokenAllowed } from "./hosting-token.js";
 import { onPath, remoteRepository } from "./repository-inference.js";
@@ -22,6 +22,8 @@ export interface DoctorReport {
   version: string;
   configPath?: string;
   project?: string;
+  /** The running web monitor, without its access token. */
+  monitorUrl?: string;
   protocols: { inline: true; delegated: boolean };
   checks: Check[];
 }
@@ -156,6 +158,7 @@ export async function doctor(
   const checks: Check[] = [];
   const check = (name: string, status: Status, detail: string) =>
     checks.push({ name, status, detail });
+  let monitorUrl: string | undefined;
   const report = (project?: string): DoctorReport => {
     let configPath: string | undefined;
     try {
@@ -169,6 +172,7 @@ export async function doctor(
       version: dependencies.version,
       configPath,
       project,
+      ...(monitorUrl ? { monitorUrl } : {}),
       protocols: { inline: true, delegated: ok },
       checks,
     };
@@ -274,11 +278,12 @@ export async function doctor(
     check("database", "fail", message(error));
   }
   const worker = await findRunnerControl(dependencies.configPath());
+  if (worker?.webUrl) monitorUrl = monitorAddress(worker.webUrl);
   check(
     "worker",
     worker ? "pass" : "warn",
     worker
-      ? `Running as process ${worker.pid}`
+      ? `Running as process ${worker.pid}${monitorUrl ? `; web monitor ${monitorUrl}` : ""}`
       : "Not running. Start `agent-workflows run` in its own terminal; approved work waits until then.",
   );
   return report(project.id);

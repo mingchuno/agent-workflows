@@ -31,6 +31,7 @@ All commands accept `--config PATH` before the subcommand. For example,
 | `retry RUN` | Request a new attempt after checkout validation |
 | `retry RUN --refresh-issue` | Request a new attempt using the current hosted issue |
 | `monitor [--notify]` | Attach the TUI; optionally enable outcome notifications |
+| `monitor --web [WORK_ID]` | Open the running web monitor with its access link, optionally at a Work Item |
 
 Version reporting requires no configuration, credentials, or database connection.
 
@@ -47,15 +48,19 @@ Use arrows to navigate and Enter or Space to expand or collapse; **Back to runs*
 returns to evidence. This view refreshes after accepted reloads and labels
 retained data stale when the active snapshot cannot be read.
 
-`run` starts a separate web-server process on `127.0.0.1:8787`. Use
-`run --web-port 8899` to select another port or `run --no-web` to disable it.
-An occupied port or a web-server failure produces a warning while workflows
-continue; the CLI does not switch ports or automatically open a browser.
+`run` starts a separate web-server process on `127.0.0.1:8787`, or on a free
+port when 8787 is taken, and says so. Use `run --web-port 8899` to require a
+port or `run --no-web` to disable it. An occupied required port or a web-server
+failure produces a warning while workflows continue. `run` does not open a
+browser; `agent-workflows monitor --web` opens the current link, and
+`monitor --web WORK_ID` opens a Work Item. Links ending in `#work=WORK_ID`
+select that Work Item in a browser that already has access.
 
 Open the exact printed URL. Its launch-specific token grants access without a
 login or token-entry step; the browser then removes the token from the address
 bar and uses an HTTP-only session cookie. Treat the printed link as local access
-credentials. After restarting `run`, open its new link. The server accepts only
+credentials. The runner keeps it in its mode-600 control record so
+`monitor --web` can reopen it. After restarting `run`, open its new link. The server accepts only
 localhost access and its own browser origin for actions; remote hosting is not
 supported.
 
