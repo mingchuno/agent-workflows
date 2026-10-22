@@ -100,7 +100,11 @@ export async function executionFingerprint(
     hosting,
     ...execution
   } = project;
-  const { tokenEnv: _token, ...destination } = hosting;
+  const {
+    tokenEnv: _token,
+    tokenFromCli: _tokenFromCli,
+    ...destination
+  } = hosting;
   const prompts = projectPrompts(project);
   const remote = await command(
     "git",

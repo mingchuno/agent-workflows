@@ -263,13 +263,13 @@ test("work classify routes Track A inline and escalates an oversized diff withou
 test("doctor reports missing setup and still allows the inline protocol", async () => {
   const outside = await mkdtemp(join(tmpdir(), "aw-doctor-"));
   const { cli } = await cliFixture({ enabled: true });
-  const result = await cli(
-    outside,
-    {
-      AGENT_WORKFLOWS_CONFIG: join(outside, "missing.json"),
-    },
-    "doctor",
-  );
+  const env = { AGENT_WORKFLOWS_CONFIG: join(outside, "missing.json") };
+  const readable = await cli(outside, env, "doctor");
+  assert.equal(readable.exitCode, 1);
+  assert.match(readable.stdout, /✗ configuration/);
+  assert.match(readable.stdout, /agent-workflows init/);
+  assert.match(readable.stdout, /Track A work runs inline without setup/);
+  const result = await cli(outside, env, "doctor", "--json");
   assert.equal(result.exitCode, 1);
   const report = JSON.parse(result.stdout);
   assert.equal(report.ok, false);
@@ -281,15 +281,34 @@ test("doctor reports missing setup and still allows the inline protocol", async 
 test("doctor resolves the project from the working directory and checks the database", {
   skip: !process.env.TEST_DATABASE_URL,
 }, async () => {
-  const { root, cli } = await cliFixture({ enabled: true });
+  const authorizations: string[] = [];
+  const server = createServer((request, response) => {
+    authorizations.push(String(request.headers.authorization));
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/api/v3/repos/fixture/fixture")
+      return response.end(JSON.stringify({ full_name: "fixture/fixture" }));
+    response.statusCode = 404;
+    response.end("{}");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port } = server.address() as { port: number };
+  const { root, cli } = await cliFixture(
+    { enabled: true },
+    `http://127.0.0.1:${port}`,
+  );
   const result = await cli(
     root,
     {
       AGENT_WORKFLOWS_DATABASE_URL: process.env.TEST_DATABASE_URL,
       FIXTURE_HOST_TOKEN: "fixture-token",
+      CODEX_HOME: await mkdtemp(join(tmpdir(), "aw-codex-")),
+      CODEX_API_KEY: "",
+      OPENAI_API_KEY: "",
     },
     "doctor",
-  );
+    "--json",
+  ).finally(() => server.close());
   assert.equal(result.exitCode, 0, result.stdout + result.stderr);
   const report = JSON.parse(result.stdout);
   assert.equal(report.project, "app");
@@ -304,12 +323,17 @@ test("doctor resolves the project from the working directory and checks the data
     {
       configuration: "pass",
       project: "pass",
+      repository: "pass",
       sdlc: "pass",
       "hosting-credentials": "pass",
+      "hosting-access": "pass",
+      agent: "warn",
+      validation: "warn",
       database: "pass",
       worker: "warn",
     },
   );
+  assert.deepEqual(authorizations, ["Bearer fixture-token"]);
   assert.doesNotMatch(result.stdout, /fixture-token/);
 });
 
@@ -350,6 +374,7 @@ test("doctor discovers the configuration that manages a linked worktree", async 
         import.meta.resolve("tsx"),
         fileURLToPath(new URL("../packages/cli/src/cli.ts", import.meta.url)),
         "doctor",
+        "--json",
       ],
       {
         cwd: worktree,
@@ -482,4 +507,133 @@ test("work publish creates one GitHub issue for local work and rebinds it", {
     server.close();
     await once(server, "close");
   }
+});
+
+const cliPath = fileURLToPath(
+  new URL("../packages/cli/src/cli.ts", import.meta.url),
+);
+const runCli = (cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) =>
+  command(
+    process.execPath,
+    ["--import", import.meta.resolve("tsx"), cliPath, ...args],
+    {
+      cwd,
+      env: { ...process.env, AGENT_WORKFLOWS_CONFIG: "", ...env },
+      timeoutMs: 20000,
+      allowFailure: true,
+    },
+  );
+
+test("init infers the project, host, agent and validation from the repository", async () => {
+  const { root, git } = await repository();
+  await git(
+    "remote",
+    "set-url",
+    "origin",
+    "git@gitlab.example.com:team/sub/app.git",
+  );
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify({ scripts: { test: "node --test", verify: "pnpm test" } }),
+  );
+  await writeFile(join(root, "pnpm-lock.yaml"), "");
+  const result = await runCli(
+    root,
+    {},
+    "--config",
+    join(root, "agent-workflows.json"),
+    "init",
+  );
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(result.stdout, /gitlab team\/sub\/app/);
+  assert.match(result.stdout, /Next: agent-workflows doctor/);
+  const { readFile } = await import("node:fs/promises");
+  const written = JSON.parse(
+    await readFile(join(root, "agent-workflows.json"), "utf8"),
+  );
+  const project = written.projects[0];
+  assert.equal(project.id, basename(root).replace(/[^a-zA-Z0-9_-]+/g, "-"));
+  assert.equal(project.checkout, ".");
+  assert.deepEqual(project.hosting, {
+    provider: "gitlab",
+    origin: "https://gitlab.example.com",
+    repository: "team/sub/app",
+    tokenEnv: "GITLAB_TOKEN",
+  });
+  assert.deepEqual(project.sdlc, {
+    enabled: true,
+    approvalSource: "local-operator",
+  });
+  assert.deepEqual(project.validation, [
+    { command: "pnpm", args: ["run", "verify"] },
+  ]);
+});
+
+test("init marks an unknown remote as a placeholder that doctor rejects", async () => {
+  const { root, git } = await repository();
+  await git("remote", "remove", "origin");
+  const config = join(root, "agent-workflows.json");
+  const init = await runCli(root, {}, "--config", config, "init");
+  assert.equal(init.exitCode, 0, init.stderr);
+  assert.match(init.stdout, /Replace placeholder: hosting.repository/);
+  const report = JSON.parse(
+    (
+      await runCli(
+        root,
+        { AGENT_WORKFLOWS_DATABASE_URL: "" },
+        "--config",
+        config,
+        "doctor",
+        "--json",
+      )
+    ).stdout,
+  );
+  const repositoryCheck = report.checks.find(
+    (item: { name: string }) => item.name === "repository",
+  );
+  assert.equal(repositoryCheck.status, "fail");
+  assert.match(repositoryCheck.detail, /placeholder/);
+});
+
+test("a missing hosting token falls back to the gh sign-in only for local approval", async () => {
+  const bin = await mkdtemp(join(tmpdir(), "aw-fake-gh-"));
+  const calls = join(bin, "calls");
+  await writeFile(
+    join(bin, "gh"),
+    `#!/bin/sh\necho "$@" >> "${calls}"\necho cli-token\n`,
+    { mode: 0o755 },
+  );
+  const env = {
+    PATH: `${bin}:${process.env.PATH}`,
+    AGENT_WORKFLOWS_DATABASE_URL: "",
+    FIXTURE_HOST_TOKEN: "",
+  };
+  const local = await cliFixture({ enabled: true }, "http://127.0.0.1:9");
+  const report = JSON.parse(
+    (await local.cli(local.root, env, "doctor", "--json")).stdout,
+  );
+  const credentials = report.checks.find(
+    (item: { name: string }) => item.name === "hosting-credentials",
+  );
+  assert.equal(credentials.status, "pass");
+  assert.equal(credentials.detail, "Using the gh sign-in");
+  assert.doesNotMatch(JSON.stringify(report), /cli-token/);
+  const { readFile } = await import("node:fs/promises");
+  assert.match(
+    await readFile(calls, "utf8"),
+    /^auth token --hostname 127\.0\.0\.1:9$/m,
+  );
+
+  const team = await cliFixture(
+    { enabled: true, approvalSource: "github", approvers: ["lead"] },
+    "http://127.0.0.1:9",
+  );
+  const refused = JSON.parse(
+    (await team.cli(team.root, env, "doctor", "--json")).stdout,
+  );
+  const missing = refused.checks.find(
+    (item: { name: string }) => item.name === "hosting-credentials",
+  );
+  assert.equal(missing.status, "fail");
+  assert.match(missing.detail, /hosting.tokenFromCli/);
 });

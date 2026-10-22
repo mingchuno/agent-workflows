@@ -11,8 +11,8 @@ that need the human.
 
 ## 1. Check the backend
 
-Run `agent-workflows doctor` from the repository. If the command is missing,
-treat the backend as absent. Read the JSON result.
+Run `agent-workflows doctor --json` from the repository. If the command is
+missing, treat the backend as absent. Read the JSON result.
 
 When doctor passes the `configuration` and `project` checks, record its
 `configPath` and `project`. Pass `--config CONFIG_PATH` before the subcommand
@@ -25,10 +25,11 @@ one elsewhere, rerun doctor with `--config PATH`.
 | --- | --- |
 | `protocols.delegated: true` | The project uses agent-workflows SDLC. Its policy is authoritative. |
 | `sdlc` check fails, or no configuration | No SDLC policy applies. Track A still works inline. |
-| Any other failing check | Delegated work is unavailable until it is fixed. Report the failing check and suggest the `setup-agent-workflows` skill. |
+| Any other failing check | Delegated work is unavailable until it is fixed. Report the failing check and its fix. |
 
 A `worker` warning only means admitted work waits until `agent-workflows run`
-starts.
+starts. When delegated work is unavailable and the task needs Track B or C,
+offer to [set it up](references/setup.md) before continuing.
 
 ## 2. Resume or resolve the task
 
@@ -61,7 +62,7 @@ choose the higher track.
 | --- | --- |
 | A | [Fast path](references/fast-path.md): this session implements, verifies, reviews and opens the change request. No Work Item, database or worker. |
 | B or C, delegated available | [Delegated](references/delegated.md): record the Work Item, wait for recorded human approval, and let the runner execute. |
-| B or C, no SDLC policy | Present the contract. Ask the human to choose: set up the backend with `setup-agent-workflows`, or approve the scope here and continue inline with the fast-path steps. Never choose for them. Record the approved scope in the change request. |
+| B or C, no SDLC policy | Present the contract. Ask the human to choose: [set up the backend](references/setup.md), or approve the scope here and continue inline with the fast-path steps. Never choose for them. Record the approved scope in the change request. |
 
 When SDLC is enabled, Track B and C work must use the delegated protocol.
 

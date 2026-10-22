@@ -43,24 +43,25 @@ Policy minimums cannot be lowered; change `riskRules` deliberately instead.
 
 ## Set up delegated work
 
-1. Install the skills from the target project with the
+1. Install the skill from the target project with the
    [Skills CLI](https://github.com/vercel-labs/skills), selecting the agent host.
 
    ```sh
-   npx skills add mingchuno/agent-workflows \
-     --skill start-work \
-     --skill setup-agent-workflows
+   npx skills add mingchuno/agent-workflows --skill start-work
    ```
 
-   For unpublished local changes, copy those folders from `skills/` into
+   For unpublished local changes, copy `skills/start-work` into
    `.agents/skills/`. Follow company policy for reviewed, pinned skill
    distribution or an internal mirror.
-2. Invoke `setup-agent-workflows` once per repository. It writes the
-   configuration, prepares PostgreSQL and credentials with you, and verifies
-   them with `agent-workflows doctor`. To do this by hand, follow
-   [provider prerequisites](../providers.md) and keep the state directory
-   outside the source checkout.
-3. Start the resident worker in its own terminal.
+2. Invoke `$start-work` in Codex or `/start-work` in a Copilot host that supports
+   slash invocation, with an issue or a task. When the task needs Track B or C
+   and `agent-workflows doctor` reports a gap, the skill offers to set up the
+   repository with you: it runs `agent-workflows init`, which infers the
+   configuration from the repository, then works through each failing check.
+   To do this by hand, run `init` and `doctor` yourself and follow
+   [provider prerequisites](../providers.md).
+3. Start the resident worker in its own terminal, and approve work in the web
+   monitor it prints or in `agent-workflows monitor`.
 
    ```sh
    agent-workflows run
@@ -68,10 +69,8 @@ Policy minimums cannot be lowered; change `riskRules` deliberately instead.
 
    Commands find the configuration as described in
    [configuration lookup](../configuration.md#configuration-lookup).
-4. Invoke `$start-work` in Codex or `/start-work` in a Copilot host that supports
-   slash invocation, with an issue or a task. Confirm discovery with that host
-   before relying on it.
 
+Confirm skill discovery with your agent host before relying on it.
 The CLI persists contracts and enforces state transitions. The runner's
 implementation and review stages keep their own prompts. Installing the skills
 does not establish that an SDK-created session loads them.

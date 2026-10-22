@@ -26,6 +26,14 @@ permissions of the local runtime account.
 
 The runner deliberately does not automatically resume interrupted agent work. Runtime session existence does not establish whether old processes are still writing. Use runtime-specific tools/SDKs to inspect sessions after stopping the runner and establishing ownership; there is no universal session-opening command.
 
+## Hosting tokens
+
+Set the variable named by `hosting.tokenEnv`, or sign in with `gh auth login` or
+`glab auth login`. With `local-operator` approval the CLI reads a missing token
+from that sign-in; provider approval needs `hosting.tokenFromCli: true`. See
+[hosting configuration](configuration.md#hosting). `agent-workflows doctor`
+reads the configured repository once to prove the token and repository name.
+
 ## Environment inheritance
 
 CLI `envFile` values reach validation commands, Git subprocesses and agent

@@ -798,7 +798,13 @@ function assertReloadableConfiguration(
     if (!previous) continue;
     if (previous.checkout !== project.checkout)
       changed.push(`projects.${project.id}.checkout`);
-    for (const key of ["provider", "origin", "repository", "tokenEnv"] as const)
+    for (const key of [
+      "provider",
+      "origin",
+      "repository",
+      "tokenEnv",
+      "tokenFromCli",
+    ] as const)
       if (previous.hosting[key] !== project.hosting[key])
         changed.push(`projects.${project.id}.hosting.${key}`);
   }

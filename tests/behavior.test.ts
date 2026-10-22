@@ -517,6 +517,13 @@ test("failed work cannot retry until files are preserved and checkout made clean
     await runner.start();
     await waitFor(() => terminal(runner, 1));
     const original = (await runner.store.runs())[0]!;
+    // The outcome is recorded just before the run releases its controller.
+    await waitFor(async () =>
+      runner.retry(original.id).then(
+        () => assert.fail("retry admitted an unpreserved checkout"),
+        (error: Error) => error.message !== "Work has not stopped",
+      ),
+    );
     await assert.rejects(runner.retry(original.id), /clean/);
     await git("add", ".");
     await git("commit", "-m", "preserve unfinished fixture");

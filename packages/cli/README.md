@@ -5,9 +5,10 @@ web app. Requires Node.js 22.12+ and PostgreSQL.
 
 ```sh
 npm install -g @mingchuno/agent-workflows
-agent-workflows init
-# Configure your checkout, hosting credentials, agent and database.
-agent-workflows run
+npx skills add mingchuno/agent-workflows --skill start-work
+# In your agent: $start-work <task or issue>. It sets up delegated work with you.
+agent-workflows run       # worker and web monitor
+agent-workflows monitor   # terminal monitor and approvals
 ```
 
 The CLI automatically installs the exact matching `@mingchuno/agent-workflows-core`
