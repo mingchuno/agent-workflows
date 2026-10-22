@@ -10,7 +10,7 @@ configuration. Work commands print JSON. Discover options with
 `agent-workflows work --help`.
 
 ```sh
-agent-workflows doctor
+agent-workflows doctor --json
 agent-workflows --config CONFIG work classify --project app --file /tmp/work-contract.json
 agent-workflows --config CONFIG work classify --project app --file /tmp/work-contract.json --changed-from BASE
 agent-workflows --config CONFIG work list --project app

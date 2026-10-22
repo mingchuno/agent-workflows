@@ -15,6 +15,7 @@ documentation.
 - [0009: Separate Work Item authorization from execution](0009-adaptive-sdlc-work-items.md)
 - [0010: Run Track A inline and delegate only gated work](0010-inline-fast-path.md)
 - [0011: Publish clarified contracts to the issue](0011-publish-contracts-to-issues.md)
+- [0012: Onboard through start-work and existing sign-ins](0012-onboard-through-start-work.md)
 
 For observable behavior, see the [public SDK API](../api.md),
 [configuration reference](../configuration.md), and [operator guide](../operations.md).

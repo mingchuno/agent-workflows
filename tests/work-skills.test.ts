@@ -15,7 +15,7 @@ import {
 } from "../packages/core/src/work/schema.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const skillNames = ["start-work", "setup-agent-workflows"];
+const skillNames = ["start-work"];
 
 async function markdownFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -57,16 +57,14 @@ test("skills have discoverable metadata and resolvable local references", async 
   }
 });
 
-test("setup is explicit-only in every supported host", async () => {
-  const directory = resolve(root, "skills/setup-agent-workflows");
-  assert.match(
-    await readFile(resolve(directory, "SKILL.md"), "utf8"),
-    /^disable-model-invocation: true$/m,
+test("start-work is the only installable skill and carries setup", async () => {
+  assert.deepEqual(await readdir(resolve(root, "skills")), skillNames);
+  const skill = await readFile(
+    resolve(root, "skills/start-work/SKILL.md"),
+    "utf8",
   );
-  assert.match(
-    await readFile(resolve(directory, "agents/openai.yaml"), "utf8"),
-    /allow_implicit_invocation: false/,
-  );
+  assert.match(skill, /\(references\/setup\.md\)/);
+  assert.match(skill, /doctor --json/);
 });
 
 test("the intake API example is a real standard-track contract with revision-bound approval", async () => {

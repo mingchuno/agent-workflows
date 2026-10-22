@@ -56,6 +56,8 @@ export const projectSchema = z
       origin: z.url(),
       repository: z.string().min(1),
       tokenEnv: z.string().regex(/^[A-Z_][A-Z0-9_]*$/),
+      /** CLI only: read a missing token from `gh` or `glab` sign-in. */
+      tokenFromCli: z.boolean().optional(),
     }),
     workflows: z
       .strictObject({

@@ -16,7 +16,8 @@ All commands accept `--config PATH` before the subcommand. For example,
 
 | Command | Effect |
 | --- | --- |
-| `init` | Write a starter config; refuse overwrite |
+| `init` | Write a config inferred from the repository; refuse overwrite |
+| `doctor [--project ID] [--json]` | Check configuration, repository, credentials, host access, agent sign-in, validation commands, database and worker, with a fix for each failure |
 | `version` | Print the installed package version; also available as `--version` or `-V` |
 | `run [--project ID ...] [--no-web] [--web-port PORT]` | Start selected projects and the local web monitor |
 | `config show` | Print merged, schema-validated JSON from the current file without runtime services |

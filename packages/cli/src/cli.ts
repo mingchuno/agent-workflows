@@ -14,7 +14,6 @@ import {
   subjectReference,
   workOperator,
 } from "@mingchuno/agent-workflows-core";
-import { defaultValidationTimeoutMs } from "@mingchuno/agent-workflows-core/operator";
 import { Command } from "commander";
 import { render } from "ink";
 import React from "react";
@@ -31,7 +30,9 @@ import {
   readActiveConfiguration,
   readRunnerControl,
 } from "./cli-runner-control.js";
-import { resolveConfigPath, withinCheckout } from "./config-discovery.js";
+import { resolveConfigPath } from "./config-discovery.js";
+import { registerDoctor } from "./doctor.js";
+import { inferProject } from "./repository-inference.js";
 import { createTerminalNotificationWriter, Monitor } from "./tui/index.js";
 import { defaultWebPort } from "./web/contracts.js";
 import { startWebMonitor } from "./web/lifecycle.js";
@@ -51,7 +52,9 @@ const packageVersion: string = JSON.parse(
 ).version;
 const program = new Command()
   .name("agent-workflows")
-  .description("Local durable issue-to-review workflows")
+  .description(
+    "Durable agent coding workflows. Day to day you need only `run` and `monitor`; start-work drives the rest.",
+  )
   .version(packageVersion)
   .option(
     "-c, --config <file>",
@@ -123,7 +126,9 @@ async function withConfiguredStore(
 }
 program
   .command("init")
-  .description("Write a configuration scaffold without overwriting files")
+  .description(
+    "Write a configuration inferred from this repository, never overwriting",
+  )
   .action(async () => {
     // A new file belongs where the user asked, never in a discovered location.
     discoveredConfigPath = resolveConfigPath(
@@ -132,47 +137,27 @@ program
       { discover: false },
     );
     const base = configBaseDirectory();
-    const checkout = process.cwd();
+    const inferred = inferProject(process.cwd());
     const externalState = resolve(
-      checkout,
+      inferred.checkout,
       "..",
-      `${basename(checkout)}.agent-workflows`,
+      `${basename(inferred.checkout)}.agent-workflows`,
     );
     const portable = (path: string) => relative(base, path) || ".";
     const config = {
-      id: "local",
-      databaseUrlEnv: "AGENT_WORKFLOWS_DATABASE_URL",
+      id: inferred.id,
       stateDirectory: portable(externalState),
       projects: [
         {
-          id: "example",
-          checkout: portable(checkout),
-          hosting: {
-            provider: "github",
-            origin: "https://github.com",
-            repository: "OWNER/REPOSITORY",
-            tokenEnv: "GITHUB_TOKEN",
-          },
-          workflows: {
-            implementation: { enabled: true, labels: ["ready-for-agent"] },
-            review: {
-              enabled: false,
-              labels: ["ready-for-review"],
-              rereviewOnPush: false,
-            },
-          },
-          baseBranch: "main",
-          branchTemplate: "agent/{issue}-{attempt}",
-          includeAgentCoAuthors: true,
-          agent: { provider: "codex" },
-          validation: [
-            {
-              command: "pnpm",
-              args: ["test"],
-              timeoutMs: defaultValidationTimeoutMs,
-            },
-          ],
-          stages: { implementation: {}, publication: {}, review: {} },
+          id: inferred.id,
+          checkout: portable(inferred.checkout),
+          hosting: inferred.hosting,
+          ...(inferred.baseBranch === "main"
+            ? {}
+            : { baseBranch: inferred.baseBranch }),
+          agent: inferred.agent,
+          sdlc: { enabled: true, approvalSource: "local-operator" },
+          validation: inferred.validation,
         },
       ],
     };
@@ -180,130 +165,33 @@ program
       flag: "wx",
       mode: 0o600,
     });
+    const validation =
+      inferred.validation
+        .map((item) => [item.command, ...item.args].join(" "))
+        .join("; ") || "none found";
     console.log(
-      "Created configuration. Set repository and credentials before running.",
+      [
+        `Created ${configPath()}`,
+        `  project     ${inferred.id} (${portable(inferred.checkout)})`,
+        `  hosting     ${inferred.hosting.provider} ${inferred.hosting.repository}`,
+        `  base        ${inferred.baseBranch}`,
+        `  agent       ${inferred.agent.provider}`,
+        `  validation  ${validation}`,
+        "  approval    local-operator (approve in the monitor)",
+        ...(inferred.placeholders.length
+          ? [`Replace placeholder: ${inferred.placeholders.join(", ")}`]
+          : []),
+        "Next: agent-workflows doctor",
+      ].join("\n"),
     );
   });
-program
-  .command("doctor")
-  .description(
-    "Check the configuration, project, credentials, database and worker that delegated work needs",
-  )
-  .option(
-    "-p, --project <id>",
-    "project to check (default: the project whose checkout contains the current directory)",
-  )
-  .action(async (options: { project?: string }) => {
-    const checks: {
-      name: string;
-      status: "pass" | "warn" | "fail";
-      detail: string;
-    }[] = [];
-    const check = (
-      name: string,
-      status: "pass" | "warn" | "fail",
-      detail: string,
-    ) => checks.push({ name, status, detail });
-    const report = (project?: string) => {
-      const ok = checks.every((item) => item.status !== "fail");
-      let resolvedConfigPath: string | undefined;
-      try {
-        resolvedConfigPath = configPath();
-      } catch {
-        // Ambiguous discovery is already reported as the configuration check.
-      }
-      console.log(
-        JSON.stringify(
-          {
-            ok,
-            version: packageVersion,
-            configPath: resolvedConfigPath,
-            project,
-            protocols: { inline: true, delegated: ok },
-            checks,
-          },
-          null,
-          2,
-        ),
-      );
-      if (!ok) process.exitCode = 1;
-    };
-    let config: Configuration;
-    try {
-      config = await configuration();
-      check("configuration", "pass", configPath());
-    } catch (error) {
-      check(
-        "configuration",
-        "fail",
-        `${error instanceof Error ? error.message : String(error)}. Run the setup-agent-workflows skill or agent-workflows init.`,
-      );
-      return report();
-    }
-    const base = configBaseDirectory();
-    const project = options.project
-      ? config.projects.find((candidate) => candidate.id === options.project)
-      : config.projects.find((candidate) =>
-          withinCheckout(launchDirectory, resolve(base, candidate.checkout)),
-        );
-    if (!project) {
-      check(
-        "project",
-        "fail",
-        options.project
-          ? `Unknown project: ${options.project}`
-          : `No configured project checkout contains ${launchDirectory}`,
-      );
-      return report();
-    }
-    check("project", "pass", project.id);
-    check(
-      "sdlc",
-      project.sdlc.enabled ? "pass" : "fail",
-      project.sdlc.enabled
-        ? `approval source ${project.sdlc.approvalSource}`
-        : "Set sdlc.enabled for this project to delegate Track B and C work",
-    );
-    check(
-      "hosting-credentials",
-      process.env[project.hosting.tokenEnv] ? "pass" : "fail",
-      process.env[project.hosting.tokenEnv]
-        ? `${project.hosting.tokenEnv} is set`
-        : `Set ${project.hosting.tokenEnv}`,
-    );
-    try {
-      const store = new Store(databaseUrl(config), config.id);
-      try {
-        await Promise.race([
-          store.initialize().then(() => store.projects()),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("Database connection timed out")),
-              10_000,
-            ).unref(),
-          ),
-        ]);
-        check("database", "pass", "Connected and migrated");
-      } finally {
-        await store.close();
-      }
-    } catch (error) {
-      check(
-        "database",
-        "fail",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    const worker = await findRunnerControl(configPath());
-    check(
-      "worker",
-      worker ? "pass" : "warn",
-      worker
-        ? `Running as process ${worker.pid}`
-        : "Not running; admitted work waits until agent-workflows run starts",
-    );
-    report(project.id);
-  });
+registerDoctor(program, {
+  version: packageVersion,
+  launchDirectory,
+  configPath,
+  configBaseDirectory,
+  configuration,
+});
 program
   .command("config")
   .description("Inspect configuration")
@@ -317,6 +205,7 @@ program
   });
 program
   .command("run")
+  .description("Start the worker and the web monitor; keep it running")
   .option("-p, --project <ids...>", "run selected project IDs")
   .option("--no-web", "disable the local web monitor")
   .option("--web-port <port>", "local web monitor port", String(defaultWebPort))
@@ -442,6 +331,7 @@ program
   });
 program
   .command("status")
+  .description("Show projects, runs and command outcomes")
   .option("--json", "machine-readable output")
   .action(async (options: { json?: boolean }) =>
     withStore(async (store) => {
@@ -465,23 +355,27 @@ program
         }
     }),
   );
-program.command("inspect <run>").action(async (run: string) =>
-  withStore(async (store) =>
-    console.log(
-      JSON.stringify(
-        {
-          run: await store.run(run),
-          invocations: await store.invocations(run),
-          recovery: await store.recoveryPlan(run),
-        },
-        null,
-        2,
+program
+  .command("inspect <run>")
+  .description("Print a run and its invocations as JSON")
+  .action(async (run: string) =>
+    withStore(async (store) =>
+      console.log(
+        JSON.stringify(
+          {
+            run: await store.run(run),
+            invocations: await store.invocations(run),
+            recovery: await store.recoveryPlan(run),
+          },
+          null,
+          2,
+        ),
       ),
     ),
-  ),
-);
+  );
 program
   .command("logs <run>")
+  .description("Print a run's stage, agent and validation logs")
   .option("--invocation <id>", "specific invocation")
   .action(async (run: string, options: { invocation?: string }) =>
     withStore(async (store) => {
@@ -541,6 +435,7 @@ program
   );
 program
   .command("monitor")
+  .description("Open the terminal monitor: runs, Work Items and approvals")
   .option("--notify", "notify when an observed execution reaches an outcome")
   .action(async (options: { notify?: boolean }) => {
     const control = await findRunnerControl(configPath());
@@ -598,6 +493,24 @@ registerWorkCommands(program, {
   configuration,
   withStore: withConfiguredStore,
 });
+// Help lists groups in command order, so daily commands come first.
+const helpGroups = [
+  ["Daily:", ["run", "monitor"]],
+  ["Setup:", ["init", "doctor", "config", "version"]],
+  ["Operator controls:", []],
+  ["Used by the start-work skill:", ["work"]],
+] as const;
+const helpRank = (name: string) => {
+  const rank = helpGroups.findIndex(([, names]) =>
+    (names as readonly string[]).includes(name),
+  );
+  return rank === -1 ? 2 : rank;
+};
+(program.commands as Command[]).sort(
+  (a, b) => helpRank(a.name()) - helpRank(b.name()),
+);
+for (const command of program.commands)
+  command.helpGroup(helpGroups[helpRank(command.name())]![0]);
 try {
   await program.parseAsync();
 } catch (error) {

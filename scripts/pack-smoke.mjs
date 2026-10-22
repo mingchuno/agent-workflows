@@ -260,7 +260,7 @@ try {
   const cli = join(consumer, "node_modules/.bin/agent-workflows");
   for (const option of ["version", "--version", "-V"])
     assert.equal(run(cli, [option]), `${manifest.version}\n`);
-  assert.match(run(cli, ["--help"]), /Local durable issue-to-review workflows/);
+  assert.match(run(cli, ["--help"]), /Durable agent coding workflows/);
   assert.throws(
     () => run(cli, ["--env-file", "missing.env", "init"]),
     (error) =>
@@ -270,7 +270,9 @@ try {
   const config = JSON.parse(
     await readFile(join(consumer, "agent-workflows.json"), "utf8"),
   );
-  assert.equal(config.id, "local");
+  // init names the runner and project after the directory it ran in.
+  assert.equal(config.id, config.projects[0].id);
+  assert.equal(config.projects[0].sdlc.enabled, true);
   assert.equal(config.projects[0].checkout, ".");
   assert.equal(config.envFile, undefined);
   await writeFile(

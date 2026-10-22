@@ -2,10 +2,16 @@
 
 Use this file to define one runner and one or more projects. The CLI reads
 `agent-workflows.json` by default; pass `--config PATH` for another file, or see
-[configuration lookup](#configuration-lookup). Start
-with `agent-workflows init`, then replace the generated repository, checkout,
-agent, and validation values before running it. The file is strict JSON: unknown
+[configuration lookup](#configuration-lookup). The file is strict JSON: unknown
 properties are rejected.
+
+Start with `agent-workflows init` in the repository. It infers the project ID
+from the directory, the host and repository from the `origin` remote, the base
+branch from `origin/HEAD`, the agent from the installed `codex` or `copilot`
+CLI, and the validation command from `package.json` (`verify`, else `test`),
+`Cargo.toml`, `go.mod` or a Makefile `test` target. It enables SDLC with
+`local-operator` approval, prints what it inferred, and marks anything it could
+not discover as a placeholder. Run `agent-workflows doctor` next.
 
 ## Minimal example
 
@@ -247,8 +253,14 @@ by the previous schema, after stopping the old runner and resolving its work.
 | `origin` | URL string | Web origin, including a GitLab relative root if applicable. |
 | `repository` | nonempty string | Provider repository path, such as `OWNER/REPOSITORY` or `group/project`. |
 | `tokenEnv` | uppercase environment variable name | Variable holding the API token; pattern `[A-Z_][A-Z0-9_]*`. |
+| `tokenFromCli` | boolean | CLI only. When `tokenEnv` is unset, read the token from the `gh` or `glab` sign-in. Defaults to `true` with `local-operator` approval and `false` with provider approval. |
 
-All four hosting fields are required. Do not put a token value in the JSON.
+The first four hosting fields are required. Do not put a token value in the JSON.
+The CLI places a token read from `gh auth token` or `glab config get token` in
+`tokenEnv` for its own process only, so the usual redaction and agent
+subprocess filtering apply. Provider approval relies on separating the
+approver's credentials from the runner's, so it needs an explicit opt-in.
+SDK callers prepare their own environment.
 
 ### Agent profile and stages
 

@@ -22,6 +22,8 @@ Investigation, design and knowledge capture become references of `start-work`
 instead of separate skills. Engineers learn one command, and the host loads one
 skill description per session. A separate explicit-only `setup-agent-workflows`
 skill performs onboarding, and `doctor` reports whether delegation is available.
+[ADR 0012](0012-onboard-through-start-work.md) later folded onboarding into
+`start-work`.
 
 Inline Track A work is not enforced by the runner. Team enforcement for it comes
 from repository controls such as CI and protected branches, which also apply

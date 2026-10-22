@@ -6,6 +6,7 @@ import {
   resolveConfiguration,
 } from "@mingchuno/agent-workflows-core";
 import { z } from "zod";
+import { applyCliTokens } from "./hosting-token.js";
 
 const cliConfigurationSchema = configurationInputSchema.extend({
   envFile: z
@@ -32,6 +33,7 @@ export async function openCliConfiguration(
   const { envFile, ...config } = await readConfigurationFile(path);
   if (envFile !== undefined)
     await loadEnvironmentFile(resolveEnvironmentFile(envFile));
+  applyCliTokens(config.projects);
   return {
     config,
     envFile:

@@ -2,17 +2,53 @@
 
 ![Print-shop workbench with a job sheet, a worked proof, and an inspected copy awaiting human approval.](docs/assets/hero.png)
 
-A local TypeScript SDK and CLI/TUI that turns labelled GitHub or GitLab issues into reviewed change requests with bounded automatic repairs, and reviews existing labelled PRs/MRs. DBOS persists execution; each project uses its existing checkout, with one task at a time. Separate projects progress concurrently.
+A local TypeScript SDK and CLI/TUI that takes engineering work from a sentence or
+an issue to a reviewed change request. One agent skill, `start-work`, is the
+entry point; the CLI enforces policy, records human approval and runs the work
+durably on DBOS. Human review, merging and deployment stay with you.
 
-Supports Codex and Copilot SDKs, GitHub, and GitLab.com/self-hosted GitLab. Human review and merging remain separate.
+Supports Codex and Copilot, GitHub, and GitLab.com/self-hosted GitLab.
 
-Opt-in [adaptive SDLC](docs/engineering/sdlc.md) adds one `start-work` skill and
-deterministic Track A/B/C policy. Track A fixes run inline in the agent session.
-Track B and C work becomes a Work Item with revision-bound human approval, and the
-existing worker executes it.
-See the [task contract](docs/engineering/task-contract.md) for schemas and gates.
+## Quickstart
 
-## When to use it
+Prerequisites: Node.js 22.12+, Git, PostgreSQL 17+, a signed-in `codex` or
+`copilot`, and `gh` or `glab`. macOS and Linux are supported.
+
+```sh
+npm install -g @mingchuno/agent-workflows
+npx skills add mingchuno/agent-workflows --skill start-work
+```
+
+Then, in your agent, from the repository:
+
+```text
+$start-work Fix incorrect sorting when size is null     # Codex
+/start-work #123                                         # Copilot
+```
+
+`start-work` classifies the task ([adaptive SDLC](docs/engineering/sdlc.md)):
+
+- **Track A**, a small clear change, runs inline in your agent session and opens
+  the change request. No setup is needed.
+- **Tracks B and C** become a Work Item that waits for your recorded approval of
+  its scope (and design for C), then the worker implements, validates, reviews,
+  repairs and publishes it. The first time, `start-work` offers to set up the
+  repository with you: `agent-workflows init` infers the configuration from the
+  repository and `agent-workflows doctor` names each remaining gap.
+
+Day to day you need two commands:
+
+```sh
+agent-workflows run       # the worker and the web monitor; keep it running
+agent-workflows monitor   # terminal monitor: runs, Work Items and approvals
+```
+
+Approve gates in the web monitor link `run` prints, or with `a` in the terminal
+monitor. Everything else in `agent-workflows --help` is for the skill or for
+recovery. See the [task contract](docs/engineering/task-contract.md) for schemas
+and gates.
+
+## How it works
 
 DBOS provides durable execution, checkpoints and queues. This SDK supplies the
 coding-workflow behavior a client would otherwise build around it:
@@ -26,53 +62,34 @@ coding-workflow behavior a client would otherwise build around it:
 - **Application controls and evidence:** explicit run outcomes, safe retry
   admission, session/log records, and a shared SDK, CLI, terminal and web monitor.
 
-Clients configure providers and compose operations while DBOS remains responsible
-for durability. [Custom workflows can call DBOS directly](docs/api.md#dbos-sdk-direct-usage).
-Use this SDK when its existing-checkout, one-task-per-project model fits; use DBOS
-directly when you need general-purpose workflows or want to own these policies.
+Each project uses its existing checkout, one task at a time; separate projects
+progress concurrently. [Custom workflows can call DBOS directly](docs/api.md#dbos-sdk-direct-usage).
 
-## Quickstart
+The runner fetches the configured base, creates a branch, implements the work,
+runs the configured checks, and reviews local changes independently. It repairs
+blocking findings or failed checks up to twice with fresh review after each
+repair, then generates publication text, commits once and pushes. Ready results
+create a non-draft PR/MR; unresolved findings, failed checks or incomplete
+inspection create a draft. It never merges. Running the CLI authorizes these
+effects and agent usage.
 
-Prerequisites: Node.js 22.12+, Git, PostgreSQL 17+, and an authenticated Codex or Copilot runtime. macOS and Linux are supported; Windows process-group ownership is not supported.
+### Configuration
 
-```sh
-npm install -g @mingchuno/agent-workflows
-createdb agent_workflows
-export AGENT_WORKFLOWS_DATABASE_URL="postgresql://$(id -un)@localhost/agent_workflows"
-agent-workflows init
-```
+`agent-workflows.json` holds the checkout, hosting repository, agent, validation
+commands and SDLC policy; see the [configuration reference](docs/configuration.md).
+The CLI uses `gh` or `glab` sign-in for personal projects, or the variable named
+by `hosting.tokenEnv` ([PAT permissions](docs/providers.md#create-a-fine-grained-personal-access-token)).
+Set the database URL in `AGENT_WORKFLOWS_DATABASE_URL`, or keep it with other
+secrets in an [`envFile`](docs/configuration.md#cli-environment-files) outside
+the checkout.
 
-For SDK use, install `@mingchuno/agent-workflows-core` locally. The CLI and core
-packages share one version and release; the CLI installs its exact matching core
-dependency automatically.
+`run` serves the web monitor on port 8787; use `--no-web` or `--web-port PORT`
+to change that. See the [web monitor guide](docs/operations.md#web-monitor).
 
-Edit `agent-workflows.json`: set the checkout, hosting origin/repository, agent
-stages and validation commands. Relative checkout, state and prompt-file paths
-resolve from the configuration file's directory. Commits use native Git identity
-and disclose retained writable agent contributions with default-enabled co-author
-trailers. Set the named hosting-token environment variable through your usual
-secret manager; for GitHub, follow the [PAT creation and required permissions](docs/providers.md#create-a-fine-grained-personal-access-token) guide before running. Commit or ignore the configuration before running. Keep the state directory outside managed checkouts, or explicitly Git-ignore it.
+### Label intake and PR/MR review
 
-```sh
-agent-workflows run
-# Open the printed web monitor URL, or in a second terminal:
-agent-workflows monitor
-agent-workflows status --json
-```
-
-The local web monitor starts with `run` on port 8787. Use `--no-web` to disable
-it or `--web-port PORT` to change its port. It ships prebuilt with the CLI and
-supports the terminal monitor's inspection and operator actions. See the
-[web monitor guide](docs/operations.md#web-monitor) for access and lifecycle details.
-
-Alternatively, set `"envFile": "./runner.env"` at the top level of
-`agent-workflows.json` to load database, hosting and application variables from
-one explicit file. Existing process values win, including empty strings. See
-[environment file examples and boundaries](docs/configuration.md#cli-environment-files).
-
-The runner fetches the configured base, creates a branch, implements an eligible issue, runs optional configured checks, and reviews local changes independently. It repairs blocking findings or failed checks up to twice with fresh review after each repair, then generates publication text, commits once and pushes. Ready results create a non-draft PR/MR; unresolved findings, failed checks or incomplete inspection create a draft. Both deliveries complete the Run. It never merges. Initial use should target a repository and issue you explicitly intend to automate; running the CLI authorizes these effects and agent usage.
-
-Enable the standalone review workflow per project with:
+Without SDLC, issues labelled `ready-for-agent` become runs directly. The
+standalone review workflow reviews labelled PRs/MRs:
 
 ```json
 "workflows": {
@@ -92,6 +109,8 @@ queue. See [workflow configuration](docs/configuration.md#workflows).
 ## SDK
 
 Use the SDK when you need to embed the runner or compose a custom workflow.
+Install `@mingchuno/agent-workflows-core` locally; it shares one version and
+release with the CLI.
 It accepts the same project settings as the CLI; your application supplies the
 database URL and loads its own environment.
 

@@ -1,8 +1,8 @@
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
 const mode = process.argv[2];
 if (process.argv.length > 3 || (mode && mode !== "--pack-smoke"))
@@ -54,6 +54,12 @@ try {
     ]);
     url = `postgresql://agent_workflows@127.0.0.1:${port}/agent_workflows_test`;
   }
+  const signedOut = join(testDirectory, "signed-out");
+  await mkdir(signedOut);
+  for (const name of ["gh", "glab"])
+    await writeFile(join(signedOut, name), "#!/bin/sh\nexit 1\n", {
+      mode: 0o755,
+    });
   const files = (await readdir("tests"))
     .filter((file) => /\.test\.tsx?$/.test(file))
     .map((file) => join("tests", file));
@@ -62,7 +68,18 @@ try {
     mode === "--pack-smoke"
       ? ["scripts/pack-smoke.mjs"]
       : ["--import", "tsx", "--test", "--test-concurrency=1", ...files],
-    { stdio: "inherit", env: { ...process.env, TEST_DATABASE_URL: url } },
+    {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        TEST_DATABASE_URL: url,
+        // Keep the developer's gh and glab sign-in out of hosting fallback;
+        // gh also reads the system keyring, so shadow both executables.
+        PATH: `${signedOut}${delimiter}${process.env.PATH}`,
+        GITHUB_TOKEN: "",
+        GITLAB_TOKEN: "",
+      },
+    },
   );
   process.exitCode = await new Promise((resolve, reject) => {
     child.once("error", reject);
