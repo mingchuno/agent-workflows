@@ -21,6 +21,7 @@ import {
 export interface MonitorSource {
   workItems?: () => Promise<WorkItemView[]>;
   approveWork?: (id: string, approval: WorkApproval) => Promise<WorkItemView>;
+  resubmitWork?: (id: string, revision: string) => Promise<WorkItemView>;
   configuration?: () => Promise<Configuration>;
   projects: Store["projects"];
   runs: Store["runs"];

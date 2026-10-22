@@ -503,6 +503,42 @@ test("work publish creates one GitHub issue for local work and rebinds it", {
     );
     const intake = JSON.parse((await work("create", "--issue", "1")).stdout);
     assert.equal(intake.work.id, id);
+
+    // From the checkout, the project is implied and a proposal can republish.
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...contract,
+        acceptanceCriteria: ["Retries stop after five attempts"],
+      }),
+    );
+    const republished = await cli(
+      root,
+      env,
+      "work",
+      "propose",
+      id,
+      "--revision",
+      result.work.revision,
+      "--file",
+      file,
+      "--publish",
+    );
+    assert.equal(republished.exitCode, 0, republished.stderr);
+    assert.equal(republished.stdout.trim().split("\n").length, 1);
+    assert.match(String(issues[0]!.body), /Retries stop after five attempts/);
+    const brief = JSON.parse(
+      (await cli(root, env, "work", "list", "--brief")).stdout,
+    );
+    assert.deepEqual(brief, [
+      {
+        id,
+        title: "Retry webhooks",
+        source: "https://github.test/fixture/fixture/issues/1",
+        track: "B",
+        state: "awaiting-scope-approval",
+      },
+    ]);
   } finally {
     server.close();
     await once(server, "close");
@@ -636,4 +672,40 @@ test("a missing hosting token falls back to the gh sign-in only for local approv
   );
   assert.equal(missing.status, "fail");
   assert.match(missing.detail, /hosting.tokenFromCli/);
+});
+
+test("work classify reads the contract from standard input", async () => {
+  const { root, cli } = await cliFixture({ enabled: true });
+  const { spawnSync } = await import("node:child_process");
+  const { configPath } = await cli(root, {}, "doctor", "--json").then(
+    (result) => JSON.parse(result.stdout),
+  );
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      import.meta.resolve("tsx"),
+      cliPath,
+      "--config-base-directory",
+      root,
+      "--config",
+      configPath,
+      "work",
+      "classify",
+      "--file",
+      "-",
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      input: JSON.stringify({
+        title: "Fix sorting",
+        intent: "Missing sizes sort last",
+        acceptanceCriteria: ["Missing sizes sort last"],
+        assessment: { proposedTrack: "A", complexity: "small" },
+      }),
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).track, "A");
 });

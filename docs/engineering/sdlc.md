@@ -83,7 +83,7 @@ scope, verification and, for Track C, the design. The issue is its canonical hom
 `start-work` publishes it before asking for approval.
 
 ```sh
-agent-workflows --config agent-workflows.json work publish WORK_ID --revision CURRENT_REVISION --project app --json
+agent-workflows --config agent-workflows.json work publish WORK_ID --revision CURRENT_REVISION
 ```
 
 | Work Item source | Effect |
@@ -105,28 +105,23 @@ reassessment first. Local Work Items need publication before a `github` or
 
 ## Inspect and approve work
 
-The intake skill returns a Work Item ID and effective track. Read its current
-contract and decision before approving.
-
-```sh
-agent-workflows --config agent-workflows.json work inspect WORK_ID --project app --json
-```
+The intake skill returns a Work Item ID, its effective track and where to approve
+it. Open the Work Item in the web monitor (`agent-workflows monitor --web WORK_ID`)
+or the terminal monitor (`agent-workflows monitor`, then `w`) and read its
+current contract and decision before approving.
 
 Track A can become ready after an expected outcome is recorded. Track B waits for
 scope approval. Track C waits for scope approval, then a complete design and
 design approval. An unresolved material uncertainty prevents admission on every
 track. Read the [contract reference](task-contract.md) for field and revision rules.
 
-For a personal pilot using `approvalSource: local-operator`, run the operator
-command yourself after inspecting the exact complete revision.
-
-```sh
-agent-workflows --config agent-workflows.json work approve WORK_ID --revision CURRENT_REVISION --gate scope --project app
-agent-workflows --config agent-workflows.json work approve WORK_ID --revision CURRENT_REVISION --gate design --project app
-```
+For a personal pilot using `approvalSource: local-operator`, approve the exact
+revision you inspected with **Review scope approval** in the web monitor or `a`
+in the terminal monitor. The CLI equivalent is
+`work approve WORK_ID --revision CURRENT_REVISION --gate scope`.
 
 Use only the gate currently required. Design approval requires a design. The
-intake skill never runs these commands. Conversational agreement and issue labels
+intake skill never approves. Conversational agreement and issue labels
 do not create approval records.
 
 The worker admits a ready Work Item on its next poll. Final approval can therefore
@@ -138,7 +133,7 @@ remains persisted. A later worker start resumes intake. Explicit submission uses
 the same eligibility checks and returns an existing admission for the same revision.
 
 ```sh
-agent-workflows --config agent-workflows.json work submit WORK_ID --revision CURRENT_REVISION --project app --json
+agent-workflows --config agent-workflows.json work submit WORK_ID --revision CURRENT_REVISION
 agent-workflows --config agent-workflows.json status --json
 agent-workflows --config agent-workflows.json inspect RUN_ID
 ```
@@ -184,7 +179,7 @@ The worker imports permitted approval during polling. To import existing comment
 without waiting for another poll, run the sync command.
 
 ```sh
-agent-workflows --config agent-workflows.json work sync-approvals WORK_ID --project service --json
+agent-workflows --config agent-workflows.json work sync-approvals WORK_ID
 ```
 
 Keep approval credentials separate from implementation credentials. Configure the
@@ -206,11 +201,13 @@ source comments and credential separation before unattended company execution.
 
 When source or scope escalation blocks a project, preserve unfinished work and
 clean the checkout before starting another attempt. Reassess the Work Item and
-record its required approvals. Submit the new revision explicitly with
-`work submit WORK_ID --revision CURRENT_REVISION --project app --recover`.
-This checks that recorded processes have stopped and the checkout is clean before
-atomically clearing the block and admitting the revised work. It preserves an
-operator pause. Automatic polling never clears a recovery block.
+record its required approvals. The monitor then marks the ready item
+recoverable: press `r` in the terminal monitor, or choose **Resubmit after
+recovery** in the web monitor. The CLI equivalent is
+`work submit WORK_ID --revision CURRENT_REVISION --recover`. Each checks that
+recorded processes have stopped and the checkout is clean before atomically
+clearing the block and admitting the revised work. It preserves an operator
+pause. Automatic polling never clears a recovery block.
 
 Inspect workflow-executed validation, independent review, limitations, and final
 readiness. Outstanding manual checks, missing configured validation, or incomplete

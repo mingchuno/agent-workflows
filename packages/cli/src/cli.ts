@@ -35,6 +35,7 @@ import {
 } from "./cli-runner-control.js";
 import { resolveConfigPath } from "./config-discovery.js";
 import { registerDoctor } from "./doctor.js";
+import { applyCliTokens } from "./hosting-token.js";
 import { inferProject } from "./repository-inference.js";
 import { createTerminalNotificationWriter, Monitor } from "./tui/index.js";
 import { defaultWebPort } from "./web/contracts.js";
@@ -474,6 +475,7 @@ program
     }
     if (control?.envFile) await loadEnvironmentFile(control.envFile);
     const config = control?.configuration ?? (await configuration());
+    applyCliTokens(config.projects);
     if (control && sha256(databaseUrl(config)) !== control.databaseUrlHash)
       throw new Error(
         "Database connection differs from the running server; use its startup environment",
@@ -485,6 +487,7 @@ program
     await withConfiguredStore(config, async (store) => {
       const work = workOperator({
         store,
+        stateDirectory: resolve(configBaseDirectory(), config.stateDirectory),
         projects: async () =>
           (
             await readActiveConfiguration(configPath(), config.id)
@@ -497,6 +500,7 @@ program
           source: {
             workItems: () => work.list(),
             approveWork: (id, approval) => work.approve(id, approval),
+            resubmitWork: (id, revision) => work.resubmit(id, revision),
             projects: async () =>
               (await store.projects()).filter((project) =>
                 config.projects.some((active) => active.id === project.id),
@@ -522,6 +526,7 @@ program
     });
   });
 registerWorkCommands(program, {
+  launchDirectory,
   pathBaseDirectory: configBaseDirectory,
   configuration,
   monitorUrl: async () => {

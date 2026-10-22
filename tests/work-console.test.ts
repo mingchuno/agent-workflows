@@ -9,7 +9,9 @@ import { publishRunnerControl } from "../packages/cli/src/cli-runner-control.js"
 import { monitorServer } from "../packages/cli/src/web/server.js";
 import { configSchema } from "../packages/core/src/config.js";
 import { Store } from "../packages/core/src/store.js";
+import { workOperator } from "../packages/core/src/work/operator.js";
 import { sdlcPolicySchema } from "../packages/core/src/work/schema.js";
+import { repository } from "./fixtures.js";
 import { waitFor } from "./runner-fixtures.js";
 import { webRunner } from "./web-fixtures.js";
 
@@ -139,6 +141,15 @@ test("monitor inspects pending Work Items, approves exact revisions and rejects 
     assert.equal(inspection.decision.state, "awaiting-scope-approval");
     assert.equal(inspection.work.revision, visible.revision);
     assert.equal((await store.runs()).length, 0);
+    const refused = await api(`/api/work-items/${visible.id}/resubmit`, {
+      revision: visible.revision,
+    });
+    assert.equal(refused.status, 409);
+    assert.match((await refused.json()).error, /scope approval/);
+    assert.equal(
+      (await api(`/api/work-items/${visible.id}/resubmit`, {})).status,
+      400,
+    );
     const endpoint = `/api/work-items/${visible.id}/approve`;
     assert.equal(
       (
@@ -365,5 +376,70 @@ test("a #work link opens the browser monitor at that Work Item", {
     ).toBeVisible();
   } finally {
     await browser.close();
+  }
+});
+
+test("the operator resubmits ready work into a project blocked by escalation", {
+  skip: !databaseUrl,
+}, async () => {
+  const { project } = await repository();
+  project.sdlc = sdlcPolicySchema.parse({ enabled: true });
+  const store = new Store(databaseUrl!, randomUUID().replaceAll("-", ""));
+  const state = await mkdtemp(join(tmpdir(), "aw-resubmit-state-"));
+  try {
+    await store.initialize();
+    await store.registerProject(project.id);
+    const operator = workOperator({
+      store,
+      stateDirectory: state,
+      projects: async () => [project],
+    });
+    const contract = {
+      title: "Sort missing sizes",
+      intent: "Place missing sizes last",
+      acceptanceCriteria: ["Missing sizes follow numbers"],
+      scopePaths: ["src/**"],
+      assessment: { proposedTrack: "B" as const, complexity: "small" as const },
+      verification: { strategy: "Regression test" },
+    };
+    const work = await store.workItems.create(
+      project.id,
+      { kind: "local", key: "resubmit" },
+      contract,
+    );
+    await operator.approve(work.id, { gate: "scope", revision: work.revision });
+    const first = await store.workItems.submit(work.id, work.revision, project);
+    await store.patchRun(first.id, { outcome: "blocked" });
+    await store.blockProject(project.id, "Scope needs reassessment");
+    const revised = await store.workItems.propose(work.id, work.revision, {
+      ...contract,
+      acceptanceCriteria: ["Missing sizes follow numbers in both directions"],
+    });
+    assert.equal((await operator.inspect(work.id)).recoverable, false);
+    await operator.approve(work.id, {
+      gate: "scope",
+      revision: revised.revision,
+    });
+    assert.equal((await operator.inspect(work.id)).recoverable, true);
+    await writeFile(join(project.checkout, "unsaved.txt"), "dirty");
+    await assert.rejects(
+      operator.resubmit(work.id, revised.revision),
+      /unsaved\.txt|clean|untracked/i,
+    );
+    await rm(join(project.checkout, "unsaved.txt"));
+    const resubmitted = await operator.resubmit(work.id, revised.revision);
+    assert.equal(resubmitted.recoverable, false);
+    assert.equal(resubmitted.runIds.length, 2);
+    assert.equal((await store.project(project.id)).blocked, null);
+    await assert.rejects(
+      workOperator({ store, projects: async () => [project] }).resubmit(
+        work.id,
+        revised.revision,
+      ),
+      /unavailable/,
+    );
+  } finally {
+    await store.close();
+    await rm(state, { recursive: true, force: true });
   }
 });

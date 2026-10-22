@@ -30,7 +30,8 @@ there. Before presenting a gate, publish the current revision with
 `work publish`. The first time for a Work Item, ask the human first: "Create an
 issue holding this contract?" for local work, or "Update issue #N with this
 contract?" for issue work. Publish only after an explicit yes. Once confirmed,
-republish without asking whenever a proposal changes the contract. If the human
+republish without asking whenever a proposal changes the contract, in one step
+with `work propose --publish`. If the human
 declines, continue unpublished and do not ask again for that Work Item.
 
 Publishing returns a new revision and resets approvals; present that revision.
@@ -57,6 +58,10 @@ the Work Item after an approval, a source edit or a fresh session.
 
 Report the Work Item ID, effective track, state and one next action. Report a
 Run ID only after the backend returns one. An escalated Run needs a human
-decision before scope grows.
+decision before scope grows. After the human agrees to the revised scope,
+propose it and present the gate as usual. Once the Work Item is ready again,
+tell the human to preserve and clean the checkout, then resubmit from the
+monitor (`r` in the terminal monitor, or "Resubmit after recovery" in the web
+monitor). It checks that earlier processes stopped and the checkout is clean.
 
 After Track C delivery, follow [capture knowledge](capture-knowledge.md).
