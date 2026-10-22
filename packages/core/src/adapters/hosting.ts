@@ -50,6 +50,50 @@ function readyTitle(title: string): string {
       .trim() || "Workflow changes"
   );
 }
+function labelNames(labels: Array<string | { name?: string }>): string[] {
+  return labels.map((label) =>
+    typeof label === "string" ? label : (label.name ?? ""),
+  );
+}
+function githubIssue(data: {
+  id: number;
+  number: number;
+  title: string;
+  body?: string | null;
+  html_url: string;
+  labels: Array<string | { name?: string }>;
+  state: string;
+  pull_request?: unknown;
+}): Issue {
+  return {
+    id: String(data.id),
+    number: data.number,
+    title: data.title,
+    body: data.body ?? "",
+    url: data.html_url,
+    labels: labelNames(data.labels),
+    open: data.state === "open" && !data.pull_request,
+  };
+}
+function gitlabIssue(issue: {
+  id: number;
+  iid: number;
+  title: string;
+  description?: string | null;
+  web_url: string;
+  labels?: Array<string | { name?: string }>;
+  state: string;
+}): Issue {
+  return {
+    id: String(issue.id),
+    number: issue.iid,
+    title: issue.title,
+    body: issue.description ?? "",
+    url: issue.web_url,
+    labels: labelNames(issue.labels ?? []),
+    open: issue.state === "opened",
+  };
+}
 function marker(runId: string, suffix = "") {
   return `<!-- agent-workflows:${runId}${suffix} -->`;
 }
@@ -164,36 +208,42 @@ export class GitHubHosting implements HostingAdapter {
       labels: labels.join(","),
       per_page: hostingPageSize,
     });
-    return issues
-      .filter((issue) => !issue.pull_request)
-      .map((issue) => ({
-        id: String(issue.id),
-        number: issue.number,
-        title: issue.title,
-        body: issue.body ?? "",
-        url: issue.html_url,
-        labels: issue.labels.map((label) =>
-          typeof label === "string" ? label : (label.name ?? ""),
-        ),
-        open: issue.state === "open",
-      }));
+    return issues.filter((issue) => !issue.pull_request).map(githubIssue);
   }
   async getIssue(number: number): Promise<Issue> {
     const { data } = await this.client.issues.get({
       ...this.repo,
       issue_number: number,
     });
-    return {
-      id: String(data.id),
-      number: data.number,
-      title: data.title,
-      body: data.body ?? "",
-      url: data.html_url,
-      labels: data.labels.map((label) =>
-        typeof label === "string" ? label : (label.name ?? ""),
-      ),
-      open: data.state === "open" && !data.pull_request,
-    };
+    return githubIssue(data);
+  }
+  async createIssue(input: { title: string; body: string }): Promise<Issue> {
+    const { data } = await this.client.issues.create({
+      ...this.repo,
+      ...input,
+    });
+    return githubIssue(data);
+  }
+  async updateIssueBody(number: number, body: string): Promise<Issue> {
+    const { data } = await this.client.issues.update({
+      ...this.repo,
+      issue_number: number,
+      body,
+    });
+    return githubIssue(data);
+  }
+  async findIssues(input: { text: string; since: string }): Promise<Issue[]> {
+    const issues = await this.client.paginate(this.client.issues.listForRepo, {
+      ...this.repo,
+      state: "all",
+      since: input.since,
+      per_page: hostingPageSize,
+    });
+    return issues
+      .filter(
+        (issue) => !issue.pull_request && issue.body?.includes(input.text),
+      )
+      .map(githubIssue);
   }
   async listApprovalComments(number: number) {
     const comments = await this.client.paginate(
@@ -348,31 +398,36 @@ export class GitLabHosting implements HostingAdapter {
       labels: labels.join(","),
       perPage: hostingPageSize,
     });
-    return issues.map((issue) => ({
-      id: String(issue.id),
-      number: issue.iid,
-      title: issue.title,
-      body: issue.description ?? "",
-      url: issue.web_url,
-      labels: issue.labels,
-      open: issue.state === "opened",
-    }));
+    return issues.map(gitlabIssue);
   }
   async getIssue(number: number): Promise<Issue> {
-    const issue = await this.client.Issues.show(number, {
+    return gitlabIssue(
+      await this.client.Issues.show(number, { projectId: this.repository }),
+    );
+  }
+  async createIssue(input: { title: string; body: string }): Promise<Issue> {
+    return gitlabIssue(
+      await this.client.Issues.create(this.repository, input.title, {
+        description: input.body,
+      }),
+    );
+  }
+  async updateIssueBody(number: number, body: string): Promise<Issue> {
+    return gitlabIssue(
+      await this.client.Issues.edit(this.repository, number, {
+        description: body,
+      }),
+    );
+  }
+  async findIssues(input: { text: string; since: string }): Promise<Issue[]> {
+    const issues = await this.client.Issues.all({
       projectId: this.repository,
+      updatedAfter: input.since,
+      perPage: hostingPageSize,
     });
-    return {
-      id: String(issue.id),
-      number: issue.iid,
-      title: issue.title,
-      body: issue.description ?? "",
-      url: issue.web_url,
-      labels: issue.labels.map((label) =>
-        typeof label === "string" ? label : label.name,
-      ),
-      open: issue.state === "opened",
-    };
+    return issues
+      .filter((issue) => issue.description?.includes(input.text))
+      .map(gitlabIssue);
   }
   async listApprovalComments(number: number) {
     const notes = await this.client.IssueNotes.all(this.repository, number, {

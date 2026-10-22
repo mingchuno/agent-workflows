@@ -25,6 +25,7 @@ desired behavior before implementation details. Stop clarification when the
 remaining choices have recorded reversible defaults or no longer change the
 contract. Do not generate questions to meet a quota.
 
-Map blockers into `assessment.uncertainties`, findings into cited references,
-and defaults into `assumptions`, then return to [start-work](../SKILL.md) step 3.
+Map blockers into `assessment.uncertainties`, findings and settled decisions
+into `context` with their sources in `references`, and defaults into
+`assumptions`, then return to [start-work](../SKILL.md) step 3.
 An investigation does not grant approval or start implementation.

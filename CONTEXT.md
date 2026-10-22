@@ -16,6 +16,11 @@ verification, and optional design. Independent of execution attempts.
 Canonical digest of the current contract and observed source. Optimistic edits,
 approval actions, and submission identify this exact revision.
 
+**Published contract**:
+The managed section of an issue presenting a Work Item's current contract. Local
+work gains its issue when first published. The issue revision includes it, so
+approval binds the text readers see.
+
 **Track**:
 The deterministic minimum engineering control for work. A permits a clear,
 low-risk task without planning approval. B requires scope approval. C additionally

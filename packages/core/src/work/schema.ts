@@ -45,6 +45,8 @@ export const designSchema = z.strictObject({
 export const workContractSchema = z.strictObject({
   sourceRevision: text.optional(),
   title: text.max(240),
+  /** Background, findings with sources, and decisions from clarification. */
+  context: text.optional(),
   intent: text,
   acceptanceCriteria: texts.default([]),
   constraints: texts.default([]),

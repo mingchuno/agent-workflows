@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -163,7 +165,10 @@ test("public work CLI resumes persisted scope approval and deduplicates submissi
   }
 });
 
-async function cliFixture(sdlc: Record<string, unknown>) {
+async function cliFixture(
+  sdlc: Record<string, unknown>,
+  origin = "https://github.com",
+) {
   const directory = await mkdtemp(join(tmpdir(), "aw-cli-fixture-"));
   const { root } = await repository();
   const configPath = join(directory, "config.json");
@@ -178,7 +183,7 @@ async function cliFixture(sdlc: Record<string, unknown>) {
           checkout: ".",
           hosting: {
             provider: "github",
-            origin: "https://github.com",
+            origin,
             repository: "fixture/fixture",
             tokenEnv: "FIXTURE_HOST_TOKEN",
           },
@@ -368,4 +373,113 @@ test("doctor discovers the configuration that manages a linked worktree", async 
   assert.equal(ambiguous.checks[0].name, "configuration");
   assert.equal(ambiguous.checks[0].status, "fail");
   assert.match(ambiguous.checks[0].detail, /Several configurations/);
+});
+
+test("work publish creates one GitHub issue for local work and rebinds it", {
+  skip: !process.env.TEST_DATABASE_URL,
+}, async () => {
+  const issues: Array<Record<string, unknown>> = [];
+  const requests: string[] = [];
+  const server = createServer(async (request, response) => {
+    let text = "";
+    for await (const chunk of request) text += chunk;
+    const url = new URL(request.url!, "http://127.0.0.1");
+    requests.push(`${request.method} ${url.pathname}`);
+    response.setHeader("content-type", "application/json");
+    const path = "/api/v3/repos/fixture/fixture/issues";
+    if (request.method === "GET" && url.pathname === path)
+      return response.end(JSON.stringify(issues));
+    if (request.method === "POST" && url.pathname === path) {
+      const input = JSON.parse(text);
+      const issue = {
+        id: 900 + issues.length,
+        number: issues.length + 1,
+        title: input.title,
+        body: input.body,
+        html_url: `https://github.test/fixture/fixture/issues/${issues.length + 1}`,
+        labels: [],
+        state: "open",
+      };
+      issues.push(issue);
+      response.statusCode = 201;
+      return response.end(JSON.stringify(issue));
+    }
+    const issue = issues.find(
+      (item) => `${path}/${item.number}` === url.pathname,
+    );
+    if (issue && request.method === "PATCH")
+      Object.assign(issue, JSON.parse(text));
+    response.statusCode = issue ? 200 : 404;
+    response.end(JSON.stringify(issue ?? { message: "Not Found" }));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port } = server.address() as { port: number };
+  try {
+    const { directory, root, cli } = await cliFixture(
+      { enabled: true },
+      `http://127.0.0.1:${port}`,
+    );
+    const file = join(directory, "contract.json");
+    const contract = {
+      title: "Retry webhooks",
+      context: "Deliveries are lost after transient failures.",
+      intent: "Retry transient webhook failures",
+      acceptanceCriteria: ["Transient failures retry with bounded backoff"],
+      scopePaths: ["src/**"],
+      verification: { strategy: "Retry policy tests" },
+      assessment: { proposedTrack: "B", complexity: "moderate" },
+    };
+    await writeFile(file, JSON.stringify(contract));
+    const env = {
+      AGENT_WORKFLOWS_DATABASE_URL: process.env.TEST_DATABASE_URL,
+      FIXTURE_HOST_TOKEN: "fixture-token",
+    };
+    const work = (...args: string[]) =>
+      cli(root, env, "work", ...args, "--project", "app");
+    const created = JSON.parse(
+      (await work("create", "--file", file, "--key", "webhooks")).stdout,
+    );
+    const id = created.work.id as string;
+    const published = await work(
+      "publish",
+      id,
+      "--revision",
+      created.work.revision,
+    );
+    assert.equal(published.exitCode, 0, published.stderr);
+    const result = JSON.parse(published.stdout);
+    assert.equal(result.work.source.kind, "github");
+    assert.equal(result.work.source.number, 1);
+    assert.equal(
+      result.work.contract.sourceRevision,
+      result.work.source.revision,
+    );
+    assert.equal(result.decision.state, "awaiting-scope-approval");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]!.title, "Retry webhooks");
+    assert.match(String(issues[0]!.body), /Deliveries are lost/);
+    assert.match(
+      String(issues[0]!.body),
+      new RegExp(`agent-workflows:contract:${id}`),
+    );
+    const replay = await work(
+      "publish",
+      id,
+      "--revision",
+      result.work.revision,
+    );
+    assert.equal(replay.exitCode, 0, replay.stderr);
+    assert.equal(JSON.parse(replay.stdout).work.revision, result.work.revision);
+    assert.equal(issues.length, 1);
+    assert.equal(
+      requests.filter((request) => request.startsWith("PATCH")).length,
+      0,
+    );
+    const intake = JSON.parse((await work("create", "--issue", "1")).stdout);
+    assert.equal(intake.work.id, id);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
 });

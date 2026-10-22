@@ -15,13 +15,29 @@ admission. This session records the contract and moves it through the gates. Rea
 | State | Next action |
 | --- | --- |
 | `needs-info` | Resolve the returned reasons and propose a revised contract. |
-| `awaiting-scope-approval` | Present intent, acceptance, scope paths, risk and revision. Wait for recorded approval. |
+| `awaiting-scope-approval` | [Publish the contract](#publish-the-contract), then present intent, acceptance, scope paths, risk and revision. Wait for recorded approval. |
 | `design` | Follow [design](design.md), then propose the design on the current contract. |
-| `awaiting-design-approval` | Present the design, verification, rollback and revision. Wait for recorded approval. |
+| `awaiting-design-approval` | [Publish the contract](#publish-the-contract), then present the design, verification, rollback and revision. Wait for recorded approval. |
 | `ready` | Run `work submit` with the exact current revision, then report the returned Run. |
 
 The worker admits ready work on its next poll, so an approval can start
 execution without another prompt. Repeated submission returns the existing Run.
+
+## Publish the contract
+
+The issue is the contract's canonical home, so reviewers and approvers read it
+there. Before presenting a gate, publish the current revision with
+`work publish`. The first time for a Work Item, ask the human first: "Create an
+issue holding this contract?" for local work, or "Update issue #N with this
+contract?" for issue work. Publish only after an explicit yes. Once confirmed,
+republish without asking whenever a proposal changes the contract. If the human
+declines, continue unpublished and do not ask again for that Work Item.
+
+Publishing returns a new revision and resets approvals; present that revision.
+When `approvalSource` is `github` or `gitlab`, tell the human that local work
+cannot be approved until it is published.
+
+## Approval
 
 Approval is a human action. Never run `work approve`, post an approval comment,
 or treat labels or agreement in conversation as a recorded approval. For

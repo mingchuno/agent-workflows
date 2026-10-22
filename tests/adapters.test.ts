@@ -430,3 +430,87 @@ for (const provider of ["github", "gitlab"] as const) {
     }
   });
 }
+
+test("gitlab publishes contract issues and finds them by marker", async () => {
+  const requests: string[] = [];
+  const issues: Array<Record<string, unknown>> = [];
+  let address: { port: number };
+  const server = createServer(async (request, response) => {
+    let text = "";
+    for await (const chunk of request) text += chunk;
+    const url = new URL(request.url!, `http://127.0.0.1:${address.port}`);
+    requests.push(`${request.method} ${url.pathname}${url.search}`);
+    response.setHeader("content-type", "application/json");
+    const path = "/api/v4/projects/a%2Fb/issues";
+    if (request.method === "POST" && url.pathname === path) {
+      const input = JSON.parse(text);
+      const issue = {
+        id: 70,
+        iid: 7,
+        title: input.title,
+        description: input.description,
+        web_url: "https://fixture/issues/7",
+        labels: [],
+        state: "opened",
+      };
+      issues.push(issue);
+      return response.end(JSON.stringify(issue));
+    }
+    if (request.method === "PUT" && url.pathname === `${path}/7`) {
+      Object.assign(issues[0]!, JSON.parse(text));
+      return response.end(JSON.stringify(issues[0]));
+    }
+    response.end(
+      JSON.stringify([
+        ...issues,
+        { ...issues[0], id: 80, iid: 8, description: "unrelated" },
+      ]),
+    );
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  address = server.address() as { port: number };
+  process.env.FIXTURE_TOKEN = "fixture";
+  try {
+    const adapter = new GitLabHosting(
+      projectSchema.parse({
+        id: "test",
+        checkout: "/tmp",
+        hosting: {
+          provider: "gitlab",
+          origin: `http://127.0.0.1:${address.port}`,
+          repository: "a/b",
+          tokenEnv: "FIXTURE_TOKEN",
+        },
+        agent: { provider: "codex" },
+      }),
+    );
+    const created = await adapter.createIssue({
+      title: "Retry",
+      body: "<!-- marker -->",
+    });
+    assert.equal(created.number, 7);
+    assert.equal(
+      (await adapter.updateIssueBody(7, "Reporter\n\n<!-- marker -->")).body,
+      "Reporter\n\n<!-- marker -->",
+    );
+    const found = await adapter.findIssues({
+      text: "<!-- marker -->",
+      since: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepEqual(
+      found.map((issue) => issue.number),
+      [7],
+    );
+    assert.ok(
+      requests.some((request) =>
+        request.includes("updated_after=2026-01-01T00%3A00%3A00.000Z"),
+      ),
+      requests.join("\n"),
+    );
+  } finally {
+    server.close();
+    await once(server, "close");
+    delete process.env.FIXTURE_TOKEN;
+  }
+});

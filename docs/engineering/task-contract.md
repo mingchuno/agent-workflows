@@ -10,6 +10,7 @@ live in `packages/core/src/work/policy.ts`.
 | Field | Meaning |
 | --- | --- |
 | `title`, `intent` | Nonblank task name and desired behavior. |
+| `context` | Optional Markdown: background, findings with sources, and decisions from clarification. |
 | `acceptanceCriteria` | Observable expected outcomes or reproducible failure evidence. At least one is required for admission. |
 | `constraints` | Limits the implementation must respect. |
 | `assumptions` | Explicit reversible defaults. |
@@ -70,6 +71,13 @@ changes the Work Item revision. It does not claim that the old contract assessed
 the new issue. The Work Item needs
 an explicit proposal against the refreshed source before approval or submission.
 
+Publication writes the contract to the project's issue tracker. Local work is
+rebound to the issue it creates; that changes the source key, so a later issue
+intake resumes the same Work Item. Publication assigns the published issue's
+revision as `sourceRevision`, which changes the Work Item revision and
+invalidates earlier approvals. See
+[the operating guide](sdlc.md#keep-the-contract-on-the-issue).
+
 ## Derived states
 
 | State | Required next evidence |
@@ -92,7 +100,7 @@ pilot verification.
 ## Local usage evidence
 
 The Store emits local `work-created`, `work-proposed`, `work-source-changed`,
-`work-approved`, `work-submitted`, and `work-escalated` events. Submission records
+`work-published`, `work-approved`, `work-submitted`, and `work-escalated` events. Submission records
 the effective track and associated Run. These events provide pilot usage and
 gate evidence through `Store.events()` without sending product telemetry.
 Publication includes the Work Item identity, contract revision, intent, acceptance

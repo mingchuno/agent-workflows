@@ -13,6 +13,7 @@ export * from "./work/classify.js";
 export * from "./work/errors.js";
 export * from "./work/operator.js";
 export * from "./work/policy.js";
+export * from "./work/publication.js";
 export * from "./work/schema.js";
 export * from "./work/store.js";
 export * from "./workspace.js";

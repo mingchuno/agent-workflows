@@ -18,6 +18,7 @@ agent-workflows --config CONFIG work inspect WORK_ID --project app
 agent-workflows --config CONFIG work create --issue 123 --project app
 agent-workflows --config CONFIG work create --title "Fix missing-size sorting" --key missing-size-sort --project app
 agent-workflows --config CONFIG work propose WORK_ID --revision CURRENT_REVISION --file /tmp/work-contract.json --project app
+agent-workflows --config CONFIG work publish WORK_ID --revision CURRENT_REVISION --project app
 agent-workflows --config CONFIG work sync-approvals WORK_ID --project app
 agent-workflows --config CONFIG work submit WORK_ID --revision CURRENT_REVISION --project app
 ```
@@ -30,7 +31,7 @@ returns `changedPaths` and any `escalation` caused by the actual diff.
 Use actual returned IDs and revisions. Pass each value as a distinct process
 argument. Do not interpolate untrusted task text into shell source.
 
-`inspect`, `assess`, `create`, and `propose` return `work`, `approvals`, and
+`inspect`, `assess`, `create`, `propose`, and `publish` return `work`, `approvals`, and
 `decision`. `list` returns those inspections as an array. `submit` returns
 `run`. `work.revision` identifies the complete current contract and observed
 source. A fresh agent session resumes through these persisted values.
@@ -42,9 +43,16 @@ They are not contract fields. The backend sets the assessed `sourceRevision`.
 Refreshing the source changes the Work Item revision. Reinspect after a source
 refresh before proposing against the new revision.
 
+`publish` writes the contract to the issue tracker: it creates an issue for
+local work and rebinds the Work Item to it, or replaces the Work Item's managed
+section in an existing issue. Run it only after the human confirms. It returns a
+new revision with approvals reset. If it reports that the source changed, refresh
+with `work create --issue N`, reassess, propose, then publish again.
+
 ## WorkContract fields
 
-Required strings are nonblank. Paths are repository-relative glob patterns.
+Required strings are nonblank. `context` is optional Markdown holding background,
+findings with their sources, and decisions reached during clarification. Paths are repository-relative glob patterns.
 Track A needs intent and an expected outcome or reproducible failure. Tracks B
 and C also need scope paths and a verification strategy. The backend enforces
 the requirements and may select a stricter track.
@@ -52,6 +60,7 @@ the requirements and may select a stricter track.
 ```json
 {
   "title": "Notify after webhook retries are exhausted",
+  "context": "Deliveries are dropped silently after the last retry (src/webhooks/retry.ts). Agreed with the reporter: one event per delivery, not per attempt.",
   "intent": "Make exhausted webhook delivery observable",
   "acceptanceCriteria": ["One failure event is recorded after the final retry"],
   "constraints": ["Reuse the existing delivery mechanism"],

@@ -173,6 +173,11 @@ export interface HostingAdapter {
   getChange(number: number): Promise<ReviewRequest>;
   listIssues(labels: string[]): Promise<Issue[]>;
   getIssue(number: number): Promise<Issue>;
+  /** Issue writes publish a human-confirmed Work contract and nothing else. */
+  createIssue?(input: { title: string; body: string }): Promise<Issue>;
+  updateIssueBody?(number: number, body: string): Promise<Issue>;
+  /** Issues updated since `since` whose body contains `text`, open or closed. */
+  findIssues?(input: { text: string; since: string }): Promise<Issue[]>;
   findChange(branch: string): Promise<ChangeRequest | undefined>;
   createChange(input: {
     branch: string;

@@ -12,6 +12,7 @@ import {
   gateSchema,
   issueSource,
   type Project,
+  publishWork,
   type Store,
   syncWorkApprovals,
   workContractSchema,
@@ -207,6 +208,22 @@ export function registerWorkCommands(
             gate: gateSchema.parse(options.gate),
             revision: options.revision,
           }),
+        ),
+    );
+  command("publish <id>")
+    .description(
+      "Write the contract to its issue, creating one for local work; only after the human confirms",
+    )
+    .requiredOption("--revision <digest>", "contract revision to publish")
+    .action(
+      async (id: string, options: { project: string; revision: string }) =>
+        execute(options.project, (store, project) =>
+          publishWork(
+            id,
+            project,
+            { store, hosting: createHosting(project) },
+            { revision: options.revision },
+          ),
         ),
     );
   command("sync-approvals <id>").action(

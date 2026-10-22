@@ -247,6 +247,83 @@ export class WorkStore {
       return work;
     });
   }
+  /**
+   * Bind the Work Item to the issue that `effect` publishes its contract to,
+   * then mark the contract assessed against that issue revision. The row stays
+   * locked during the effect, so competing publications cannot create a second
+   * issue. A changed source revision invalidates earlier approvals.
+   */
+  async publish(
+    id: string,
+    expectedRevision: string,
+    project: Project,
+    effect: (work: WorkItem) => Promise<WorkSource>,
+  ): Promise<WorkItem> {
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(tables.workItems)
+        .where(this.predicate(id))
+        .for("update");
+      if (!row || row.record.projectId !== project.id)
+        throw new WorkItemNotFoundError("Unknown work item for project");
+      const current = row.record;
+      if (current.revision !== expectedRevision)
+        throw new WorkConflictError(
+          "Work revision changed; inspect before publishing",
+        );
+      if (sourceIsStale(current))
+        throw new WorkConflictError(
+          "Source changed; reassess before publishing",
+        );
+      const history = await this.admission.history(tx, `work:${id}`);
+      if (hasActiveAttempt(history.map((item) => item.record)))
+        throw new BlockedError("Work has an active run; publish after it ends");
+      const source = workSourceSchema.parse(await effect(current));
+      if (source.kind !== project.hosting.provider)
+        throw new Error("Published source differs from the project host");
+      if (
+        current.source.kind !== "local" &&
+        sourceKey(current.source) !== sourceKey(source)
+      )
+        throw new Error("Source identity differs from work item");
+      const [owner] = await tx
+        .select({ id: tables.workItems.id })
+        .from(tables.workItems)
+        .where(
+          and(
+            eq(tables.workItems.scope, this.scope),
+            eq(tables.workItems.projectId, project.id),
+            eq(tables.workItems.sourceKey, sourceKey(source)),
+          ),
+        );
+      if (owner && owner.id !== id)
+        throw new WorkConflictError(
+          "Issue already belongs to another Work Item",
+        );
+      const contract = this.contract(current.contract, source);
+      const work: WorkItem = {
+        ...current,
+        source,
+        contract,
+        revision: workRevision(contract, source),
+        updatedAt: new Date().toISOString(),
+      };
+      if (work.revision === current.revision) return current;
+      await tx
+        .update(tables.workItems)
+        .set({ record: work, sourceKey: sourceKey(source) })
+        .where(this.predicate(id));
+      await tx.insert(tables.events).values(
+        this.event("work-published", {
+          workItemId: id,
+          source,
+          revision: work.revision,
+        }),
+      );
+      return work;
+    });
+  }
   async approve(
     id: string,
     expectedRevision: string,

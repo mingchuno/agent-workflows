@@ -20,6 +20,27 @@ follows one protocol ([ADR 0010](../adr/0010-inline-fast-path.md)).
 A Track A diff that exceeds `sdlc.fastTrackMaxFiles` (default 10) or matches a
 protected path stops before publication and moves to Track B or C.
 
+## How the track and clarity are decided
+
+The agent records an assessment in the contract. Deterministic policy then
+applies minimum tracks. The agent cannot lower them.
+
+| Signal | Effect |
+| --- | --- |
+| An open question in `assessment.uncertainties` | At least Track B. Blocks readiness on every track until resolved. |
+| `moderate` complexity | At least Track B. |
+| `large` complexity, a declared risk flag, or a protected path in `riskRules` | Track C. |
+| More expected or actual files than `fastTrackMaxFiles` | Track A becomes B. |
+
+Unclear is not the same as risky. Clarification resolves open questions into
+acceptance criteria, constraints and assumptions; it does not add a design gate.
+`start-work` asks only questions that change acceptance, scope, safety or
+feasibility, and records reversible defaults as assumptions.
+
+You steer the result in three ways: answer or overrule an open question, ask for
+a stricter `proposedTrack` (always kept), or edit the contract before approval.
+Policy minimums cannot be lowered; change `riskRules` deliberately instead.
+
 ## Set up delegated work
 
 1. Install the skills from the target project with the
@@ -54,6 +75,34 @@ protected path stops before publication and moves to Track B or C.
 The CLI persists contracts and enforces state transitions. The runner's
 implementation and review stages keep their own prompts. Installing the skills
 does not establish that an SDK-created session loads them.
+
+## Keep the contract on the issue
+
+Clarification produces the contract: context and findings, intent, acceptance,
+scope, verification and, for Track C, the design. The issue is its canonical home
+([ADR 0011](../adr/0011-publish-contracts-to-issues.md)). After the human confirms,
+`start-work` publishes it before asking for approval.
+
+```sh
+agent-workflows --config agent-workflows.json work publish WORK_ID --revision CURRENT_REVISION --project app --json
+```
+
+| Work Item source | Effect |
+| --- | --- |
+| Local | Creates an issue titled from the contract, without labels, and rebinds the Work Item to it. |
+| Issue | Replaces the Work Item's managed section in the issue body and keeps the reporter's text. |
+
+The managed section sits between `agent-workflows:contract:WORK_ID` comment
+markers. Edit the Work Item, not the section; any issue edit requires
+reassessment. Publishing changes the observed source revision, so the Work Item
+revision changes and earlier approvals no longer match. Approvers on the issue
+therefore approve the contract they can read there.
+
+Publication refuses a stale revision, an issue edited since it was observed, a
+closed issue, and a Work Item with an active Run. Repeating it finds the issue
+it created instead of creating another; an interrupted issue update needs a
+reassessment first. Local Work Items need publication before a `github` or
+`gitlab` approval source can approve them.
 
 ## Inspect and approve work
 
@@ -177,6 +226,7 @@ Run these scenarios on disposable repositories before using a new runtime setup.
 | `start-work` Track A request | One change request from the interactive session, no Work Item. |
 | Oversized Track A diff | `work classify --changed-from` reports escalation before publication. |
 | Hosted Track B request | No Run before current scope approval. |
+| Published local Track B task | One unlabeled issue holds the contract; repeated publication reuses it. |
 | Track C migration | No Run before current scope and design approval. |
 | Fresh interactive session | The same Work Item resumes without reconstructing a prompt. |
 | Issue or scope edit | Prior authorization no longer admits the changed work. |
